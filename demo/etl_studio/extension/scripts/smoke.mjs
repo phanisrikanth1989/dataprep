@@ -1,9 +1,16 @@
-// Stdio bridge smoke harness (ticket 10). Drives the Python agent core over
-// REAL LSP-framed stdio using the same vscode-jsonrpc client the shim uses,
-// so a green run here proves the wire interop without the editor. The one
-// thing it cannot prove is the live vscode.lm leg -- that stays with the F5
-// checklist. Note: no lm/* handlers are registered here on purpose, so the
+// Stdio bridge smoke harness (tickets 10 + 15). Drives the Python agent core
+// over REAL LSP-framed stdio using the same vscode-jsonrpc client the shim
+// uses, so a green run here proves the wire interop without the editor. The
+// one thing it cannot prove is the live vscode.lm leg -- that stays with the
+// F5 checklist. Note: no lm/* handlers are registered here on purpose, so the
 // core's auto provider must visibly fall back to the double.
+//
+// Phases 1-4: walking-skeleton proofs (attach, echo, cancel, crash, SIGTERM).
+// Phases 5-6: the ticket 15 scripted run -- every beat over the wire: gaps,
+// spec-gate reject + re-sign, streams with thinking/tool parts, rate-limit
+// retry + errored stream, code-gate reject on the changed cell, a composer
+// hold with resume, crash-restart mid-human-gate with seq continuity, full
+// replay fidelity, fetch_artifact.
 //
 // Run: npm run smoke   (from demo/etl_studio/extension)
 
@@ -35,10 +42,11 @@ function check(name, cond, detail = "") {
 }
 
 function startCore() {
-  const child = spawn(python, [path.join(studioRoot, "main.py"), "--provider", "auto", "--work-dir", workDir], {
-    cwd: studioRoot,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child = spawn(
+    python,
+    [path.join(studioRoot, "main.py"), "--provider", "auto", "--work-dir", workDir, "--pace", "fast"],
+    { cwd: studioRoot, stdio: ["pipe", "pipe", "pipe"] }
+  );
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (d) =>
     d.split("\n").filter((l) => l.trim()).forEach((l) => console.log(`    ${l}`))
@@ -68,6 +76,10 @@ async function waitFor(pred, timeoutMs = 8000, what = "condition") {
   }
 }
 
+const isQ = (kind) => (e) => e.type === "question.raised" && e.payload?.kind === kind;
+const answer = (core, question_id, choice, free_text) =>
+  core.connection.sendNotification("answer", { question_id, choice, free_text });
+
 async function main() {
   fs.rmSync(workDir, { recursive: true, force: true });
   console.log(`smoke: python=${python}`);
@@ -76,8 +88,7 @@ async function main() {
   console.log("phase 1: attach, ping, streamed echo with visible fallback");
   const one = startCore();
   const attach1 = await one.connection.sendRequest("attach", { v: 1, since_seq: 0 });
-  check("attach returns skeleton run", attach1?.run?.run_id === "skeleton");
-  check("fresh journal at seq 0", attach1?.run?.last_seq === 0, JSON.stringify(attach1));
+  check("fresh attach is idle (no run)", attach1?.v === 1 && attach1?.run === undefined, JSON.stringify(attach1));
 
   one.connection.sendNotification("skeleton.ping", { nonce: "smoke-1" });
   const pong = await waitFor(
@@ -87,6 +98,7 @@ async function main() {
   );
   check("ping round-trips through core", Boolean(pong));
   check("pong reports python version", /^3\./.test(pong?.payload?.python ?? ""));
+  check("skeleton events journal under run 'skeleton'", pong?.run_id === "skeleton" && pong?.seq === 1);
 
   one.connection.sendNotification("skeleton.echo", { prompt: "hello skeleton" });
   const close1 = await waitFor(
@@ -159,8 +171,8 @@ async function main() {
   const attach2 = await two.connection.sendRequest("attach", { v: 1, since_seq: maxSeq1 });
   check(
     "restarted core continues the journal (last_seq preserved)",
-    attach2?.run?.last_seq === maxSeq1,
-    `expected ${maxSeq1}, got ${attach2?.run?.last_seq}`
+    attach2?.run?.last_seq === maxSeq1 && attach2?.run?.run_id === "skeleton",
+    `expected ${maxSeq1}, got ${JSON.stringify(attach2)}`
   );
   two.connection.sendNotification("skeleton.ping", { nonce: "smoke-2" });
   const pong2 = await waitFor(
@@ -199,8 +211,180 @@ async function main() {
   check("SIGTERM exits 0", exit2.code === 0, `code=${exit2.code} signal=${exit2.signal}`);
   two.connection.dispose();
 
+  // ---- phase 5: the scripted run (ticket 15) -------------------------------
+  console.log("phase 5: scripted run -- every beat, one spec reject, one code reject, one hold");
+  const three = startCore();
+  const ev = three.events;
+  await three.connection.sendRequest("attach", { v: 1, since_seq: 0 });
+
+  three.connection.sendNotification("command.start_run", {
+    door: "typed",
+    text: "Keep settled trades, add account and price details, compute each trade's value",
+  });
+  const started = await waitFor(() => ev.find((e) => e.type === "run.started"), 10000, "run.started");
+  check("run.started carries job + itinerary", started.payload?.job === "trade_positions" && started.payload?.itinerary?.length === 9);
+  check("run gets a fresh journal (seq restarts)", started.seq === 1 && started.run_id === "trade_positions-r1");
+
+  const gaps = await waitFor(
+    () => { const g = ev.filter(isQ("gap")); return g.length >= 2 ? g : null; },
+    15000,
+    "two gap questions"
+  );
+  const g1 = gaps.find((e) => e.payload.gap_id === "G1");
+  const g2 = gaps.find((e) => e.payload.gap_id === "G2");
+  check("gap round shares round_id r1", g1?.payload?.round_id === "r1" && g2?.payload?.round_id === "r1");
+  check("G1 blocking with recommended option", g1?.payload?.severity === "blocking" && g1?.payload?.options?.[0]?.recommended === true);
+  check("G2 advisory offers waive", g2?.payload?.severity === "advisory" && g2?.payload?.options?.some((o) => o.kind === "waive"));
+
+  answer(three, g1.payload.question_id, "keep_blanks");
+  answer(three, g2.payload.question_id, "waive");
+  await waitFor(
+    () => ev.filter((e) => e.type === "question.resolved" && e.payload?.kind === "gap").length >= 2,
+    8000,
+    "gap resolutions"
+  );
+
+  const spec1 = await waitFor(isQFind(ev, "spec_gate", (p) => p.draft === 1), 15000, "spec gate draft 1");
+  check("spec gate carries gap resolutions", spec1.payload.gap_resolutions?.length === 2);
+  answer(three, spec1.payload.question_id, "request_changes", "Also carry account_id through to the output");
+  const interp2 = await waitFor(
+    () => ev.find((e) => e.type === "stage.started" && e.payload?.stage === "interpret" && e.payload?.iteration === 2),
+    15000,
+    "directed interpreter re-run"
+  );
+  check("spec reject re-runs the interpreter (directed)", interp2.payload?.directed === true);
+  const spec2 = await waitFor(isQFind(ev, "spec_gate", (p) => p.draft === 2), 15000, "spec gate draft 2");
+  check("draft 2 re-sign-off carries what_changed", Boolean(spec2.payload.what_changed));
+  answer(three, spec2.payload.question_id, "approve");
+
+  await waitFor(
+    () => ev.find((e) => e.type === "stage.started" && e.payload?.stage === "configure"),
+    20000,
+    "configure stage"
+  );
+  // Composer hold while the configure stretch is running (ticket 13).
+  three.connection.sendNotification("command.ask", { ask_id: "a1", text: "hold on for a moment please" });
+  const pc = await waitFor(() => ev.find(isQ("propose_confirm")), 15000, "propose-confirm card");
+  check("hold proposal streamed with in_reply_to", ev.some((e) => e.type === "stream.open" && e.payload?.in_reply_to === "a1"));
+  answer(three, pc.payload.question_id, "confirm");
+  const hold = await waitFor(() => ev.find(isQ("hold")), 30000, "hold question at a boundary");
+  check("hold raised at a stage boundary", Boolean(hold.payload.after_stage));
+
+  const flowArt = ev.find((e) => e.type === "stage.artifact_written" && e.payload?.name === "flow.json");
+  check("flow.json artifact carries nodes+edges", flowArt?.payload?.fields?.nodes?.length === 10 && flowArt?.payload?.fields?.edges?.length === 9);
+  const thinkDelta = ev.find((e) => e.type === "stream.delta" && e.payload?.part?.kind === "thinking_delta");
+  const toolCall = ev.find((e) => e.type === "stream.delta" && e.payload?.part?.kind === "tool_call");
+  const toolResult = ev.find((e) => e.type === "stream.delta" && e.payload?.part?.kind === "tool_result");
+  check("thinking deltas streamed", Boolean(thinkDelta));
+  check("tool_call + tool_result parts streamed", Boolean(toolCall) && Boolean(toolResult));
+  const retry = ev.find((e) => e.type === "health.retry");
+  const errClose = ev.find((e) => e.type === "stream.close" && e.payload?.finish_reason === "error");
+  check("rate-limit retry surfaced (health.retry)", retry?.payload?.attempt === 2);
+  check("errored stream still closed (finish_reason=error)", Boolean(errClose));
+  const progress = ev.filter((e) => e.type === "stage.progress");
+  check("per-node configure progress streamed", progress.some((e) => e.payload?.state === "configured"));
+
+  answer(three, hold.payload.question_id, "resume");
+
+  const code1 = await waitFor(isQFind(ev, "code_gate", (p) => p.round === 1), 30000, "code gate round 1");
+  check("code gate carries the exact cell", code1.payload.cells?.[0]?.code?.includes("market_value"));
+  answer(three, code1.payload.question_id, "request_changes", "Cast explicitly and round to 2 decimal places");
+  const code2 = await waitFor(isQFind(ev, "code_gate", (p) => p.round === 2), 30000, "code gate round 2");
+  check("re-raise is the changed cell only", code2.payload.cells?.length === 1 && code2.payload.cells?.[0]?.changed === true);
+  check("revised cell reflects the feedback", code2.payload.cells?.[0]?.code?.includes("round(2)"));
+  answer(three, code2.payload.question_id, "approve");
+
+  const human = await waitFor(isQFind(ev, "human_gate", () => true), 30000, "human gate");
+  check("verdict is verified with the graded table", human.payload.verdict === "verified" && human.payload.table?.rows?.length === 4);
+  const loopAttempts = ev.filter((e) => e.type === "stage.loop_attempt");
+  check("repair loop attempts surfaced", loopAttempts.some((e) => e.payload?.stage === "verify" && e.payload?.k === 2));
+  const usageParts = ev.filter((e) => e.type === "stream.delta" && e.payload?.part?.kind === "usage" && e.payload?.part?.total_nano_aiu > 0);
+  check("usage parts carry nano-AIU for the credit readout", usageParts.length >= 5, `${usageParts.length}`);
+
+  // A plain composer ask while holding at the gate: conversation, not a gate.
+  three.connection.sendNotification("command.ask", { ask_id: "a2", text: "what is left to do?" });
+  const askReply = await waitFor(
+    () => ev.find((e) => e.type === "stream.open" && e.payload?.in_reply_to === "a2"),
+    15000,
+    "orchestrator ask reply"
+  );
+  const askClose = await waitFor(
+    () => ev.find((e) => e.type === "stream.close" && e.payload?.stream_id === askReply.payload.stream_id),
+    15000,
+    "ask reply close"
+  );
+  const askText = ev
+    .filter((e) => e.type === "stream.delta" && e.payload?.stream_id === askReply.payload.stream_id && e.payload?.part?.kind === "text_delta")
+    .map((e) => e.payload.part.text)
+    .join("");
+  check("ask answered from real run state", askClose.payload.finish_reason === "stop" && askText.includes("human gate"));
+
+  const art = await three.connection.sendRequest("fetch_artifact", { name: "flow.json" });
+  check("fetch_artifact returns the full artifact", art?.found === true && art?.artifact?.fields?.nodes?.length === 10);
+
+  // ---- phase 6: crash mid-gate, restore, approve, replay fidelity ----------
+  console.log("phase 6: crash mid-human-gate, crash-restore, approve, full replay");
+  const preCrashMax = Math.max(...ev.map((e) => e.seq));
+  three.connection.sendNotification("skeleton.crash", {});
+  const exit3 = await three.exited;
+  check("mid-run crash exits nonzero", exit3.code === 13);
+  three.connection.dispose();
+
+  const four = startCore();
+  const attach4 = await four.connection.sendRequest("attach", { v: 1, since_seq: preCrashMax });
+  check(
+    "reattach lands on the run journal with last_seq preserved",
+    attach4?.run?.run_id === "trade_positions-r1" && attach4?.run?.last_seq >= preCrashMax,
+    JSON.stringify(attach4)
+  );
+  const restored = await waitFor(
+    () => four.events.find((e) => e.type === "run.crash_restored"),
+    10000,
+    "run.crash_restored"
+  );
+  check("crash_restored continues the seq sequence", restored.seq === preCrashMax + 1, `expected ${preCrashMax + 1}, got ${restored.seq}`);
+
+  answer(four, human.payload.question_id, "approve");
+  const ended = await waitFor(
+    () => four.events.find((e) => e.type === "run.ended"),
+    15000,
+    "run.ended"
+  );
+  check("pending gate survived the crash; approve ends the run", ended.payload?.status === "approved");
+
+  const replay4Base = four.events.length;
+  await four.connection.sendRequest("attach", { v: 1, since_seq: 0 });
+  await waitFor(
+    () => four.events.slice(replay4Base).some((e) => e.seq === ended.seq),
+    15000,
+    "run journal replay to the tail"
+  );
+  const replayedRun = four.events.slice(replay4Base);
+  const runSeqs = new Set(replayedRun.map((e) => e.seq));
+  let runMissing = 0;
+  for (let s = 1; s <= ended.seq; s++) {
+    if (!runSeqs.has(s)) {
+      runMissing += 1;
+    }
+  }
+  check("run journal replays full-fidelity (no missing seq)", runMissing === 0, `${runMissing} missing`);
+  check(
+    "replay preserves stream deltas (thinking reopens after reload)",
+    replayedRun.some((e) => e.type === "stream.delta" && e.payload?.part?.kind === "thinking_delta")
+  );
+
+  four.child.kill("SIGTERM");
+  const exit4 = await four.exited;
+  check("SIGTERM after the run exits 0", exit4.code === 0);
+  four.connection.dispose();
+
   console.log(`\nsmoke result: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
+}
+
+// find helper bound late so `ev` array identity is shared
+function isQFind(ev, kind, pred) {
+  return () => ev.find((e) => e.type === "question.raised" && e.payload?.kind === kind && pred(e.payload));
 }
 
 main().catch((e) => {

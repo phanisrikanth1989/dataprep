@@ -192,6 +192,18 @@ change to agent code.
   zero new wire families; UI = new spec-gate card + Request-changes ghosts +
   hold flow, landing via ticket 15 (scope amended).
 
+- [15 - Build the webview to the v2 design](issues/15-build-webview-to-v2-design.md)
+  -- built and editor-free-verified (F5 pass stays with the human): v2 system
+  ported whole (tokens + light mode on VS Code theme classes, layout()/camera,
+  assembly choreography, full component vocabulary, 13's gate/hold surfaces);
+  pure reducer per 08 with rAF coalescing and reducer-side credits; scripted
+  trade_positions run drives every beat over the real wire through the double
+  (rejects, hold, errored stream, crash-restore mid-gate); fonts bundled
+  locally via @fontsource; smoke 20 -> 51 checks green, seam green; provisional
+  extensions recorded (stage.progress, tool_result part, stream labels,
+  runless attach, editor.pick_file); scripted driver is the placeholder
+  ticket 16's conductor replaces behind the same wire.
+
 ## Not yet specified
 
 - Demo rehearsal / replay story -- deterministic run-through for the day;

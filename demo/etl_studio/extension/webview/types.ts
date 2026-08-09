@@ -31,5 +31,39 @@ export type WebviewMessage =
 
 export interface AttachResult {
   v: number;
-  run?: { run_id: string; last_seq: number };
+  run?: { run_id: string; last_seq: number; job?: string | null };
+}
+
+// ---- payload shapes the reducer reads (scripted_run.py mirrors) ------------
+
+export interface ItineraryEntry {
+  kind: "stage" | "gate";
+  key: string;
+  label: string;
+}
+
+export interface QuestionOption {
+  id: string;
+  label: string;
+  kind?: string; // choice | waive | approve | reject | resume | stop | steer | confirm | dismiss
+  recommended?: boolean;
+  why?: string;
+  free?: string; // "required" when the option needs free text
+  placeholder?: string;
+}
+
+export interface CodeCell {
+  id: string;
+  node_id?: string;
+  component?: string;
+  author?: string;
+  code: string;
+  validator?: string;
+  changed?: boolean;
+  new?: boolean;
+}
+
+export interface PickedFile {
+  path: string;
+  name: string;
 }

@@ -22,6 +22,10 @@ const webviewCtx = await esbuild.context({
   outfile: "dist/webview.js",
   sourcemap: "inline",
   define: { "process.env.NODE_ENV": '"production"' },
+  // Fonts bundle locally (ticket 15: no CDN inside the webview). The CSS
+  // lands beside the JS as dist/webview.css with relative font URLs.
+  loader: { ".woff2": "file", ".woff": "file" },
+  assetNames: "fonts/[name]",
 });
 
 if (watch) {

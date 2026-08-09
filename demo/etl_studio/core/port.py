@@ -57,6 +57,16 @@ class ThinkingDelta:
 
 
 @dataclass
+class ToolCall:
+    """Model-issued tool invocation (ticket 07: first-class tool_call items)."""
+
+    call_id: str
+    name: str
+    args: Dict[str, Any] = field(default_factory=dict)
+    kind: str = "tool_call"
+
+
+@dataclass
 class Usage:
     raw: Dict[str, Any]
     total_nano_aiu: Optional[int] = None  # normalized only where confident

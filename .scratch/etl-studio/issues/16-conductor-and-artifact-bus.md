@@ -83,3 +83,31 @@ exhaustion grant, a hold + steer, a stop, and the human gate -- producing
 bus artifacts with history/, audit.jsonl and ui_journal.jsonl, and surviving
 a mid-run crash-restore with seq continuity; `npm run smoke` and the seam
 tripwire stay green.
+
+## Comments
+
+2026-08-10 -- ticket 15 landed pieces this ticket planned to build; start
+from its delta, replace its placeholder:
+
+- Already exists (keep, or absorb as-is): the double's full fixture format
+  (keyed scripts: thinking, tool calls, usage, pauses, error injection --
+  `adapters/double/adapter.py`); `command.start_run`/`answer`/`command.ask`/
+  `fetch_artifact` handlers with per-run sessions and fresh journals + real
+  run ids (`core/app.py`); per-part stream forwarding at run scale; the nine
+  question kinds' payload/option shapes the webview now renders
+  (`core/scripted_run.py` is the reference); boot-time crash-restore with
+  `run.crash_restored` and seq continuity; smoke phases 5-6 as the standing
+  run-level wire proof.
+- To replace: `core/scripted_run.py` is a journal-idempotent scripted
+  placeholder, not a conductor -- no bus, no audit.jsonl, no caps/tiers, no
+  stage adapters, journal-only restore. The conductor takes over behind the
+  SAME wire (payload shapes above are now load-bearing for the webview);
+  the webview should need zero changes.
+- New extensions 15 recorded beyond ticket 10's list, to reconcile here:
+  `stage.progress {stage, node_id, state}`, stream part kind `tool_result`
+  (core-authored tool outcome), fixture `label` on stream.open/close,
+  runless `attach` -> `{v}` with no run, `editor.pick_file` in the shim.
+- Still missing from the port surface (unchanged scope): tool round trip
+  over `lm/*`, the tool-use loop runner, count_tokens, typed options,
+  per-stage model selectors, core-owned backoff beyond the scripted
+  rate-limit retry.

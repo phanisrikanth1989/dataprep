@@ -118,6 +118,23 @@ export class StudioPanel {
     const respond = (body: { result?: unknown; error?: object }) =>
       void this.panel.webview.postMessage({ kind: "response", id: msg.id, ...body });
 
+    if (msg.method === "editor.pick_file") {
+      // Webviews cannot open native dialogs (ticket 08): the BRD door and
+      // data attachments pick through the shim.
+      const p = (msg.params ?? {}) as { label?: string; filters?: Record<string, string[]> };
+      try {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: p.label ?? "Choose file",
+          filters: p.filters,
+        });
+        const uri = picked?.[0];
+        respond({ result: uri ? { path: uri.fsPath, name: path.basename(uri.fsPath) } : null });
+      } catch (e) {
+        respond({ error: { code: "pick_failed", message: String(e) } });
+      }
+      return;
+    }
     if (
       msg.method.startsWith("lm/") ||
       msg.method.startsWith("shim.") ||
@@ -153,16 +170,20 @@ export class StudioPanel {
   private renderHtml(distRoot: vscode.Uri): string {
     const webview = this.panel.webview;
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distRoot, "webview.js"));
+    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distRoot, "webview.css"));
     const nonce = Array.from({ length: 32 }, () =>
       "abcdefghijklmnopqrstuvwxyz0123456789".charAt(Math.floor(Math.random() * 36))
     ).join("");
+    // font-src covers the locally bundled @fontsource files; no CDN exists
+    // inside the webview (ticket 15).
     return [
       "<!DOCTYPE html>",
       '<html lang="en">',
       "<head>",
       '<meta charset="utf-8">',
-      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`,
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">`,
       '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+      `<link rel="stylesheet" href="${styleUri}">`,
       "<title>ETL Studio</title>",
       "</head>",
       "<body>",
