@@ -18,6 +18,10 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 
 GSD is retired on this project. No `/gsd-*` commands, no mandatory planning artifacts, no phase docs going forward.
 
+### Agent skills
+
+Agent-skill configuration — issue tracker, triage labels, domain docs — lives in [`AGENTS.md`](./AGENTS.md) at the repo root, so GitHub Copilot and other agents pick it up too. Details in `docs/agents/*.md`. Nothing else in this file moves.
+
 ### Workflow
 
 Lean on superpowers skills as the discipline. Invoke them when the trigger applies — don't pretend they don't exist for "small" changes.
