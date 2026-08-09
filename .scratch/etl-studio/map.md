@@ -153,6 +153,15 @@ change to agent code.
   dev-time prompts will discriminate; 06's fallback chain covers it);
   claude-code vendor proves third-party providers work on-machine (BYO
   policy page descoped).
+- [11 - Engine knowledge in the owned runtime](issues/11-engine-knowledge.md)
+  -- inline-primary hybrid: the core assembles per-stage knowledge slices
+  in-prompt (whole artifact / field projection / component-filtered -- never
+  editorial picks; inline is O(job), tool-read is O(catalog)); knowledge
+  sources vendored, rendered at every core startup to a gitignored dir, never
+  hand-edited; SKILL index retires into the core's slice map; engine-source
+  mount is diagnostician-only (tool-registry absence enforces the ban);
+  prompt ports in three tiers (near-verbatim / 02-04 structural rewrite /
+  authored fresh); substantive enrichment deferred to ticket 14 (post-v1).
 - [10 - Walking skeleton: three layers wired end to end](issues/10-walking-skeleton.md)
   -- built and F5-verified (user-confirmed, all steps): shim/core/webview +
   LM bridge live under `demo/etl_studio/`; stdio JSON-RPC proven end to end

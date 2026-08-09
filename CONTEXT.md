@@ -258,3 +258,36 @@ The final stop where only the human makes a job done: the runnable job, the
 harness verdict, the surfaced code cells and every open question, presented
 together and never auto-approved. A green harness is necessary, not
 sufficient.
+
+**Curated component**:
+A component whose legal config surface is fully captured as a strict schema —
+config validation of it is authoritative, and the rendered knowledge covers
+every key and allowed value. An uncurated component is usable but unguarded:
+a clean validation result vouches for nothing.
+
+**Landmine**:
+A code-verified config trap — a setting the engine accepts without complaint
+that silently produces wrong output. Each carries avoidance guidance and an
+anchor into the engine code that proves it. Knowledge, not a bug list: the
+engine stays as it is; jobs are kept off the trap.
+
+**Knowledge source**:
+The code-owned ground truth that all engine knowledge is generated from —
+the curated schemas, the landmine registry, the authored reference prose.
+The only place knowledge is ever edited: improving what specialists know
+means changing a source, never a rendered file.
+_Avoid_: knowledgebase (unqualified)
+
+**Rendered knowledge**:
+What a specialist actually receives — engine knowledge generated from the
+knowledge sources at delivery time. Never hand-edited; a rendered artifact
+found wrong indicts its source.
+_Avoid_: skill files
+
+**Knowledge slice**:
+The portion of rendered knowledge one stage receives in its prompt. A slice
+is always mechanical — the whole artifact, a projection of its fields, or a
+subset filtered by the components the job uses — never an editorial pick
+maintained by hand. Inline slices scale with the job, not the catalog;
+catalog-sized knowledge is reached through a read tool.
+_Avoid_: knowledge cut, excerpt
