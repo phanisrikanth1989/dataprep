@@ -1,6 +1,6 @@
 # 12 - Webview UI design
 
-Status: open
+Status: claimed
 Type: prototype
 
 ## Question
@@ -28,3 +28,24 @@ Not blocked by 08: mockups consume no real events, so look-and-feel can run
 in parallel with the contract; 08's shapes constrain the working
 implementation, not the design. Use the /prototype and frontend-design
 skills; iterate live with the user.
+
+## Comments
+
+2026-08-09 — prototype session, iteration 1 (Claude). Two artifacts on this
+branch, both double-clickable HTML, both five beats (idle / questions /
+streaming / gate / verdict), keys 1-5 + r to replay:
+
+- `demo/etl_studio/prototype-webview-ui.html` — v1: three structural variants
+  (A Mission Control · B Instrument Bench · C Full-bleed Studio), switchable
+  with arrow keys. User verdict: reads as budget_ui heritage with light
+  improvements — not modern-AI-product enough. Kept as the arrangement
+  comparison artifact.
+- `demo/etl_studio/prototype-webview-ui-v2.html` — v2 showpiece, after the
+  user chose "one killer version": full-bleed canvas + floating glass feed,
+  warm-graphite elevation system (no border-boxes), product-scale type,
+  camera choreography (leans into the active node), flowing lit edges,
+  gate staged as a hold (desaturate + wash + one bright approve), verdict
+  as the jade wide-shot. Content real-shaped throughout; conductor renders
+  as state, never speech.
+
+Iteration continues with the user's reaction to v2. Ticket stays claimed.
