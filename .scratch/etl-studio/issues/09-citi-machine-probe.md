@@ -63,3 +63,19 @@ naming (product builds minify constructor names to e.g. `i`), usage-data
 preview cap 500 -> 2000 chars, stronger overflow probe (~max(4x advertised,
 ~500k) tokens, since 2x advertised did not error on the free tier). Citi
 run imminent.
+
+2026-08-09 -- Citi run happened; raw transcript (user-transcribed from
+images, typos possible, but all nano_aiu arithmetic cross-checks exactly)
+saved at
+[`../research/2026-08-09-citi-probe-run.md`](../research/2026-08-09-citi-probe-run.md).
+Core facts landed: full 13-model roster with selector strings (note:
+"Claude Sonnet 5" and "GPT-5.Sol" do NOT appear -- actual frontier entries
+are Claude Opus 4.8 / Claude Sonnet 4.6 / GPT-5.5 / GPT-5.3-Codex; a
+`claude-code` vendor also registers 3 models, proving third-party providers
+work on this build), consent decline/allow/persist behavior (with a
+canSendRequest-always-true quirk), full usage/AIU cost schema, tool round
+trip on Claude Opus 4.6, max_tokens=30 -> plain Error "Response too long."
+(no truncation), and NO overflow error at ~3.74M tokens. Still open before
+resolution: step 0 versions, consent-dialog wording, step 6 proposed-API
+dance, step 7 BYO policy page, and which picker entry "GPT-5.Sol"
+actually was.
