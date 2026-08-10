@@ -42,6 +42,10 @@ surfaces the wire already carries but the webview cannot show):
       pattern (validator reason as card text, recommended option primary,
       free-required options reveal an input), both themes checked via the
       journal-replay harness. Still open here:
+- [ ] The attach picker is single-select — a BRD plus three data files means
+      four separate picker round-trips (user, first live session
+      2026-08-10). Allow multi-select (`canSelectMany` in the shim's
+      editor.pick_file) and/or real drag-and-drop onto the composer.
 - [ ] `health.error RunActive` ("a build is already active — one build per
       panel") renders nothing: clicking a door while a restored run still
       holds a gate is silently refused (first live session, 2026-08-10,
