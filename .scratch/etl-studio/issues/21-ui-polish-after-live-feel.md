@@ -46,6 +46,10 @@ surfaces the wire already carries but the webview cannot show):
       four separate picker round-trips (user, first live session
       2026-08-10). Allow multi-select (`canSelectMany` in the shim's
       editor.pick_file) and/or real drag-and-drop onto the composer.
+- [ ] "Doc Normalizer · proposal validated clean — 3 sources, tier verified"
+      renders twice in the feed (the intake stage-completed note and the
+      intake.json artifact note carry the same string) — de-duplicate or
+      differentiate the wording (live session 2, 2026-08-10).
 - [ ] The idle screen is fully clickable before the wire is actually ready:
       while attach is pending (or the core is frozen/holding a run) the
       composer renders as a normal "READY" idle surface, and health chips
