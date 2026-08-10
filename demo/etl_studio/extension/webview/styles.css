@@ -74,22 +74,30 @@ input, textarea { font: inherit; color: inherit; }
 /* HUD overflow menu — actions live behind the dots, never beside status */
 .menuwrap { position: relative; }
 /* .dotsbtn, not .dots -- the canvas dot grid owns that class */
-.dotsbtn { width: 37px; height: 37px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+.dotsbtn { width: 37px; height: 37px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 3px;
   background: rgba(26, 23, 20, .72); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  color: var(--ink2); font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .05); transition: color .15s, box-shadow .2s; }
-.dotsbtn:hover, .dotsbtn.open { color: var(--ink); box-shadow: 0 16px 40px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(244, 240, 232, .16); }
+  color: var(--ink2); cursor: pointer;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .05); transition: color .15s, background .2s, box-shadow .2s; }
+.dotsbtn .d { width: 3.5px; height: 3.5px; border-radius: 50%; background: currentColor; }
+.dotsbtn:hover { color: var(--ink); }
+.dotsbtn.open { color: var(--ink); background: rgba(38, 34, 30, .85); }
+/* radius-matched focus ring; the global outline fights the squircle */
+.dotsbtn:focus-visible { outline: none; box-shadow: 0 16px 40px rgba(0, 0, 0, .4), inset 0 0 0 1.5px rgba(232, 148, 90, .55); }
 .menuveil { position: fixed; inset: 0; z-index: 55; background: transparent; cursor: default; }
-.hudmenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 56; min-width: 178px; padding: 6px;
-  display: flex; flex-direction: column; gap: 2px; background: rgba(26, 23, 20, .92);
-  backdrop-filter: blur(26px) saturate(1.15); -webkit-backdrop-filter: blur(26px) saturate(1.15);
-  border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06);
-  animation: springin .3s var(--spring) both; }
-.mitem { display: flex; align-items: center; gap: 8px; padding: 10px 13px; border-radius: 11px;
-  font-size: 13px; font-weight: 600; color: var(--ember-hi); text-align: left; width: 100%; transition: background .15s; }
+@keyframes menupop { 0% { opacity: 0; transform: scale(.96) translateY(-4px); } 100% { opacity: 1; transform: none; } }
+.hudmenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 56; min-width: 168px; width: max-content; padding: 5px;
+  display: flex; flex-direction: column; background: rgba(26, 23, 19, .94);
+  backdrop-filter: blur(28px) saturate(1.15); -webkit-backdrop-filter: blur(28px) saturate(1.15);
+  border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06);
+  transform-origin: top right; animation: menupop .18s cubic-bezier(.2, .9, .3, 1) both; }
+.mdiv { height: 1px; margin: 4px 10px; background: rgba(255, 255, 255, .06); }
+.mitem { display: flex; align-items: center; gap: 8px; padding: 8px 14px 8px 9px; border-radius: 10px;
+  font-size: 12.5px; font-weight: 600; color: var(--ember-hi); text-align: left; width: 100%; transition: background .15s; }
+.mitem .mic { width: 18px; height: 18px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; line-height: 1; }
 .mitem:hover { background: var(--ember-soft); }
-.mitem .plus { font-size: 15px; font-weight: 700; line-height: 1; transform: translateY(-.5px); }
 .mitem.quiet { color: var(--ink2); font-weight: 500; }
+.mitem.quiet .mic { color: var(--mute); font-size: 10.5px; }
 .mitem.quiet:hover { background: var(--s2); color: var(--ink); }
 .chip .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ember); animation: dotpulse 1.5s ease-in-out infinite; }
 .chip .pip.ok { background: var(--jade); animation: none; }
@@ -418,8 +426,11 @@ body.light .caret::after { color: #C56A2B; }
 body.light :focus-visible { outline-color: #B05E20; }
 body.light .brand, body.light .chip, body.light .spine { background: rgba(255, 255, 255, .76); box-shadow: 0 14px 36px rgba(66, 50, 28, .16), inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 0 0 1px rgba(34, 29, 21, .05); }
 body.light .dotsbtn { background: rgba(255, 255, 255, .76); color: var(--ink2); box-shadow: 0 14px 36px rgba(66, 50, 28, .16), inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 0 0 1px rgba(34, 29, 21, .05); }
-body.light .dotsbtn:hover, body.light .dotsbtn.open { color: var(--ink); box-shadow: 0 14px 36px rgba(66, 50, 28, .16), inset 0 0 0 1px rgba(34, 29, 21, .16); }
-body.light .hudmenu { background: rgba(255, 255, 255, .92); box-shadow: 0 24px 60px rgba(66, 50, 28, .24), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(34, 29, 21, .05); }
+body.light .dotsbtn:hover { color: var(--ink); }
+body.light .dotsbtn.open { color: var(--ink); background: rgba(255, 255, 255, .95); }
+body.light .dotsbtn:focus-visible { box-shadow: 0 14px 36px rgba(66, 50, 28, .16), inset 0 0 0 1.5px rgba(176, 94, 32, .55); }
+body.light .hudmenu { background: rgba(255, 255, 255, .94); box-shadow: 0 24px 60px rgba(66, 50, 28, .24), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(34, 29, 21, .05); }
+body.light .mdiv { background: rgba(34, 29, 21, .08); }
 body.light .mitem { color: #B05E20; }
 body.light .mitem.quiet { color: var(--ink2); }
 body.light .mitem.quiet:hover { color: var(--ink); }

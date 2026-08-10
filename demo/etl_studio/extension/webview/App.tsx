@@ -223,31 +223,41 @@ function Chrome({
               <button
                 className={`dotsbtn${menuOpen ? " open" : ""}`}
                 aria-label="Build actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((o) => !o)}
               >
-                ⋯
+                <span className="d" />
+                <span className="d" />
+                <span className="d" />
               </button>
               {menuOpen ? (
                 <>
                   <button className="menuveil" aria-hidden onClick={() => setMenuOpen(false)} />
-                  <div className="hudmenu">
+                  <div className="hudmenu" role="menu">
                     {state.ended ? (
-                      <button
-                        className="mitem"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          onNewBuild();
-                        }}
-                      >
-                        <span className="plus">+</span>
-                        New build
-                      </button>
+                      <>
+                        <button
+                          role="menuitem"
+                          className="mitem"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onNewBuild();
+                          }}
+                        >
+                          <span className="mic">+</span>
+                          New build
+                        </button>
+                        <div className="mdiv" />
+                      </>
                     ) : null}
                     <button
+                      role="menuitem"
                       className="mitem quiet"
                       title="Close ETL Studio — reopening restores this build"
                       onClick={() => sendNotify("shim.close_panel")}
                     >
+                      <span className="mic">✕</span>
                       Exit
                     </button>
                   </div>
