@@ -186,18 +186,18 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
      "schema": {"input": [], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
      "config": {"filepath": "countries.csv", "fieldseparator": ";", "header_rows": 1, "csv_option": true, "text_enclosure": "\\""},
      "inputs": [], "outputs": ["lookup_flow"]},
-    {"id": "join1", "type": "Map", "subjob_id": "sj1",
+    {"id": "join1", "type": "PyMap", "subjob_id": "sj1",
      "schema": {"input": [{"name": "cc", "type": "str"}], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
      "config": {
        "inputs": {
          "main": {"name": "source_flow"},
          "lookups": [{"name": "lookup_flow", "join_mode": "LEFT_OUTER_JOIN",
                       "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE",
-                      "join_keys": [{"lookup_column": "cc", "expression": "{{java}}source_flow.cc", "operator": "="}]}]
+                      "join_keys": [{"lookup_column": "cc", "expression": "source_flow['cc']"}]}]
        },
        "outputs": [{"name": "enriched_flow", "is_reject": false, "columns": [
-         {"name": "cc", "expression": "{{java}}source_flow.cc", "type": "str"},
-         {"name": "country_name", "expression": "{{java}}lookup_flow.country_name", "type": "str"}]}]
+         {"name": "cc", "expression": "source_flow['cc']", "type": "str"},
+         {"name": "country_name", "expression": "lookup_flow['country_name']", "type": "str"}]}]
      },
      "inputs": ["source_flow", "lookup_flow"], "outputs": ["enriched_flow"]},
     {"id": "enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
@@ -210,10 +210,7 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
     {"name": "lookup_flow", "type": "flow", "from": "in_lookup", "to": "join1"},
     {"name": "enriched_flow", "type": "flow", "from": "join1", "to": "enriched"}
   ],
-  "java_config": {"enabled": true, "routines": [
-    "routines.TalendDate", "routines.TalendString", "routines.StringHandling",
-    "routines.Mathematical", "routines.Relational", "routines.Numeric",
-    "routines.DataOperation"], "libraries": []}
+  "java_config": {"enabled": false}
 }
 """
 
@@ -238,18 +235,14 @@ def render_job_envelope(worked_example: bool = True) -> str:
         "component id), and every delimited FileInput/FileOutput that reads/writes a materialized CSV "
         "MUST set `csv_option: true` (with `text_enclosure: \"\\\"\"`) so a value containing the `;` "
         "separator round-trips instead of shifting columns.\n\n"
-        "Any job containing a `Map`/`tMap` component REQUIRES a top-level "
-        "`\"java_config\": {\"enabled\": true, ...}` block: the tMap engine always compiles a Java "
-        "script and crashes without the bridge. tMap expressions carry a `{{java}}` marker (as below). "
-        "A job with NO Map/tMap and no `{{java}}` expression must carry "
-        "`\"java_config\": {\"enabled\": false}` instead -- enabling the JVM a job never uses "
-        "hard-fails on hosts without the bridge JAR. (The example below enables it because it IS a "
-        "tMap job.)\n"
+        "Do NOT author `java_config` -- the chassis derives it. This studio's catalog is "
+        "Java-free: `Map`/`tMap` are not available, `PyMap` is the row mapper, and every PyMap "
+        "expression is plain Python (never a `{{java}}` marker).\n"
     )
     if not worked_example:
         return prose
     example = (
-        "\nMinimal connected lookup-enrich example (source + lookup -> LEFT-join tMap -> output; "
+        "\nMinimal connected lookup-enrich example (source + lookup -> LEFT-join PyMap -> output; "
         "every flow `from`/`to` is a real component id, and every component's `inputs`/`outputs` "
         "names a real flow):\n\n"
         "```json\n"
@@ -267,9 +260,9 @@ def render_patterns() -> str:
         "Common data-preparation shapes. The flow-designer picks the shape; the configurator fills\n"
         "the config. These cover the curated node set -- you do NOT need to read engine source for them.\n\n"
         "## Lookup-enrich (add columns from a reference file)\n"
-        "`source + lookup -> [tJoin | PyMap | tMap] -> ... -> FileOutputDelimited`.\n"
-        "- `tJoin`: one equality-key lookup, keeps the first lookup row per key -- the default choice.\n"
-        "- `PyMap` / `tMap`: several lookups, a join variable, or an expression-derived output column.\n"
+        "`source + lookup -> [Join | PyMap] -> ... -> FileOutputDelimited`.\n"
+        "- `Join`: one equality-key lookup, keeps the first lookup row per key -- the default choice.\n"
+        "- `PyMap`: several lookups, a join variable, or an expression-derived output column.\n"
         "- `LEFT_OUTER_JOIN` keeps every source row (an unmatched row flows out with null lookup\n"
         "  columns); `INNER_JOIN` drops misses. Keep the lookup key unique (`UNIQUE_MATCH` /\n"
         "  `FIRST_MATCH`, or pre-dedup with `UniqueRow` / `AggregateRow`) so one source row maps to one.\n\n"

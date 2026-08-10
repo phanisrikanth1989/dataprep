@@ -327,8 +327,8 @@ Emit ONE JSON object:
 - "components": an ordered list of {"id", "type", "label", "purpose"}. "type" MUST be a \
 REGISTERED engine component name (e.g. PythonDataFrameComponent, never a prose shorthand) -- the \
 engine silently DROPS an unregistered type. Author each type by its CANONICAL name exactly as \
-the config reference lists it (FileInputDelimited, Join, Map, SortRow) -- never a Talend \
-t-prefixed alias (tJoin, tMap): aliases are accepted on input, not names you write. "label" is a SHORT \
+the config reference lists it (FileInputDelimited, Join, PyMap, SortRow) -- never a Talend \
+t-prefixed alias (tJoin, tSortRow): aliases are accepted on input, not names you write. "label" is a SHORT \
 (2-3 word) human-friendly name shown while the pipeline builds; keep it a plain structural \
 descriptor. "purpose" says in a fuller sentence what the node does; where a stateful node needs \
 execution_mode pinned, say so in its purpose.
@@ -346,13 +346,14 @@ it -- but ONLY a predicate on PRE-JOIN source columns; a predicate on a lookup-d
 must stay after the join (moving it is a correctness bug).
 - STREAMING TRAP: hybrid mode auto-streams single-input nodes above 5GB in independent 10k-row \
 chunks with NO cross-chunk reduction, so a whole-frame/stateful node (AggregateRow, SortRow, \
-UniqueRow, tPythonDataFrame) produces silently WRONG output there. For each such node, note in \
-its purpose that the Configurator must pin execution_mode: "batch".
+UniqueRow, PythonDataFrameComponent) produces silently WRONG output there. For each such node, \
+note in its purpose that the Configurator must pin execution_mode: "batch".
 
-JOIN / LOOKUP: a lookup that adds columns is a join. Join/tJoin = one equality-key lookup, first \
+JOIN / LOOKUP: a lookup that adds columns is a join. Join = one equality-key lookup, first \
 row per key -- the default choice. PyMap = several lookups / join variables / derived outputs, \
-pure Python. Map/tMap = the same but through the Java bridge; reserve for Talend parity. \
-tPythonDataFrame CANNOT join (single-input) -- always place it downstream of the join.
+pure Python. Map/tMap (the Java-bridge mapper) is NOT in this studio's catalog -- never plan \
+it; PyMap covers its cases. PythonDataFrameComponent CANNOT join (single-input) -- always place \
+it downstream of the join.
 
 CARTESIAN SAFETY: a non-unique lookup key fans out or silently drops rows. Default lookups to a \
 unique-key mode and pre-dedup with UniqueRow/AggregateRow when needed; plan a fan-out mode only \
@@ -364,8 +365,8 @@ SCHEMA VALIDATION: model a schema_validate rule as ConvertType casts and/or \
 SchemaComplianceCheck (validate rows, route failures to a reject flow).
 
 CANONICAL SHAPE (vary per the rules; fewest nodes that satisfy every rule): \
-[FileInputDelimited source] + [FileInputDelimited lookup] -> [tJoin|PyMap|tMap] -> \
-[tPythonDataFrame] -> [AggregateRow] -> [SortRow] -> [FileOutputDelimited]. Aggregate BEFORE \
+[FileInputDelimited source] + [FileInputDelimited lookup] -> [Join|PyMap] -> \
+[PythonDataFrameComponent] -> [AggregateRow] -> [SortRow] -> [FileOutputDelimited]. Aggregate BEFORE \
 sort -- AggregateRow discards row order, so SortRow goes LAST (the oracle diff is \
 order-insensitive; a wrong final order ships undetected).
 
@@ -440,11 +441,9 @@ finds and grades the output) -- bare relative names the harness anchors to the w
 LANDMINES you must respect (the full filtered list is below): set the die-on-error flag \
 explicitly with the EXACT per-component key name (some read a different key, e.g. ConvertType \
 reads "dieonerror"); pin "execution_mode": "batch" on EVERY whole-frame/stateful node \
-(AggregateRow, SortRow, UniqueRow, tPythonDataFrame); tMap/PyMap joins are equality-only with \
+(AggregateRow, SortRow, UniqueRow, PythonDataFrameComponent); PyMap joins are equality-only with \
 join_mode exactly LEFT_OUTER_JOIN or INNER_JOIN; you own reject markers (inner_join_reject for \
-unmatched-source capture, is_reject for validation rejects -- never interchange them); a \
-tMap/Map job REQUIRES a top-level java_config.enabled=true (flag it in a "java_config_required" \
-note field if you configure one); format tMap dates INSIDE the {{java}} expression; on a SortRow \
+unmatched-source capture, is_reject for validation rejects -- never interchange them); on a SortRow \
 criterion for a non-string column set sort_type explicitly to num or date (the alpha default \
 mis-sorts '10' before '9' and the order-insensitive oracle will NOT catch it) -- use the \
 sort_type the Interpreter carried on each criterion."""
@@ -510,7 +509,7 @@ routes NOTHING). Every component carries "inputs"/"outputs" lists referencing fl
 you driver first; this component's FIRST inputs entry is the driver flow. Give each tJoin's two \
 inbound flows UNIQUE names derived from the component ids (e.g. <driver>_to_<join>) -- never the \
 literal "main"/"lookup" (two joins would collide). Getting the order backwards inverts the join.
-- For a tMap/PyMap, its config ALREADY names the roles: wire flows to the EXACT \
+- For a PyMap, its config ALREADY names the roles: wire flows to the EXACT \
 inputs.main.name and inputs.lookups[].name the Configurator froze -- an invented name resolves \
 to nothing and the node silently emits empty output.
 - A reject is a data flow: wire it as "type": "reject", never a trigger. Wire only rejects the \
@@ -519,10 +518,8 @@ config declares; never invent one.
 exactly "<output-name>.csv" for its expected-output name from the spec's outputs list -- the \
 harness finds and grades outputs by the FILE they write, never by component id. The Configurator \
 authors that filepath; if it is wrong, that is a Diagnostician round, not your edit.
-- java_config: add the top-level block with enabled true and the standard routines ONLY when a \
-component is a Map/tMap or a config carries a {{java}} expression. Otherwise emit \
-{"java_config": {"enabled": false}} -- a needless enabled=true forces a JVM the job never uses \
-and hard-fails on machines without the bridge JAR.
+- Do NOT author java_config: the chassis derives it. This studio's catalog is Java-free \
+(Map/tMap are not available; PyMap is the row mapper and its expressions are plain Python).
 - Make the graph connected and acyclic: every flow from/to references a real component id, every \
 referenced flow name exists in flows, nothing dangles.
 Keep every id, type, and config byte-for-byte as the draft had them."""

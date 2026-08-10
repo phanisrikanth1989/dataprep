@@ -213,3 +213,21 @@ carries enabled:false, 93 + seam green. UX note for 21: steer/reject
 free-text is a directive channel -- questions belong in the composer
 where the orchestrator answers grounded; two live steers were spent on
 questions.
+
+2026-08-10 -- User direction mid-run-2: Map/tMap REMOVED from the
+allowed component set; PyMap is the sanctioned row mapper. Swept:
+map.json deleted + Map/tMap dropped from the schema index (config
+reference no longer documents it), all prompt mentions purged or turned
+into the explicit ban (designer JOIN/LOOKUP + canonical shape,
+configurator landmine line, assembler PyMap-only wiring bullet +
+do-not-author-java_config), envelope knowledge doc's worked example
+rewritten Map->PyMap (plain-Python expressions, java_config false),
+patterns doc Join|PyMap. With the catalog Java-free the whole
+JVM/JAR/maven question drops out of the demo (chassis java guard stays
+as backstop; Map-keyed landmines stay in the data as engine facts --
+they render only when a flow contains Map, which the catalog now
+prevents; config-surfaces keeps its engine-truth tMap section for the
+diagnostician). Rendered-doc check: config-reference/patterns 0 tMap,
+envelope 1 deliberate ban sentence. smoke 93 + seam green. Alias
+consistency swept alongside (prompt prose now speaks canonical names:
+Join, PythonDataFrameComponent).
