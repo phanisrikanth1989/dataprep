@@ -153,6 +153,66 @@ function ProposeConfirm({ state, qid }: { state: State; qid: string }): React.Re
   );
 }
 
+function NeedsHuman({ state, qid }: { state: State; qid: string }): React.ReactElement | null {
+  const q = state.questions[qid];
+  const [freeFor, setFreeFor] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  if (!q) {
+    return null;
+  }
+  if (q.resolved) {
+    return null; // its resolution chip carries the record
+  }
+  const send = (choice: string, free?: string) => answer(qid, choice, free);
+  return (
+    <div className="fi pcard">
+      <div className="pv">
+        <b>{q.payload.source ?? "Extraction"}</b> — {q.payload.prompt ?? "One answer needed."}
+      </div>
+      <div className="row">
+        {q.options.map((o) =>
+          o.free === "required" ? (
+            <button
+              key={o.id}
+              className={freeFor === o.id ? "go" : o.recommended ? "go" : "ghostbtn"}
+              onClick={() => setFreeFor(freeFor === o.id ? null : o.id)}
+            >
+              {o.label}
+            </button>
+          ) : (
+            <button
+              key={o.id}
+              className={o.recommended ? "go" : "ghostbtn"}
+              onClick={() => send(o.id)}
+            >
+              {o.label}
+            </button>
+          )
+        )}
+      </div>
+      {freeFor ? (
+        <div className="reqrow">
+          <input
+            className="qfree"
+            autoFocus
+            value={text}
+            placeholder={q.payload.free_prompt ?? "Tell it what to do…"}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && text.trim()) {
+                send(freeFor, text.trim());
+              }
+            }}
+          />
+          <button className="go" disabled={!text.trim()} onClick={() => send(freeFor, text.trim())}>
+            Send
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Item({ state, item }: { state: State; item: FeedItem }): React.ReactElement | null {
   switch (item.kind) {
     case "stream": {
@@ -191,6 +251,8 @@ function Item({ state, item }: { state: State; item: FeedItem }): React.ReactEle
       );
     case "pc":
       return <ProposeConfirm state={state} qid={item.qid} />;
+    case "nh":
+      return <NeedsHuman state={state} qid={item.qid} />;
     case "sys":
       return <div className={`fi sysline${item.tone === "jade" ? " jade" : ""}`}>{item.text}</div>;
     default:

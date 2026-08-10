@@ -55,6 +55,7 @@ export type FeedItem =
   | { kind: "ask"; seq: number; text: string }
   | { kind: "step"; seq: number; text: string }
   | { kind: "res"; seq: number; text: string; roundId?: string }
+  | { kind: "nh"; seq: number; qid: string }
   | { kind: "warn"; seq: number; text: string; spin?: boolean }
   | { kind: "arm"; seq: number; text: string }
   | { kind: "pc"; seq: number; qid: string }
@@ -293,6 +294,12 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       }
       if (q.kind === "propose_confirm") {
         next = pushFeed(next, { kind: "pc", seq: env.seq, qid });
+      }
+      if (q.kind === "needs_human") {
+        // Extraction question (ticket 17's real doors; card pulled forward
+        // from the ticket 21 gap list): a feed card in the propose-confirm
+        // pattern -- its resolution chip carries the record afterward.
+        next = pushFeed(next, { kind: "nh", seq: env.seq, qid });
       }
       return next;
     }
