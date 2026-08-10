@@ -48,10 +48,17 @@ function useViewport(): { vw: number; vh: number } {
 export function App(): React.ReactElement {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [composer, setComposer] = useState("");
+  // A finished run stays on screen until a new one starts (ticket 08);
+  // this flips back to the two doors so the next run can start.
+  const [doorsOverride, setDoorsOverride] = useState(false);
   const stateRef = useRef<State>(state);
   stateRef.current = state;
   const { vw, vh } = useViewport();
   useThemeSync();
+
+  useEffect(() => {
+    setDoorsOverride(false); // a new run's events arrived: show the run
+  }, [state.runId]);
 
   // ---- envelope pump: per-part forwarding coalesced to animation frames ----
   useEffect(() => {
@@ -110,6 +117,7 @@ export function App(): React.ReactElement {
   }, []);
 
   const scene = deriveScene(state);
+  const showDoors = scene.mode === "idle" || (doorsOverride && Boolean(state.ended));
   const onSend = () => {
     const text = composer.trim();
     if (!text) {
@@ -122,10 +130,21 @@ export function App(): React.ReactElement {
 
   return (
     <div className="app">
-      <Canvas state={state} scene={scene} vw={vw} vh={vh} setComposer={setComposer} />
-      {scene.mode === "idle" ? <Idle /> : null}
-      <Chrome state={state} />
-      {scene.mode !== "idle" ? (
+      {!showDoors ? (
+        <Canvas state={state} scene={scene} vw={vw} vh={vh} setComposer={setComposer} />
+      ) : (
+        <div className="canvas">
+          <div className="dots" />
+        </div>
+      )}
+      {showDoors ? (
+        <Idle onBack={scene.mode !== "idle" ? () => setDoorsOverride(false) : undefined} />
+      ) : null}
+      <Chrome
+        state={state}
+        onNewRun={state.ended && !showDoors ? () => setDoorsOverride(true) : undefined}
+      />
+      {!showDoors ? (
         <Feed state={state} composer={composer} setComposer={setComposer} onSend={onSend} />
       ) : null}
       <LifecycleBanner state={state} />
@@ -135,7 +154,13 @@ export function App(): React.ReactElement {
 
 // ---- chrome ----------------------------------------------------------------
 
-function Chrome({ state }: { state: State }): React.ReactElement {
+function Chrome({
+  state,
+  onNewRun,
+}: {
+  state: State;
+  onNewRun?: () => void;
+}): React.ReactElement {
   const [now, setNow] = useState(Date.now());
   const running = Boolean(state.run) && !state.ended;
   useEffect(() => {
@@ -161,6 +186,12 @@ function Chrome({ state }: { state: State }): React.ReactElement {
         <span className="s">on DataPrep</span>
       </div>
       <div className="hud">
+        {onNewRun ? (
+          <button className="chip chipbtn" onClick={onNewRun}>
+            <span className="pip idle" />
+            New run
+          </button>
+        ) : null}
         {state.run ? (
           <div className="chip">
             <span className={`pip${pipClass}`} />
@@ -237,7 +268,7 @@ function LifecycleBanner({ state }: { state: State }): React.ReactElement | null
 
 // ---- idle: the two front doors ---------------------------------------------
 
-function Idle(): React.ReactElement {
+function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PickedFile[]>([]);
   const [picking, setPicking] = useState(false);
@@ -326,6 +357,11 @@ function Idle(): React.ReactElement {
         </div>
       </div>
       <div className="fine">Every gate is yours — the spec, the generated code, and the final approval.</div>
+      {onBack ? (
+        <button className="fine backlink" onClick={onBack}>
+          Back to the finished run
+        </button>
+      ) : null}
     </div>
   );
 }
