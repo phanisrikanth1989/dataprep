@@ -14,6 +14,7 @@ import {
   deriveScene,
   deriveSpine,
   fmtElapsed,
+  fmtTokens,
   initialState,
   reducer,
 } from "./state";
@@ -213,8 +214,17 @@ function Chrome({
               <b className="mono">{state.run.job}</b>
             </div>
             <div className="chip">
-              <b className="mono">{cr.toFixed(1)}</b>
-              <span>credits</span>
+              {state.creditsNano > 0 ? (
+                <>
+                  <b className="mono">{cr.toFixed(1)}</b>
+                  <span>credits</span>
+                </>
+              ) : state.tokensTotal > 0 ? (
+                <>
+                  <b className="mono">{fmtTokens(state.tokensTotal)}</b>
+                  <span>tokens</span>
+                </>
+              ) : null}
               <span className="mono" style={{ color: "var(--mute)" }}>
                 {fmtElapsed(state.run.startedTs, state.ended ? state.ended.ts : now)}
               </span>

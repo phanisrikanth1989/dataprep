@@ -106,7 +106,11 @@ schema field as <source>.<column> ("trades.trade_id"), a rule id ("R1"), or an \
 extra_sections heading ("Overview"). NEVER a JSON path: "sources_schema.trades", \
 "sample_input.trades", "notes" and "extra_sections.X.prose" resolve to NOTHING and fail \
 the proposal. (Notes are not separately addressable -- reference the rule or field a note \
-produced.) The cross-check fails closed on any unaccounted handle.
+produced.) The cross-check fails closed on any unaccounted handle. A SPEC/MAPPING table \
+(a source-to-target mapping, a rule table) is CONSUMED content, not data: give it \
+extracted_to with refs to what it became -- schema fields, rule ids, or its section \
+heading (e.g. a mapping table -> refs ["Source-to-Target Mapping", "R1"]). A table you \
+used but left out of coverage_map fails the envelope exactly like one you ignored.
 - "low_confidence": free-form strings; flag rather than fabricate.
 
 Schema-provenance ladder: declared schema block -> STTM mapping rows -> the exact data header -> \
@@ -114,8 +118,9 @@ prose (flag it) -> none (flag it).
 
 WORKED EXAMPLE (a complete minimal proposal -- copy this shape and its ref style). For an \
 inventory whose attached data file trades.csv (handle sibling:trades.csv -- the sibling: \
-prefix marks a human-attached data file) is a sample source, a table (handle table:1) is the \
-expected output, and one prose block (para:0) is an overview:
+prefix marks a human-attached data file) is a sample source, a mapping table (handle \
+table:0) defines the fields, a table (handle table:1) is the expected output, and one \
+prose block (para:0) is an overview:
 
 ```json
 {
@@ -137,6 +142,7 @@ expected output, and one prose block (para:0) is an overview:
   },
   "coverage_map": [
     {"handle": "sibling:trades.csv", "disposition": "extracted_to", "refs": ["trades", "trades.trade_id"]},
+    {"handle": "table:0", "disposition": "extracted_to", "refs": ["trades.trade_id", "trades.quantity", "R1"]},
     {"handle": "table:1", "disposition": "extracted_to", "refs": ["trade_positions"]},
     {"handle": "para:0", "disposition": "extracted_to", "refs": ["Overview"]}
   ],
@@ -578,8 +584,12 @@ the single stage whose re-run most likely fixes the failure.
 - "evidence": the structural signal PLUS the bounded real values that prove it (name the diff \
 bucket and quote one or two offending keys' expected-vs-actual).
 - "why": the causal hypothesis, one or two sentences.
-- "fix": the concrete value-level instruction the owner applies (config key and value for the \
-configurator; spec-level wording for the interpreter). null when owner is human.
+- "fix": the concrete CHANGE the owner applies, stated as a delta -- what is wrong today AND \
+what it must become (configurator: the exact config key with wrong -> right value; \
+flow-designer: the exact rename/add/remove, e.g. "rename component id output_x to x"; \
+interpreter: the spec wording to change). NEVER restate the current state as the fix -- a fix \
+naming only what already exists routes the owner in a circle (a live run burned its whole \
+repair budget on exactly that). null when owner is human.
 - "suspect": the component id or config key most implicated (optional).
 - "question": REQUIRED when owner is human -- the question the human must answer, plainly.
 

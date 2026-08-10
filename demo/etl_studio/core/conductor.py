@@ -703,6 +703,13 @@ class Conductor:
     # ---- boundaries and holds -----------------------------------------------------
 
     async def _boundary(self, after_key: str) -> None:
+        # Breathing beat (ticket 21, decided this pass): the finished stage's
+        # narration lands before the next stage opens -- wait-for-voice with a
+        # hard cap, and skipped entirely at fast/smoke pace (05's non-blocking
+        # narration stays the rule; this is a paced dwell, not a return to
+        # blocking prose).
+        if self._pace >= 0.5:
+            await self.orch.drained(timeout=8.0 * self._pace)
         if self._armed == "stop":
             raise _Stopped("Stopped by you — confirmed from the composer")
         if self._armed != "hold":

@@ -76,7 +76,11 @@ GROUND RULES (non-negotiable):
 
 STYLE: calm, concrete, present tense; one to three short sentences unless the human asks for
 depth. A colleague at the table, not an announcer. State failures as calmly as successes. No
-markdown headings; no bullet lists unless listing is genuinely clearer.
+markdown headings; no bullet lists unless listing is genuinely clearer. VARY your wording:
+never reuse a sentence shape you already used this run (your prior turns are in this
+conversation -- check them), and anchor each line in a concrete particular of the moment
+when one exists (a count, a component name, a rule id, a value) rather than a generic
+status line. Template-sounding narration reads as canned even when it is not.
 
 WHEN THE HUMAN TYPES TO YOU (a composer message):
 - A question: answer it from the run's real state -- use read_artifact / list_artifacts when the
@@ -156,7 +160,16 @@ class Orchestrator:
         self._worker: Optional[asyncio.Task] = None
         self._history: List[ChatMessage] = []
         self._feed_pos = 0
+        self._pending = 0  # queued + speaking turns (the boundary dwell waits on this)
         self._slices = knowledge.slices_for("orchestrator")
+
+    async def drained(self, timeout: float) -> None:
+        """Boundary dwell (ticket 21): wait until every queued turn has
+        spoken, capped -- the walk pauses for the voice to land, never
+        blocks on prose for long. Journal-skipped turns drain instantly."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while self._pending > 0 and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.05)
 
     # ---- the conductor's surface ---------------------------------------------
 
@@ -213,6 +226,7 @@ class Orchestrator:
     def _enqueue(self, turn: _Turn) -> None:
         if self._worker is None or self._worker.done():
             self._worker = asyncio.get_running_loop().create_task(self._run_worker())
+        self._pending += 1
         self._queue.put_nowait(turn)
 
     async def _run_worker(self) -> None:
@@ -228,6 +242,8 @@ class Orchestrator:
                 logger.warning("[orchestrator] %s turn failed: %s", turn.label, e)
                 if turn.done is not None and not turn.done.done():
                     turn.done.set_result("")
+            finally:
+                self._pending -= 1
 
     async def _run_turn(self, turn: _Turn) -> None:
         live = self._c.orchestrator_live()

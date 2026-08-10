@@ -638,6 +638,12 @@ class RealConfigurator(StageAdapter):
                 c["type"] = knowledge.canonical_type(str(c["type"]))
         if ctx.repair:
             self._preserve_gated_cells(components, ctx.bus.read_json("config.json") or {})
+            # Repair passes re-light the canvas too (ticket 21: the sweep was
+            # non-repair-only, so repaired or renamed nodes kept a stale
+            # Flow-Designer byline while their cells were real on the bus).
+            for comp in components:
+                await ctx.progress(str(comp.get("id")), "configured")
+                await ctx.sleep(0.12)
         if not ctx.repair:
             # Completion sweep: every configured node lights up (real state --
             # the draft holds them all), whatever the fixture's tool-call count.

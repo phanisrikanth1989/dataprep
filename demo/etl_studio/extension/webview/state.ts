@@ -88,6 +88,7 @@ export interface State {
   roundNotes: Record<string, string[]>;
   feed: FeedItem[];
   creditsNano: number;
+  tokensTotal: number;
   holdArmed: boolean;
   lifecycle: { state: LifecycleState; detail?: string; pid?: number } | null;
   attachNote: string;
@@ -112,6 +113,7 @@ export const initialState: State = {
   roundNotes: {},
   feed: [],
   creditsNano: 0,
+  tokensTotal: 0,
   holdArmed: false,
   lifecycle: null,
   attachNote: "attaching…",
@@ -421,9 +423,15 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       }
       if (part.kind === "usage") {
         const nano = Number(part.total_nano_aiu ?? 0) || 0;
+        // Public Copilot emits OpenAI-token-shaped usage with no nano-AIU
+        // (ticket 20): accumulate both; the readout renders whichever the
+        // provider actually sent -- never an estimate of the other.
+        const raw = (part.raw ?? {}) as { prompt_tokens?: number; completion_tokens?: number };
+        const toks = (Number(raw.prompt_tokens ?? 0) || 0) + (Number(raw.completion_tokens ?? 0) || 0);
         return {
           ...state,
           creditsNano: state.creditsNano + nano,
+          tokensTotal: state.tokensTotal + toks,
           streams: { ...state.streams, [sid]: { ...s, usageNano: nano } },
         };
       }
@@ -725,6 +733,10 @@ export function deriveFeedSub(state: State): string {
 }
 
 export const credits = (state: State): number => state.creditsNano / 1e9;
+
+export function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
 
 export function fmtElapsed(fromTs: number, now: number): string {
   const secs = Math.max(0, Math.floor((now - fromTs) / 1000));
