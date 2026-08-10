@@ -1,51 +1,82 @@
-"""The real doors and design-side specialists (ticket 17), on ticket 16's
-chassis: StageAdapter implementations for explode, doc_normalize,
-normalize_validate, intake_build (the two doors) and interpret, design,
-configure, assemble (the specialists). Materialize, test_run and diagnose
-stay ticket 16's stubs until ticket 19.
+"""The real pipeline stages on ticket 16's chassis: the two doors and the
+design-side specialists (ticket 17) plus the verification spine (ticket 19)
+-- materializer, harness-as-subprocess test runner, and the value-visible
+diagnostician. Every slot is real; the stub rig is gone.
 
 Structural rules carried here:
 - Stages never raise questions; machine facts ride StageResult and the
   conductor owns the channel (needs_human answers come back through
   ``run.nh_resolutions``, shape feedback through ``ctx.repair``).
 - The data-write ban is structural: no specialist holds a data-write tool;
-  only the exploder's jailed extraction writes data files on this ticket.
+  only the exploder's jailed extraction and the materializer write data
+  files (04's first deterministic line).
+- The engine-source mount is diagnostician-only: no other stage's tool
+  registry carries ``read_engine_source`` -- registry absence IS the
+  enforcement (ticket 11).
 - Every artifact a stage parses from a stream is also read back from the bus
   when the journal skipped the stream (crash-restore re-walk).
-- Rig knobs (smoke's, never the webview's) select scripted-fixture LABELS for
-  the shape-repair / needs_human demo beats; the vendored validator judges
-  whatever content plays, live or scripted.
+- Rig knobs (smoke's and the autorun rig's, never the webview's) select
+  scripted-fixture LABELS for demo beats; the vendored validators and the
+  real harness judge whatever content plays, live or scripted:
+  shape_errors / needs_human (doc-normalizer beats), diag_misses (the first
+  N configurator-owned diagnoses play the misdiagnosis fixture),
+  owner_human (the first diagnosis names the human), malformed_design
+  (bounded-retry escalation), scripted_slots (force named slots onto the
+  scripted port in a live run -- the live-probe affordance).
 """
 
 from __future__ import annotations
 
+import asyncio
+import copy
+import csv
+import json
 import logging
 import os
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from . import knowledge
+from .llm import LlmCallError
 from .port import ToolDecl
 from .prompts import (
     assembler_messages,
     configurator_messages,
     designer_messages,
+    diagnostician_messages,
     interpreter_messages,
     normalizer_messages,
 )
 from .specialist import run_specialist
 from .stages import StageAdapter, StageContext, StageResult
 from .vendored.explode_doc import explode
+from .vendored.materialize_golden import materialize_golden
 from .vendored.normalize_validate import validate_proposal
 from .vendored.validate_config import validate_config
 
 logger = logging.getLogger(__name__)
 
+# The demo job identity: run dirs and run ids derive from it (<job>-r<k>).
+JOB = "trade_positions"
+
 # Slots whose streams route to the live provider when one resolved (17's
-# specialists + 18's orchestrator; 19 adds the diagnostician).
+# specialists + 18's orchestrator + 19's diagnostician).
 LIVE_SLOTS = frozenset({"doc_normalize", "interpret", "design", "configure", "assemble",
-                        "orchestrator"})
+                        "orchestrator", "diagnose"})
 
 STUDIO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_BRD = os.path.join(STUDIO_ROOT, "examples", "trade_position_demo.docx")
+
+# Repo root (real_stages.py -> core/ -> etl_studio/ -> demo/ -> repo): the
+# harness subprocess cwd and the diagnostician's read-only src/v1 jail root.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_HARNESS_CLI = Path(__file__).resolve().parent / "vendored" / "run_and_validate.py"
+_ENGINE_SRC_ROOT = _REPO_ROOT / "src" / "v1"
+
+HARNESS_TIMEOUT_S = 180  # a hung job code cell must never hang the core
+_SOURCE_LINE_CAP = 120
+_WORK_READ_CAP = 8192
 
 _READ_CAP_BYTES = 4096
 _SAMPLE_ROW_CAP = 50
@@ -572,10 +603,14 @@ class RealConfigurator(StageAdapter):
         nodes_by_id = {str(n.get("id")): n for n in plan.get("nodes") or []}
         # A code-gate reject (ticket 13's code door) is the only iteration>1
         # path that rewrites the cell; a spec-door forward re-run reconfigures
-        # in full instead (config.main again).
+        # in full instead (config.main again). On a repair pass the scripted
+        # label follows the diagnosis that produced it (a misdiagnosis plays
+        # the faithful-but-wrong fixture; live runs apply the real feedback).
         revise = (ctx.iteration > 1 and not ctx.repair
                   and bool(ctx.run.rig.get("_cell_revised")))
-        label = ("config.repair" if ctx.repair
+        label = ("config.repair.miss"
+                 if ctx.repair and ctx.run.rig.get("_last_diag") == "miss"
+                 else "config.repair" if ctx.repair
                  else "config.revise" if revise else "config.main")
         stats = {"calls": 0, "error_rounds": 0}
         tools, decls = self._tools(ctx, stats)
@@ -634,23 +669,52 @@ class RealAssembler(StageAdapter):
     @staticmethod
     def _enforce_draft_configs(job: Dict[str, Any], draft: Dict[str, Any]) -> None:
         """Structural enforcement of the assembler contract: every component's
-        ``config`` is byte-for-byte the draft's (the assembler wires, never
-        edits config). The terminal FileOutput rename maps by elimination."""
+        ``config`` AND ``schema.output`` are byte-for-byte the draft's -- the
+        assembler wires, it never edits what the Configurator authored. The
+        prompt always said schema.output is the Configurator's; ticket 19
+        extended the enforcement to it after the repair loop showed a
+        schema-typed fix could be silently dropped in re-wiring. Each
+        consumer's ``schema.input`` then rebuilds from its DRIVER producer's
+        enforced output (the first ``inputs`` entry is the driver flow). The
+        terminal FileOutput rename maps by elimination."""
         draft_comps = {str(c.get("id")): c for c in draft.get("components") or []}
         unclaimed = dict(draft_comps)
+        matched: Dict[str, Dict[str, Any]] = {}
         for comp in job.get("components") or []:
             cid = str(comp.get("id"))
             if cid in unclaimed:
-                comp["config"] = unclaimed.pop(cid).get("config")
+                matched[cid] = unclaimed.pop(cid)
         leftovers = list(unclaimed.values())
         for comp in job.get("components") or []:
-            if str(comp.get("id")) in draft_comps:
+            cid = str(comp.get("id"))
+            if cid in matched:
                 continue
             match = next((d for d in leftovers
                           if str(d.get("type")) == str(comp.get("type"))), None)
             if match is not None:
-                comp["config"] = match.get("config")
+                matched[cid] = match
                 leftovers.remove(match)
+        for comp in job.get("components") or []:
+            d = matched.get(str(comp.get("id")))
+            if d is None:
+                continue
+            comp["config"] = d.get("config")
+            schema = comp.get("schema")
+            if isinstance(schema, dict):
+                schema["output"] = copy.deepcopy(
+                    (d.get("schema") or {}).get("output") or [])
+        by_id = {str(c.get("id")): c for c in job.get("components") or []}
+        producer_of = {str(f.get("name")): str(f.get("from"))
+                       for f in job.get("flows") or []}
+        for comp in job.get("components") or []:
+            schema = comp.get("schema")
+            inputs = [str(n) for n in comp.get("inputs") or []]
+            if not isinstance(schema, dict) or not inputs:
+                continue
+            producer = by_id.get(producer_of.get(inputs[0], ""))
+            if producer is not None:
+                schema["input"] = copy.deepcopy(
+                    (producer.get("schema") or {}).get("output") or [])
 
     async def run(self, ctx: StageContext) -> StageResult:
         draft = ctx.bus.read_json("config.json") or {}
@@ -685,17 +749,398 @@ class RealAssembler(StageAdapter):
 
 
 # ---------------------------------------------------------------------------
-# The slot map: real doors + specialists, stub verification spine (ticket 19)
+# Materializer (code, ticket 19 -- runs post-sign-off, freezes the tier)
+# ---------------------------------------------------------------------------
+
+
+class RealMaterializer(StageAdapter):
+    """Writes input files + golden/ from either door's data via the vendored
+    materialize_golden, and computes the rung-aware tier the conductor
+    freezes (ticket 04: one shared computation for both doors; transcribed
+    image/prose data never earns verified -- the BRD door's tier arrives
+    rung-graded from the validator's extract, and the typed door's
+    attachments are all rung 1 by construction, so its tier reduces to
+    verified/smoke/build by what the human actually attached)."""
+
+    key = "materialize"
+
+    @staticmethod
+    def _read_attachment(path: str):
+        """(rows, delimiter) for one attached CSV; (None, None) when
+        unreadable or empty -- a promised-but-absent path degrades the tier
+        honestly instead of crashing the run."""
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+                sample = fh.readline()
+                if not sample.strip():
+                    return None, None
+                try:
+                    sep = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+                except csv.Error:
+                    sep = ","
+                fh.seek(0)
+                rows = [dict(r) for r in csv.DictReader(fh, delimiter=sep)]
+            return rows, sep
+        except OSError:
+            return None, None
+
+    def _typed_extract(self, ctx: StageContext) -> Dict[str, Any]:
+        """Synthesize the extract shape from the typed door's attachments:
+        an attachment whose stem is ``<output>`` or ``<output>_expected``
+        (per the spec's outputs) becomes that output's answer key; every
+        other readable CSV is a sample source named by its stem. Mechanical
+        mapping, never an editorial pick."""
+        spec = ctx.bus.read_json("requirement_spec.json") or {}
+        output_names = [str(o.get("name")) for o in (spec.get("outputs") or [])
+                        if o.get("name")]
+        extract: Dict[str, Any] = {
+            "sources_schema": spec.get("schema") or {},
+            "sample_input": {}, "expected_output": {},
+            "output_keys": {}, "provenance": {}, "tier": "build",
+        }
+        skipped: List[str] = []
+        for path in [str(a) for a in ctx.run.request.get("attachments") or []]:
+            base = os.path.basename(path)
+            stem = base[:-4] if base.lower().endswith(".csv") else base
+            rows, sep = self._read_attachment(path)
+            if rows is None:
+                skipped.append(base)
+                continue
+            prov = {"rung": "1", "handle": f"attach:{base}", "delimiter": sep}
+            target = next((o for o in output_names
+                           if stem in (o, f"{o}_expected")), None)
+            if target is not None:
+                extract["expected_output"][target] = rows
+                extract["provenance"][target] = prov
+                header = list(rows[0].keys()) if rows else []
+                unique_first = bool(header) and len(
+                    {r.get(header[0]) for r in rows}) == len(rows)
+                extract["output_keys"][target] = [header[0]] if unique_first else []
+            else:
+                extract["sample_input"][stem] = rows
+                extract["provenance"][stem] = prov
+        graded = [n for n, r in extract["expected_output"].items() if r]
+        if extract["sample_input"]:
+            extract["tier"] = "verified" if graded else "smoke"
+        if skipped:
+            extract["skipped_attachments"] = skipped
+        return extract
+
+    async def run(self, ctx: StageContext) -> StageResult:
+        await ctx.sleep(0.4)
+        if ctx.run.door == "brd":
+            extract = ctx.bus.read_json("extract_doc.json") or {}
+        else:
+            extract = self._typed_extract(ctx)
+            # One downstream contract for both doors: the typed door's
+            # synthesized extract lands under the same canonical name, so
+            # the configurator's delimiter reads and the diagnostician's
+            # provenance reads never fork on the door.
+            await ctx.write_artifact("extract_doc.json", extract, kind="extract")
+        try:
+            result = materialize_golden(extract, ctx.bus.run_dir)
+        except (OSError, ValueError) as e:
+            raise LlmCallError("MaterializeFailed", str(e))
+        outputs = dict(result.get("outputs") or {})
+        graded = [n for n, s in outputs.items() if s.get("graded")]
+        tier = str(result.get("tier") or "build")
+        n_inputs = len(result.get("inputs") or [])
+        if graded:
+            note = (f"Materializer · {n_inputs} input file(s), {len(graded)} golden "
+                    f"output(s) — tier {tier}")
+        elif n_inputs:
+            note = (f"Materializer · {n_inputs} input file(s), no gradable golden "
+                    f"— tier {tier}")
+        else:
+            note = f"Materializer · no data to grade against — tier {tier}"
+        # Event-only: the vendored code already wrote the files (data files
+        # are the sanctioned direct writes -- 04's first deterministic line).
+        await ctx.write_artifact(
+            "golden/manifest.json", None, kind="golden",
+            fields={"inputs": result.get("inputs") or [], "outputs": outputs,
+                    "tier": tier},
+            note=note)
+        return StageResult(data={"tier": tier, "inputs": result.get("inputs"),
+                                 "outputs": outputs})
+
+
+# ---------------------------------------------------------------------------
+# Test runner (code, ticket 19 -- the harness as a core subprocess)
+# ---------------------------------------------------------------------------
+
+
+class RealTestRunner(StageAdapter):
+    """Runs the vendored run_and_validate CLI as a SUBPROCESS of the core
+    against the read-only engine (ticket 04's execution isolation: job code
+    cells are RCE-capable and must never be able to take the core down).
+    Output captured beside the report; verdict facts are the report's,
+    verbatim."""
+
+    key = "test_run"
+
+    @staticmethod
+    def _fail_summary(report: Dict[str, Any]) -> str:
+        if report.get("error"):
+            return str(report["error"])[:140]
+        bits: List[str] = []
+        for name, d in (report.get("outputs") or {}).items():
+            if d.get("equal"):
+                continue
+            if d.get("reason"):
+                bits.append(f"{name}: {d['reason']}")
+                continue
+            counts = [(d.get("value_mismatch"), "value mismatch(es)"),
+                      (d.get("missing"), "missing row(s)"),
+                      (d.get("unexpected"), "unexpected row(s)"),
+                      (len(d.get("unexpected_columns") or []), "extra column(s)"),
+                      (len(d.get("missing_columns") or []), "missing column(s)")]
+            inner = ", ".join(f"{n} {label}" for n, label in counts if n)
+            cols = sorted({c for ex in ((d.get("examples") or {}).get("value_mismatch") or [])
+                           for c in (ex.get("columns") or {})})
+            if cols:
+                inner += " on " + "/".join(cols)
+            bits.append(f"{name}: {inner or 'differs'}")
+        if not bits:
+            reasons = report.get("reasons") or []
+            if reasons:
+                bits.append(str(reasons[0])[:140])
+        return "; ".join(bits[:2]) or "output mismatched the golden"
+
+    async def run(self, ctx: StageContext) -> StageResult:
+        k = int(ctx.run.rig.get("_run_index", 0)) + 1
+        ctx.run.rig["_run_index"] = k
+        tier = ctx.run.tier or "build"
+        rel = f"runs/run-{k}/test_report.json"
+        report_path = ctx.bus.path(rel)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        argv = [sys.executable, str(_HARNESS_CLI),
+                "--job", str(ctx.bus.path("job.json")), "--out", str(report_path)]
+        argv += (["--smoke"] if tier == "smoke"
+                 else ["--golden-dir", str(ctx.bus.path("golden"))])
+        proc = await asyncio.create_subprocess_exec(
+            *argv, cwd=str(_REPO_ROOT),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout = stderr = b""
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=HARNESS_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            report: Optional[Dict[str, Any]] = {
+                "passed": False,
+                "error": f"harness timed out after {HARNESS_TIMEOUT_S}s"}
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        else:
+            report = None
+            if report_path.is_file():
+                try:
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                except ValueError:
+                    report = None
+            if report is None:
+                tail = (stderr or stdout or b"").decode("utf-8", "replace")[-2000:]
+                report = {"passed": False,
+                          "error": f"harness exited {proc.returncode} with no report",
+                          "output_tail": tail}
+                report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        # The captured child output lands beside the report (04: captured,
+        # and the diagnostician can read it through the work dir).
+        (report_path.parent / "harness_output.txt").write_text(
+            "--- stdout (tail) ---\n"
+            + (stdout or b"").decode("utf-8", "replace")[-10000:]
+            + "\n--- stderr (tail) ---\n"
+            + (stderr or b"").decode("utf-8", "replace")[-10000:]
+            + "\n",
+            encoding="utf-8")
+        clean = (bool(report.get("ran_clean")) if tier == "smoke"
+                 else report.get("passed") is True)
+        graded = report.get("graded")
+        if clean:
+            note = (f"Test Runner · run {k} — ran clean (smoke tier, nothing graded)"
+                    if tier == "smoke" else
+                    f"Test Runner · run {k} — output matches your golden "
+                    f"({graded}/{report.get('total', graded)} outputs graded)")
+        else:
+            note = f"Test Runner · run {k} — {self._fail_summary(report)}"
+        await ctx.write_artifact(
+            rel, None, kind="test_run",
+            fields={"run": k, "passed": report.get("passed"), "clean": clean,
+                    "graded": graded, "tier": tier})
+        # Event-only marker: runs/run-<k> is a directory on the bus (the
+        # report above lives inside it), so no payload rides this name.
+        await ctx.write_artifact(f"runs/run-{k}", None, kind="test_run", note=note)
+        return StageResult(data={"clean": clean, "run_index": k, "report": report})
+
+
+# ---------------------------------------------------------------------------
+# Diagnostician (LLM, tier 3 -- ticket 04's value-visible rebuild)
+# ---------------------------------------------------------------------------
+
+
+class RealDiagnostician(StageAdapter):
+    """Reads the enriched report plus the work dir and writes feedback.json
+    naming the one owner. Holds the pipeline's ONLY engine-source mount and
+    config-surfaces tool (ticket 11: tool-registry absence enforces the ban
+    for every other stage). The conductor enforces the owner enum
+    fail-closed; the artifact records what the model actually said."""
+
+    key = "diagnose"
+
+    def _label(self, ctx: StageContext) -> str:
+        """Scripted-beat label plan (rig-driven; live runs and the default
+        demo walk always play the plain label)."""
+        rig = ctx.run.rig
+        if rig.get("owner_human") and not rig.get("_owner_human_done"):
+            rig["_owner_human_done"] = True
+            rig["_last_diag"] = "human"
+            return "diag.run.human"
+        misses = int(rig.get("diag_misses", 0) or 0)
+        done = int(rig.get("_diag_misses_done", 0) or 0)
+        if done < misses:
+            rig["_diag_misses_done"] = done + 1
+            rig["_last_diag"] = "miss"
+            return "diag.run.miss"
+        rig["_last_diag"] = "fix"
+        return "diag.run.after" if misses else "diag.run"
+
+    def _tools(self, ctx: StageContext):
+        run_root = Path(os.path.realpath(ctx.bus.run_dir))
+
+        async def list_work_files(_args: Dict[str, Any]) -> Dict[str, Any]:
+            out = []
+            for p in sorted(run_root.rglob("*")):
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(run_root).as_posix()
+                if rel == "ui_journal.jsonl":
+                    continue
+                out.append({"path": rel, "bytes": p.stat().st_size})
+                if len(out) >= 200:
+                    break
+            return {"ok": True, "files": out}
+
+        async def read_work_file(args: Dict[str, Any]) -> Dict[str, Any]:
+            rel = str(args.get("path", ""))
+            target = Path(os.path.realpath(run_root / rel))
+            if not target.is_relative_to(run_root):
+                return {"ok": False, "note": "path escapes the work dir"}
+            if not target.is_file():
+                return {"ok": False, "note": f"no file at {rel!r}"}
+            data = target.read_text(encoding="utf-8", errors="replace")
+            return {"ok": True, "text": data[:_WORK_READ_CAP],
+                    "truncated": len(data) > _WORK_READ_CAP}
+
+        async def read_engine_source(args: Dict[str, Any]) -> Dict[str, Any]:
+            rel = str(args.get("path", "")).removeprefix("src/v1/")
+            root = Path(os.path.realpath(_ENGINE_SRC_ROOT))
+            target = Path(os.path.realpath(root / rel))
+            if not target.is_relative_to(root):
+                return {"ok": False, "note": "path escapes src/v1 (read-only jail)"}
+            if not target.is_file():
+                return {"ok": False, "note": f"no engine source at src/v1/{rel}"}
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+            start = max(1, int(args.get("start", 1) or 1))
+            end = int(args.get("end", 0) or 0) or (start + _SOURCE_LINE_CAP - 1)
+            end = min(len(lines), end, start + _SOURCE_LINE_CAP - 1)
+            body = "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
+            return {"ok": True, "path": f"src/v1/{rel}", "start": start, "end": end,
+                    "total_lines": len(lines), "text": body}
+
+        async def read_config_surfaces(args: Dict[str, Any]) -> Dict[str, Any]:
+            surfaces = knowledge.RENDER_DIR / "config-surfaces.md"
+            if not surfaces.is_file():
+                return {"ok": False, "note": "config-surfaces.md is not rendered"}
+            text = surfaces.read_text(encoding="utf-8")
+            component = str(args.get("component", "") or "").strip()
+            if component:
+                sections = text.split("\n## ")
+                hits = [s for s in sections[1:]
+                        if component.lower() in s.splitlines()[0].lower()]
+                if not hits:
+                    return {"ok": False,
+                            "note": f"no config-surfaces section matches {component!r}"}
+                return {"ok": True, "text": ("## " + hits[0])[:_WORK_READ_CAP]}
+            return {"ok": True, "text": text[:2 * _WORK_READ_CAP],
+                    "truncated": len(text) > 2 * _WORK_READ_CAP}
+
+        decls = [
+            ToolDecl(
+                "list_work_files",
+                "List this run's work-dir files (relative path + size; read-only)",
+                {"type": "object", "properties": {}},
+            ),
+            ToolDecl(
+                "read_work_file",
+                "Read one work-dir file's head (8KB cap; read-only, jailed to "
+                "the run dir): inputs, goldens, actual outputs, reports, artifacts",
+                {"type": "object", "properties": {"path": {"type": "string"}},
+                 "required": ["path"]},
+            ),
+            ToolDecl(
+                "read_engine_source",
+                "Read engine source under src/v1 (read-only; ~120-line window). "
+                "Use the landmine code anchors below as entry points",
+                {"type": "object", "properties": {
+                    "path": {"type": "string"},
+                    "start": {"type": "integer"},
+                    "end": {"type": "integer"},
+                }, "required": ["path"]},
+            ),
+            ToolDecl(
+                "read_config_surfaces",
+                "The code-verified component config-surfaces reference with "
+                "file:line anchors (whole file, or one component's section)",
+                {"type": "object",
+                 "properties": {"component": {"type": "string"}}},
+            ),
+        ]
+        return {"list_work_files": list_work_files,
+                "read_work_file": read_work_file,
+                "read_engine_source": read_engine_source,
+                "read_config_surfaces": read_config_surfaces}, decls
+
+    async def run(self, ctx: StageContext) -> StageResult:
+        k = int(ctx.run.rig.get("_run_index", 0))
+        report = ctx.bus.read_json(f"runs/run-{k}/test_report.json") or {}
+        spec = ctx.bus.read_json("requirement_spec.json") or {}
+        config = ctx.bus.read_json("config.json") or {}
+        plan = ctx.bus.read_json("flow.json") or {}
+        flow_types = [str(c.get("type")) for c in plan.get("components") or []]
+        messages = diagnostician_messages(
+            report, spec, config, plan,
+            run_index=k, tier=ctx.run.tier, flow_types=flow_types)
+        tools, decls = self._tools(ctx)
+        parsed = await run_specialist(
+            ctx, who="Diagnostician", label=self._label(ctx), stage_label="Verify",
+            messages=messages, tools=tools, tool_decls=decls)
+        if parsed is None:  # journal-held stream: the bus owns the diagnosis
+            parsed = ctx.bus.read_json("feedback.json") or {}
+        owner = str(parsed.get("owner") or "")
+        note = f"Diagnostician · owner: {owner.capitalize() or '?'}"
+        if owner == "human":
+            note += " — the call is yours"
+        elif parsed.get("fix"):
+            note += f" — fix: {str(parsed['fix'])[:70]}"
+        await ctx.write_artifact(
+            "feedback.json", parsed, kind="diagnosis",
+            fields={"owner": owner.capitalize(), "fix": parsed.get("fix"),
+                    "suspect": parsed.get("suspect"),
+                    "evidence": parsed.get("evidence")},
+            note=note)
+        return StageResult(data={"feedback": parsed})
+
+
+# ---------------------------------------------------------------------------
+# The slot map: every slot real (tickets 17 + 19)
 # ---------------------------------------------------------------------------
 
 
 def build_stages() -> Dict[str, StageAdapter]:
-    from .stub_stages import StubDiagnostician, StubMaterializer, StubTestRunner
-
     adapters = [
         RealExplode(), RealDocNormalizer(), RealNormalizeValidate(),
         RealIntakeBuilder(), RealInterpreter(), RealFlowDesigner(),
         RealConfigurator(), RealAssembler(),
-        StubMaterializer(), StubTestRunner(), StubDiagnostician(),
+        RealMaterializer(), RealTestRunner(), RealDiagnostician(),
     ]
     return {s.key: s for s in adapters}

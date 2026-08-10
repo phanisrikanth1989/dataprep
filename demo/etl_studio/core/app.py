@@ -3,9 +3,9 @@
 Owns the 08 contract surface: attach/replay, the run/stage/question/stream/
 health families, ``command.start_run`` / ``answer`` / ``command.ask`` /
 ``fetch_artifact``, and per-run journals. Runs are driven by the real
-conductor (ticket 16) over stub specialists (``stub_stages.py``; ticket 17
-replaces them stage by stage); ``fetch_artifact`` serves full artifacts
-from the run's bus.
+conductor (ticket 16) over the real stages (tickets 17 + 19 -- doors,
+specialists, and the verification spine); ``fetch_artifact`` serves full
+artifacts from the run's bus.
 
 The ``skeleton.*`` handlers from ticket 10 stay as dev/smoke affordances --
 ping, LM echo through the live provider resolution, cancel, crash. Their
@@ -39,9 +39,8 @@ from .port import (
     ProviderPort,
     RequestCanceled,
 )
-from .real_stages import build_stages
+from .real_stages import JOB, build_stages
 from .rpc import JsonRpcConnection
-from .stub_stages import JOB
 
 logger = logging.getLogger(__name__)
 
@@ -530,7 +529,13 @@ class StudioApp:
                     return fallback, None
             return ids[0], None
         if kind == "owner_human":
-            return ("retry" if "retry" in ids else ids[0]), None
+            # One unattended retry only: owner_human is uncapped for a real
+            # human, but a probe bot re-answering retry forever would spin a
+            # live diagnosis loop with nobody watching.
+            if state.get("oh_retries", 0) < 1 and "retry" in ids:
+                state["oh_retries"] = state.get("oh_retries", 0) + 1
+                return "retry", None
+            return ("stop_to_gate" if "stop_to_gate" in ids else ids[0]), None
         if kind == "propose_confirm":
             # A hold the probe itself asked for gets confirmed (ticket 18's
             # composer-intent beat); anything else -- notably an escalation's

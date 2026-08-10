@@ -12,8 +12,9 @@ sequence; hub-and-spoke means a specialist cannot invoke another specialist
 Slots (both doors):
   code:  explode, normalize_validate, intake_build, materialize, test_run
   LLM:   doc_normalize, interpret, design, configure, assemble, diagnose
-Ticket 17 replaces the LLM stubs stage by stage; ticket 19 makes test_run
-drive the real harness as a core subprocess.
+Every slot is real: ticket 17 built the doors and design-side specialists,
+ticket 19 the verification spine (materialize, test_run as the harness
+subprocess, and the value-visible diagnostician).
 """
 
 from __future__ import annotations

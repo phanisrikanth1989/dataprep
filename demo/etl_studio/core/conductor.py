@@ -38,7 +38,9 @@ human-initiated act is uncapped and burns no loop budget.
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
+import io
 import json
 import logging
 from pathlib import Path
@@ -80,12 +82,20 @@ REPAIR_CAP = 3  # total run attempts in the verified loop before exhaustion
 GRANT_SIZE = 3
 ELICITATION_ROUNDS = 3
 
-# feedback.json owner enum (04) -> stage-adapter slot / special routing.
+# feedback.json owner enum (04). Anything outside it routes to the human,
+# never to a guessed stage (fail-closed: "anything you cannot confidently
+# classify -> human" is enforced here, not just prompted).
+_OWNER_ENUM = frozenset(
+    {"interpreter", "flow-designer", "configurator", "assembler", "human"})
+# Owner -> stage-adapter slot; the design-side chain order drives the
+# owner+forward rule (04: the owner re-runs reading feedback.json first,
+# then every forward stage, as quiet repair passes).
 _OWNER_SLOT = {
     "configurator": "configure",
     "flow-designer": "design",
     "assembler": "assemble",
 }
+_REPAIR_CHAIN = ["design", "configure", "assemble"]
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +148,9 @@ class Conductor:
         self._emit = emit
         self._port = port
         self._provider = provider_name
-        # Ticket 17: the real specialists' streams route here when a live
-        # provider resolved; orchestrator placeholders and stub slots stay on
-        # the scripted port until tickets 18/19 replace them.
+        # Tickets 17/18/19: every LLM slot's stream routes here when a live
+        # provider resolved (LIVE_SLOTS), except slots the rig's
+        # scripted_slots pins to the double (the live-probe affordance).
         self._live_port = live_port
         self._live_provider = live_provider
         self.run_id = run_id
@@ -149,7 +159,6 @@ class Conductor:
         self._pace = pace
 
         rig = dict(request.get("rig") or {})
-        rig.setdefault("verify_fails", 1)
         self.run = RunInfo(run_id=run_id, job=job, door=door, request=dict(request), rig=rig)
         self.run.data_present = bool(request.get("attachments"))
 
@@ -238,9 +247,7 @@ class Conductor:
                 self.run.door = str(detail["door"])
             if isinstance(detail.get("request"), dict):
                 self.run.request = dict(detail["request"])
-                rig = dict(self.run.request.get("rig") or {})
-                rig.setdefault("verify_fails", 1)
-                self.run.rig = rig
+                self.run.rig = dict(self.run.request.get("rig") or {})
                 self.run.data_present = bool(self.run.request.get("attachments"))
             break
         for env in events:
@@ -482,6 +489,11 @@ class Conductor:
     # ---- stage invocation --------------------------------------------------------
 
     def _slot_live(self, slot: str) -> bool:
+        # scripted_slots (rig, dev-only -- the live-probe affordance): force
+        # named slots onto the scripted port so one stage can be probed live
+        # against deterministic neighbors. Never set by the webview.
+        if slot in set(self.run.rig.get("scripted_slots") or []):
+            return False
         return slot in LIVE_SLOTS and self._live_port is not None
 
     async def _models_for(self, slot: str) -> Optional[ModelInfo]:
@@ -1025,7 +1037,9 @@ class Conductor:
     async def _s_golden(self) -> None:
         self.orch.narrate("signed")
         result = await self._run_stage("materialize", "interpret")
-        tier = result.data.get("tier") or ("verified" if self.run.data_present else "build")
+        # The materializer's rung-aware computation is the tier truth (19);
+        # an empty result reads as build, never as an optimistic verified.
+        tier = result.data.get("tier") or "build"
         if self.run.tier != tier:
             self.run.tier = tier
             self.bus.audit("conductor", "tier_frozen", {"tier": tier})
@@ -1180,12 +1194,59 @@ class Conductor:
                            + loop.replace("_", " ") + " loop")
         raise _StopToGate()
 
+    @staticmethod
+    def _matched_of(report: Dict[str, Any]) -> str:
+        """"m/n" rows matching the golden across graded outputs, from the
+        real report's diff counts; "—" when nothing was graded."""
+        matched = total = 0
+        seen = False
+        for diff in (report.get("outputs") or {}).values():
+            expected = diff.get("expected_rows")
+            if expected is None:
+                continue
+            seen = True
+            total += int(expected)
+            bad = int(diff.get("missing") or 0) + int(diff.get("value_mismatch") or 0)
+            matched += max(0, int(expected) - bad)
+        return f"{matched}/{total}" if seen else "—"
+
+    def _diagnosis_line(self, clean: bool, runs: int, tier: str,
+                        stopped_to_gate: bool, report: Dict[str, Any],
+                        feedback: Dict[str, Any]) -> str:
+        """The verdict's one-line story, assembled from the run's real
+        artifacts -- the report's counts and the diagnostician's actual
+        owner/fix (ticket 06: every shown string traceable to this run)."""
+        graded = report.get("graded")
+        graded_bit = (f" · {graded}/{report.get('total', graded)} outputs graded"
+                      if graded is not None else "")
+        if tier == "smoke":
+            if clean:
+                return "smoke tier — the job ran clean; nothing was graded"
+            problems = report.get("dropped_or_errored_components") or []
+            return ("smoke tier — the run failed"
+                    + (f" ({', '.join(str(p) for p in problems[:3])})" if problems
+                       else ""))
+        if clean and runs == 1:
+            return "clean on the first run" + graded_bit
+        if clean:
+            owner = str(feedback.get("owner") or "").capitalize()
+            fix = str(feedback.get("fix") or "").strip()
+            line = f"went green on run {runs}"
+            if owner:
+                line += f" — Diagnostician: owner {owner}"
+            if fix:
+                line += f" · fix: {fix[:90]}"
+            return line + graded_bit
+        if stopped_to_gate:
+            return "repairs stopped at your call — the verdict stands as it is"
+        return (f"not verified — run {runs} still mismatched the golden"
+                + graded_bit)
+
     async def _s_verify(self) -> None:
         if self._stage_done("verify"):
             return
         await self._stage_started("verify")
         tier = self.run.tier or "build"
-        first_pass = self._iter["verify"] == 1
         if tier == "build":
             self._verdict = {
                 "verdict": "unverified", "matched": "—", "runs": {"k": 0, "n": 0},
@@ -1201,9 +1262,12 @@ class Conductor:
         runs = 0
         clean = False
         stopped_to_gate = False
+        last_report: Dict[str, Any] = {}
+        last_feedback: Dict[str, Any] = {}
         while True:
             result = await self._run_stage("test_run", "verify")
             runs += 1
+            last_report = result.data.get("report") or {}
             if result.data.get("clean"):
                 clean = True
                 break
@@ -1211,7 +1275,12 @@ class Conductor:
                 break  # smoke runs exactly once; only verified loops
             diag = await self._run_stage("diagnose", "verify")
             feedback = diag.data.get("feedback") or {}
-            owner = str(feedback.get("owner") or "configurator")
+            owner = str(feedback.get("owner") or "")
+            if owner not in _OWNER_ENUM:
+                # Fail-closed (04): an unclassifiable diagnosis is the
+                # human's call, never a guessed re-run.
+                owner = "human"
+            last_feedback = dict(feedback, owner=owner)
             if owner == "human":
                 self._oh_count += 1
                 res = await self.questions.ask(
@@ -1249,30 +1318,25 @@ class Conductor:
                 except _StopToGate:
                     stopped_to_gate = True
                     break
+            # Owner+forward (04): the owner re-runs reading feedback.json
+            # first, then every forward design-side stage, quietly.
             slot = _OWNER_SLOT.get(owner, "configure")
-            await self._run_stage(slot, "verify", repair=feedback)
-            await self._run_stage("assemble", "verify", repair=feedback)
+            for step in _REPAIR_CHAIN[_REPAIR_CHAIN.index(slot):]:
+                await self._run_stage(step, "verify", repair=feedback)
             await self._loop_attempt(
                 "verify", runs + 1, budget,
                 f"repair {runs + 1} of {budget} · {owner.capitalize()} re-ran · "
                 f"{feedback.get('fix') or 'fix applied'}")
-        matched = "4/4" if clean else "2/4"
         if clean:
             verdict = "verified" if tier == "verified" else "smoke_clean"
         else:
             verdict = "failed" if tier == "verified" else "smoke_failed"
         self._verdict = {
-            "verdict": verdict, "matched": matched,
+            "verdict": verdict,
+            "matched": self._matched_of(last_report),
             "runs": {"k": runs, "n": budget if tier == "verified" else 1},
-            "diagnosis": (
-                ("run 1 mis-sorted — Diagnostician: owner Configurator · "
-                 "fix: sort_type = num · 1/1 outputs graded" if runs > 1 else
-                 "clean on the first run · 1/1 outputs graded")
-                if clean and first_pass else
-                "revision re-verified — clean · 1/1 outputs graded" if clean else
-                "repairs stopped at your call — the verdict stands as it is"
-                if stopped_to_gate else
-                "not verified — the last run still mismatched the golden"),
+            "diagnosis": self._diagnosis_line(
+                clean, runs, tier, stopped_to_gate, last_report, last_feedback),
         }
         # The verdict is a conductor decision: audit it (restore parity) and
         # feed it, so the orchestrator narrates the real result (ticket 18).
@@ -1312,11 +1376,19 @@ class Conductor:
         raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
 
     def _verdict_table(self) -> Dict[str, Any]:
-        golden = self.bus.path("golden/trade_positions.csv")
-        if not golden.is_file():
-            return {"headers": [], "rows": []}
-        lines = [ln for ln in golden.read_text(encoding="utf-8").splitlines() if ln]
-        if not lines:
-            return {"headers": [], "rows": []}
-        return {"headers": lines[0].split(","),
-                "rows": [ln.split(",") for ln in lines[1:]]}
+        """The human gate's graded table: the first graded output's golden,
+        read through the materializer's manifest (name + delimiter)."""
+        manifest = self.bus.read_json("golden/manifest.json") or {}
+        for name, spec in (manifest.get("outputs") or {}).items():
+            if not spec.get("graded"):
+                continue
+            golden = self.bus.path(f"golden/{name}_expected.csv")
+            if not golden.is_file():
+                continue
+            reader = csv.reader(io.StringIO(golden.read_text(encoding="utf-8")),
+                                delimiter=str(spec.get("sep") or ";"))
+            rows = [row for row in reader if row]
+            if not rows:
+                continue
+            return {"headers": rows[0], "rows": rows[1:]}
+        return {"headers": [], "rows": []}

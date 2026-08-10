@@ -6,16 +6,24 @@
 // the core's auto provider must visibly fall back to the double.
 //
 // Phases 1-4: walking-skeleton proofs (attach, echo, cancel, crash, SIGTERM).
-// Phases 5-6: the typed-door conductor run (ticket 16; stub specialists) --
-// the injected missing-data gap + a real elicitation round, spec-gate reject
+// Phases 5-6: the typed-door conductor run -- the injected missing-data gap
+// answered with REAL attachments, a real elicitation round, spec-gate reject
 // + re-sign, a genuine tool-use loop and rate-limit backoff over the double,
 // code-gate reject re-raising only the changed cell, a composer hold with
-// resume, the repair loop, crash-restart mid-human-gate with seq continuity,
-// full replay fidelity, fetch_artifact from the bus, and the bus itself
-// (canonical names, history/<artifact>.<k>, audit.jsonl).
-// Phase 7: the BRD-door walk -- needs_human extraction question, zero-gap
-// elicitation, a hold that steers (directed iteration to the interpreter,
-// draft 2, forward re-run), repair-loop exhaustion with one human grant.
+// resume, crash-restart mid-human-gate with seq continuity, full replay
+// fidelity, fetch_artifact from the bus, and the bus itself (canonical
+// names, history/<artifact>.<k>, audit.jsonl). Ticket 19 made the verify
+// stretch REAL: the materializer writes the goldens from the attached data,
+// the harness runs the assembled job through the engine as a subprocess,
+// run 1 fails on a genuine textual-parity defect (market_value float writes
+// 30200.0 against a golden of 30200), the diagnostician's feedback names
+// the Configurator, and the repaired job goes green on run 2.
+// Phase 7: the BRD-door walk -- needs_human extraction question, a hold
+// that steers (directed iteration to the interpreter, draft 2, forward
+// re-run), then the full repair-loop arc on real verdicts: an owner:human
+// diagnosis (the golden itself questioned; answered "run again as-is"), a
+// misdiagnosis whose applied fix genuinely widens the diff, exhaustion with
+// one human grant, and the correct fix going green on run 4.
 // Phase 8: composer stop -- confirmed, armed, lands plainly at a boundary.
 // Phase 9 (ticket 18): a permanently malformed specialist exhausts its
 // bounded retries; the orchestrator explains, the propose-confirm card
@@ -268,7 +276,11 @@ async function main() {
   check("G1 blocking with recommended option", g1?.payload?.severity === "blocking" && g1?.payload?.options?.[0]?.recommended === true);
   check("G2 advisory offers waive", g2?.payload?.severity === "advisory" && g2?.payload?.options?.some((o) => o.kind === "waive"));
 
-  answer(three, g0.payload.question_id, "attach", "demo/data/trades.csv, demo/data/expected_positions.csv");
+  // Real attachments (ticket 19): the materializer writes inputs + goldens
+  // from exactly these files, so the harness has something true to grade.
+  const attachPaths = ["trades.csv", "accounts.csv", "prices.csv", "trade_positions_expected.csv"]
+    .map((f) => path.join(studioRoot, "examples", f));
+  answer(three, g0.payload.question_id, "attach", attachPaths.join(", "));
   answer(three, g1.payload.question_id, "keep_blanks");
   answer(three, g2.payload.question_id, "waive");
   await waitFor(
@@ -337,8 +349,14 @@ async function main() {
   check("revised cell reflects the feedback", code2.payload.cells?.[0]?.code?.includes("round(2)"));
   answer(three, code2.payload.question_id, "approve");
 
-  const human = await waitFor(isQFind(ev, "human_gate", () => true), 30000, "human gate");
+  const human = await waitFor(isQFind(ev, "human_gate", () => true), 60000, "human gate");
   check("verdict is verified with the graded table", human.payload.verdict === "verified" && human.payload.table?.rows?.length === 4);
+  check("verdict facts come from the real report (4/4 matched, green on run 2)",
+    human.payload.matched === "4/4" && human.payload.runs?.k === 2,
+    `matched=${human.payload.matched} runs=${JSON.stringify(human.payload.runs)}`);
+  check("verdict diagnosis carries the real owner + fix",
+    /Configurator/.test(human.payload.diagnosis ?? "") && /int/.test(human.payload.diagnosis ?? ""),
+    human.payload.diagnosis);
   const loopAttempts = ev.filter((e) => e.type === "stage.loop_attempt");
   check("repair loop attempts surfaced", loopAttempts.some((e) => e.payload?.stage === "verify" && e.payload?.k === 2));
   const usageParts = ev.filter((e) => e.type === "stream.delta" && e.payload?.part?.kind === "usage" && e.payload?.part?.total_nano_aiu > 0);
@@ -467,7 +485,36 @@ async function main() {
     ["intake.json", "requirement_spec.json", "flow.json", "config.json", "job.json", "feedback.json"].every(has),
     ["intake.json", "requirement_spec.json", "flow.json", "config.json", "job.json", "feedback.json"].filter((p) => !has(p)).join(",")
   );
-  check("golden + run reports on the bus", has("golden/trade_positions.csv") && has("runs/run-1/test_report.json") && has("runs/run-2/test_report.json"));
+  check(
+    "materialized inputs + golden + manifest on the bus (ticket 19)",
+    ["trades.csv", "accounts.csv", "prices.csv", "golden/trade_positions_expected.csv", "golden/manifest.json"].every(has),
+    ["trades.csv", "accounts.csv", "prices.csv", "golden/trade_positions_expected.csv", "golden/manifest.json"].filter((p) => !has(p)).join(",")
+  );
+  check("run reports on the bus", has("runs/run-1/test_report.json") && has("runs/run-2/test_report.json") && has("runs/run-1/harness_output.txt"));
+  const report1 = JSON.parse(fs.readFileSync(path.join(r1, "runs/run-1/test_report.json"), "utf8"));
+  const mvExample = report1?.outputs?.trade_positions?.examples?.value_mismatch?.[0];
+  check(
+    "run 1 report is a REAL red with enriched expected-vs-actual examples",
+    report1.passed === false &&
+      report1?.outputs?.trade_positions?.value_mismatch === 4 &&
+      mvExample?.columns?.market_value?.expected === "30200" &&
+      mvExample?.columns?.market_value?.actual === "30200.0",
+    JSON.stringify(mvExample ?? report1).slice(0, 120)
+  );
+  const report2 = JSON.parse(fs.readFileSync(path.join(r1, "runs/run-2/test_report.json"), "utf8"));
+  check("run 2 report is a REAL green", report2.passed === true && report2.graded === 1);
+  const fb = JSON.parse(fs.readFileSync(path.join(r1, "feedback.json"), "utf8"));
+  check(
+    "feedback.json names the owner with value-visible evidence",
+    fb.owner === "configurator" && /30200\.0/.test(fb.evidence ?? "") && Boolean(fb.fix),
+    JSON.stringify(fb).slice(0, 120)
+  );
+  const actualOut = fs.readFileSync(path.join(r1, "trade_positions.csv"), "utf8");
+  check(
+    "the engine's actual output landed in the work dir and matches the golden textually",
+    actualOut.includes('"T004","Gamma Funds","APAC","AAPL","30200","151"'),
+    actualOut.split("\n")[1]
+  );
   check(
     "supersede moved priors to history/<artifact>.<k>",
     has("history/requirement_spec.json.1") && has("history/config.json.1") && has("history/job.json.1"),
@@ -487,8 +534,8 @@ async function main() {
   const spec = JSON.parse(fs.readFileSync(path.join(r1, "requirement_spec.json"), "utf8"));
   check("canonical spec is draft 2 (draft 1 in history)", spec.draft === 2 && Boolean(spec.what_changed));
 
-  // ---- phase 7: BRD door -- needs_human, hold+steer, exhaustion grant ------
-  console.log("phase 7: BRD walk -- needs_human, steer to draft 2, repair exhaustion + grant");
+  // ---- phase 7: BRD door -- needs_human, hold+steer, the full repair arc ---
+  console.log("phase 7: BRD walk -- needs_human, steer, owner:human, misdiagnosis, grant, green");
   const five = startCore();
   const ev7 = five.events;
   const my7 = (pred) => (e) => e.run_id === "trade_positions-r2" && pred(e);
@@ -503,7 +550,11 @@ async function main() {
       path.join(studioRoot, "examples", "accounts.csv"),
       path.join(studioRoot, "examples", "prices.csv"),
     ],
-    rig: { verify_fails: 4, shape_errors: 1, needs_human: true },
+    // Fixture-label selectors only (the harness verdicts stay real): the
+    // first diagnosis names the human (the golden itself questioned), the
+    // next one misdiagnoses (its applied fix genuinely widens the diff),
+    // then the correct fix lands -- runs 1-3 red, run 4 green.
+    rig: { shape_errors: 1, needs_human: true, owner_human: true, diag_misses: 1 },
   });
   const started7 = await waitFor(
     () => ev7.find((e) => e.type === "run.started" && e.payload?.door === "brd"),
@@ -563,7 +614,18 @@ async function main() {
   const code7 = await waitFor(isQFind(ev7, "code_gate", () => true), 40000, "brd code gate");
   answer(five, code7.payload.question_id, "approve");
 
-  const exhaustion = await waitFor(() => ev7.find(isQ("exhaustion")), 60000, "repair exhaustion question");
+  // Ticket 19: the first diagnosis questions the ORACLE itself -- owner:human
+  // rides the channel with the diagnostician's real question + evidence.
+  const oh = await waitFor(() => ev7.find(isQ("owner_human")), 60000, "owner:human question");
+  check(
+    "owner:human carries the diagnostician's question and evidence",
+    /golden/.test(oh.payload?.prompt ?? "") && /30200/.test(oh.payload?.evidence ?? "") &&
+      ["retry", "stop_to_gate", "steer"].every((id) => oh.payload?.options?.some((o) => o.id === id)),
+    JSON.stringify(oh.payload?.prompt ?? "").slice(0, 80)
+  );
+  answer(five, oh.payload.question_id, "retry");
+
+  const exhaustion = await waitFor(() => ev7.find(isQ("exhaustion")), 90000, "repair exhaustion question");
   check(
     "exhaustion raises grant / stop-to-gate / steer",
     exhaustion.payload?.loop === "repair" &&
@@ -581,8 +643,25 @@ async function main() {
   );
   check("grant stretches the budget visibly", grantChip.payload?.k >= 4);
 
-  const human7 = await waitFor(isQFind(ev7, "human_gate", () => true), 60000, "brd human gate");
-  check("brd verdict verified after granted repairs", human7.payload.verdict === "verified" && human7.payload.runs?.k === 5);
+  const human7 = await waitFor(isQFind(ev7, "human_gate", () => true), 90000, "brd human gate");
+  check(
+    "brd verdict verified after the granted repair (green on run 4)",
+    human7.payload.verdict === "verified" && human7.payload.runs?.k === 4 && human7.payload.matched === "4/4",
+    `verdict=${human7.payload.verdict} runs=${JSON.stringify(human7.payload.runs)} matched=${human7.payload.matched}`
+  );
+  // The misdiagnosis round is REAL on disk: run 3 (the applied float
+  // normalization) mismatches closing_price too, where runs 1-2 only ever
+  // mismatched market_value.
+  const r2dir = path.join(workDir, "trade_positions-r2");
+  const rep3 = JSON.parse(fs.readFileSync(path.join(r2dir, "runs/run-3/test_report.json"), "utf8"));
+  const rep3cols = new Set(
+    (rep3?.outputs?.trade_positions?.examples?.value_mismatch ?? []).flatMap((ex) => Object.keys(ex.columns ?? {}))
+  );
+  check(
+    "the applied misdiagnosis genuinely widened the diff (run 3 adds closing_price)",
+    rep3.passed === false && rep3cols.has("market_value") && rep3cols.has("closing_price"),
+    [...rep3cols].join(",")
+  );
   answer(five, human7.payload.question_id, "approve");
   const ended7 = await waitFor(
     () => ev7.find(my7((e) => e.type === "run.ended")),
@@ -614,7 +693,7 @@ async function main() {
   six.connection.sendNotification("command.start_run", {
     door: "typed",
     text: "Same job again",
-    attachments: ["demo/data/trades.csv", "demo/data/expected_positions.csv"],
+    attachments: attachPaths.slice(0, 3),
   });
   const gaps8 = await waitFor(
     () => { const g = ev8.filter(isQ("gap")); return g.length >= 2 ? g : null; },
@@ -656,7 +735,7 @@ async function main() {
   nine.connection.sendNotification("command.start_run", {
     door: "typed",
     text: "Same job again",
-    attachments: ["demo/data/trades.csv", "demo/data/expected_positions.csv"],
+    attachments: attachPaths.slice(0, 3),
     rig: { malformed_design: true },
   });
   const gaps9 = await waitFor(

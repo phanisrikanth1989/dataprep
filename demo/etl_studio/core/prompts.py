@@ -1,4 +1,5 @@
-"""Specialist prompts, ported per ticket 11's three-tier policy (ticket 17).
+"""Specialist prompts, ported per ticket 11's three-tier policy (ticket 17;
+the diagnostician's tier-3 authored-fresh prompt added by ticket 19).
 
 Tier 1 (near-verbatim, from .github/agents/*.agent.md): flow-designer,
 configurator, assembler -- forced changes are mechanical only: "consult the
@@ -12,6 +13,11 @@ needs_human routes to the question channel) and doc-interpreter-as-interpreter
 (serves both doors from intake.json, ambiguities become ticket 02's gap
 objects, data-blindness dropped for 04's three deterministic lines -- bounded
 sample rows ride in-prompt).
+
+Tier 3 (authored fresh): the value-visible diagnostician -- 04's rebuild.
+The data-blind original's owner-routing wisdom ports; the blindness does not:
+this stage quotes bounded real values as evidence and holds the pipeline's
+only engine-source and config-surfaces tools.
 
 Every prompt carries ticket 06's opening-line contract: one present-tense
 line before the JSON -- the live line's source; no code-side fallback prose.
@@ -536,6 +542,94 @@ def assembler_messages(
     user += "\n\nAssemble the runnable job.json.\n\n" + OUTPUT_CONTRACT
     return [
         {"role": "system", "text": _ASSEMBLER_SYSTEM + "\n\n" + _TOOL_SHARED
+         + "\n\n" + _sections(slices)},
+        {"role": "user", "text": user},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Diagnostician (tier 3, authored fresh -- ticket 04's value-visible rebuild)
+# ---------------------------------------------------------------------------
+
+_DIAGNOSTICIAN_SYSTEM = """You are the Diagnostician, the specialist who reads a FAILED verification and names the ONE \
+owner stage whose re-run most likely fixes it. The harness verdict is the sole correctness \
+source: the job is wrong because its output mismatched the golden answer key (or failed to run), \
+and your job is to explain that from evidence and route the repair. You diagnose and route; you \
+never edit artifacts, never author data, and never run anything yourself.
+
+You are value-VISIBLE: unlike every other specialist you may quote actual data values in your \
+evidence -- bounded to the handful the report's examples and your own reads surface, never \
+wholesale dumps. You also hold this pipeline's only window into the engine source \
+(read_engine_source, read-only) and the component config-surfaces reference \
+(read_config_surfaces): the landmine code anchors included below are live pointers into that \
+source -- use them for targeted hops, not spelunking. The work dir is yours to read \
+(list_work_files / read_work_file): inputs at the root, the golden/ answer key, the actual \
+output files, runs/run-<k>/ reports and captured harness output, and every canonical artifact.
+
+Emit ONE JSON object -- feedback.json:
+- "owner": exactly one of interpreter | flow-designer | configurator | assembler | human -- \
+the single stage whose re-run most likely fixes the failure.
+- "evidence": the structural signal PLUS the bounded real values that prove it (name the diff \
+bucket and quote one or two offending keys' expected-vs-actual).
+- "why": the causal hypothesis, one or two sentences.
+- "fix": the concrete value-level instruction the owner applies (config key and value for the \
+configurator; spec-level wording for the interpreter). null when owner is human.
+- "suspect": the component id or config key most implicated (optional).
+- "question": REQUIRED when owner is human -- the question the human must answer, plainly.
+
+OWNER ROUTING (the auto-repair boundary is load-bearing):
+- AUTO-REPAIR ONLY BELOW THE ORACLE. Anything upstream of golden materialization -- a misread \
+document, wrong or missing attachments, a wrong gap answer, a golden that itself looks wrong or \
+internally inconsistent -- invalidates the ORACLE, not the job. Owner is "human" with the \
+question stated; there is NO doc-normalizer owner and no way to regenerate the golden from here.
+- A failure fixable only by dropping or silencing a rule tagged source:"note" routes to human -- \
+never silently repair BA intent away to force a green.
+- value_mismatch on a derived, joined or cast column while the keys line up -> configurator (a \
+wrong type/cast/format/derivation on a component config; textual parity counts -- the oracle \
+compares text, so 30200.0 against a golden of 30200 is a real failure with a type-shaped fix).
+- missing/unexpected rows keyed on a join or filter -> interpreter when the SPEC fixed the wrong \
+key, cardinality or predicate (a spec-owned failure re-presents the spec for re-sign-off); \
+configurator when the spec is right and the config strays from it.
+- engine.dropped non-empty (an unregistered/mistyped component type), or an output empty because \
+its producer was never planned -> flow-designer.
+- unexpected_columns / missing_columns from a mis-wired schema, a dangling flow, or a \
+driver/lookup inversion (unmatched SOURCE rows vanished while lookup rows survived) -> assembler.
+- reasons naming a config error, or a component errored on execute -> configurator.
+- Signals that genuinely conflict, or anything you cannot classify confidently -> human, with \
+the question.
+Name exactly ONE owner. Never name an owner just to force a green: a green harness is \
+necessary, never sufficient."""
+
+
+def diagnostician_messages(
+    report: Dict[str, Any],
+    spec: Dict[str, Any],
+    config: Dict[str, Any],
+    plan: Dict[str, Any],
+    *,
+    run_index: int,
+    tier: Optional[str],
+    flow_types: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    slices = knowledge.slices_for("diagnose", flow_types)
+    components = [{k: c.get(k) for k in ("id", "type", "config")}
+                  for c in (config.get("components") or [])]
+    user = (
+        f"Run {run_index} FAILED at tier {tier or 'build'}. The test report "
+        f"(runs/run-{run_index}/test_report.json; examples are bounded to 5 per diff "
+        "bucket):\n" + _j(report, limit=8000)
+        + "\n\nThe signed spec's rules, notes and recorded answers:\n" + _j({
+            "rules": spec.get("rules"), "notes": spec.get("notes"),
+            "outputs": spec.get("outputs"),
+            "gap_resolutions": spec.get("gap_resolutions"),
+        })
+        + "\n\nThe configured components (config.json -- the values under diagnosis):\n"
+        + _j(components, limit=8000)
+        + "\n\nThe flow topology:\n" + _j({"edges": plan.get("edges")})
+        + "\n\nDiagnose it: name the one owner and the fix.\n\n" + OUTPUT_CONTRACT
+    )
+    return [
+        {"role": "system", "text": _DIAGNOSTICIAN_SYSTEM + "\n\n" + _TOOL_SHARED
          + "\n\n" + _sections(slices)},
         {"role": "user", "text": user},
     ]

@@ -1,17 +1,22 @@
-"""Scripted-double fixtures for the trade_positions demo (ticket 17).
+"""Scripted-double fixtures for the trade_positions demo (tickets 17 + 19).
 
-Ticket 16's fixtures scripted the ORCHESTRATOR placeholders and stub-stage
-choreography; this module grows them into the REAL specialists' replies: the
-opening line (ticket 06's live-line source) followed by the fenced JSON
-artifact the real stages parse, validate (the vendored validator and
-validate_config judge this content for real) and land on the bus.
+Every fixture is a REAL specialist's reply: the opening line (ticket 06's
+live-line source) followed by the fenced JSON artifact the real stages
+parse, validate and land on the bus. The vendored validators judge the
+door-side content; the verification spine's content is judged harder still
+-- the REAL harness runs the assembled job through the engine and diffs it
+against the materialized golden, so the run-1 defect scripted here (a
+float-typed market_value writing ``30200.0`` against a golden of ``30200``)
+produces a genuine red verdict, and the scripted repair genuinely turns it
+green. The diagnostician replies quote the values those deterministic
+reports actually carry.
 
 Content posture: everything here is what a scripted model SAYS; every
 machine consequence -- shape errors, needs_human, gap rounds, the code-gate
-cells, validate results -- is computed from it by the real chassis. The
-``brd.normalize.shape`` / ``brd.normalize.gap`` variants carry genuine
-defects the real validator catches (rig-selected labels; see
-real_stages.RealDocNormalizer).
+cells, validate results, red/green verdicts -- is computed from it by the
+real chassis. The ``brd.normalize.shape`` / ``brd.normalize.gap`` /
+``diag.run.*`` / ``config.repair.miss`` variants are rig-selected labels
+(see real_stages); live runs always play the plain labels.
 
 Consumption note: a label's calls are consumed in order per core process and
 the last call repeats -- the smoke phases each drive one process, so the
@@ -286,10 +291,19 @@ _TRADES_COLS = [{"name": c["name"], "type": {"integer": "int", "decimal": "float
     c["type"], "str")} for c in SCHEMA["trades"]]
 _ENRICHED_COLS = _TRADES_COLS + [
     {"name": "account_name", "type": "str"}, {"name": "region", "type": "str"}]
-_PRICED_COLS = _ENRICHED_COLS + [{"name": "closing_price", "type": "float"}]
-FINAL_COLS = [{"name": n, "type": t} for n, t in (
-    ("trade_id", "str"), ("account_name", "str"), ("region", "str"),
-    ("symbol", "str"), ("market_value", "float"), ("closing_price", "float"))]
+
+
+def _priced_cols(cp_type: str) -> List[Dict[str, str]]:
+    return _ENRICHED_COLS + [{"name": "closing_price", "type": cp_type}]
+
+
+def _final_cols(mv_type: str, cp_type: str) -> List[Dict[str, str]]:
+    return [{"name": n, "type": t} for n, t in (
+        ("trade_id", "str"), ("account_name", "str"), ("region", "str"),
+        ("symbol", "str"), ("market_value", mv_type), ("closing_price", cp_type))]
+
+
+FINAL_COLS = _final_cols("float", "int")  # the run-1 draft's terminal shape
 
 
 def _reader(name: str, cols: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -303,20 +317,24 @@ def _reader(name: str, cols: List[Dict[str, str]]) -> Dict[str, Any]:
 
 
 def build_config_draft(cell_code: str = CODE_CELL_CODE,
-                       sort_type: Any = None) -> Dict[str, Any]:
-    """The configurator's draft. ``sort_type`` None reproduces the
-    sortrow-alpha-default landmine (validates clean, mis-sorts numerically --
-    the demo's run-1 failure); the repair sets it to "num"."""
-    sort_criterion: Dict[str, Any] = {"column": "market_value", "order": "desc"}
-    if sort_type:
-        sort_criterion["sort_type"] = sort_type
+                       mv_type: str = "float",
+                       cp_type: str = "int") -> Dict[str, Any]:
+    """The configurator's draft. The default types carry the demo's genuine
+    run-1 defect: ``market_value`` typed float makes the engine write
+    ``30200.0`` against a golden of ``30200`` -- numerically identical,
+    textually wrong, and the oracle compares text (the diff is
+    order-insensitive, so a formatting parity bug IS the kind it catches).
+    The repair re-types it int; the misdiagnosis variant floats
+    ``closing_price`` too and widens the diff."""
+    priced = _priced_cols(cp_type)
+    final = _final_cols(mv_type, cp_type)
     components = [
         _reader("trades", _TRADES_COLS),
         _reader("accounts", [{"name": "account_id", "type": "str"},
                              {"name": "account_name", "type": "str"},
                              {"name": "region", "type": "str"}]),
         _reader("prices", [{"name": "symbol", "type": "str"},
-                           {"name": "closing_price", "type": "float"}]),
+                           {"name": "closing_price", "type": cp_type}]),
         {"id": "filter_settled", "type": "FilterRows",
          "config": {"conditions": [{"column": "status", "operator": "==",
                                     "value": "SETTLED"}],
@@ -340,7 +358,7 @@ def build_config_draft(cell_code: str = CODE_CELL_CODE,
                     "lookup_cols": [
                         {"output_column": "closing_price", "lookup_column": "closing_price"}],
                     "die_on_error": False},
-         "schema": {"input": [], "output": list(_PRICED_COLS)}},
+         "schema": {"input": [], "output": list(priced)}},
         {"id": "validate_date", "type": "SchemaComplianceCheck",
          "config": {"schema": [
              {"name": "trade_date", "type": "datetime", "date_pattern": "yyyy-MM-dd"}],
@@ -348,26 +366,29 @@ def build_config_draft(cell_code: str = CODE_CELL_CODE,
              "checkcols": [{"column": "trade_date", "selected_type": "datetime",
                             "date_pattern": "yyyy-MM-dd"}],
              "strict_date_check": True},
-         "schema": {"input": [], "output": list(_PRICED_COLS)}},
+         "schema": {"input": [], "output": list(priced)}},
         {"id": "derive_mv", "type": "tPythonDataFrame",
          "config": {"python_code": cell_code, "execution_mode": "batch",
-                    "output_columns": [c["name"] for c in FINAL_COLS]},
-         "schema": {"input": [], "output": list(FINAL_COLS)}},
+                    "output_columns": [c["name"] for c in final]},
+         "schema": {"input": [], "output": list(final)}},
         {"id": "sort_mv", "type": "SortRow",
-         "config": {"criteria": [sort_criterion], "execution_mode": "batch"},
-         "schema": {"input": [], "output": list(FINAL_COLS)}},
+         "config": {"criteria": [{"column": "market_value", "order": "desc",
+                                  "sort_type": "num"}],
+                    "execution_mode": "batch"},
+         "schema": {"input": [], "output": list(final)}},
         {"id": "out_positions", "type": "FileOutputDelimited",
          "config": {"filepath": "trade_positions.csv", "fieldseparator": ",",
                     "include_header": True, "csv_option": True,
                     "text_enclosure": "\"", "file_exist_exception": False},
-         "schema": {"input": list(FINAL_COLS), "output": []}},
+         "schema": {"input": list(final), "output": []}},
     ]
     return {"components": components}
 
 
 CONFIG_DRAFT = build_config_draft()
 CONFIG_DRAFT_REVISED = build_config_draft(cell_code=CODE_CELL_REVISED)
-CONFIG_DRAFT_REPAIRED = build_config_draft(sort_type="num")
+CONFIG_DRAFT_REPAIRED = build_config_draft(mv_type="int")
+CONFIG_DRAFT_MISS = build_config_draft(mv_type="float", cp_type="float")
 
 
 def build_job_reply() -> Dict[str, Any]:
@@ -429,7 +450,7 @@ ORCH = {
     "signed": "Spec signed off. Your goldens are in place — this build grades against them.",
     "flow": "The flow is designed: a filter, two lookups, one computed column, a date check, a sort. Configuring each step now.",
     "gate": "One step writes code — computing market_value. Nothing runs until you approve the exact cell. The cell is on the canvas, spotlit.",
-    "verdict": "Verified. The output matches your golden — all 4 rows, order included. Run 1 mis-sorted; the fix was one setting.",
+    "verdict": "Verified. The output matches your golden — all 4 rows, every column. Run 1 wrote 30200.0 where your golden says 30200; the fix was one type.",
     "reverdict": "Re-verified after your revision — the output still matches your golden, all 4 rows.",
 }
 
@@ -455,6 +476,90 @@ THINK_CONFIG_1 = (
 THINK_CONFIG_2 = (
     "The validator flagged the missing join_key — fixed and re-validated clean. "
     "market_value lands as the one generated cell — flagging it for the code gate."
+)
+
+# ---------------------------------------------------------------------------
+# The diagnostician's replies (ticket 19). The reports they answer are REAL
+# (the vendored harness diffed the engine's actual output against the
+# materialized golden); the values quoted below are the ones those reports
+# deterministically carry for this data.
+# ---------------------------------------------------------------------------
+
+FEEDBACK_FIX: Dict[str, Any] = {
+    "owner": "configurator",
+    "evidence": ("trade_positions: value_mismatch on 4 of 4 keyed rows, every "
+                 "diff in market_value — T004 expected 30200, actual 30200.0; "
+                 "T001 expected 15000, actual 15000.0. The golden renders "
+                 "integers; the actual carries a trailing .0."),
+    "why": ("The drafted schemas type market_value as float, so the terminal "
+            "write renders every integral value with a decimal tail — and the "
+            "oracle compares text, not numbers."),
+    "fix": ("type market_value as int in the component output schemas "
+            "(derive_mv, sort_mv, out_positions) — the data is integral and "
+            "the golden's rendering is the contract"),
+    "suspect": "out_positions.schema.market_value",
+}
+
+FEEDBACK_MISS: Dict[str, Any] = {
+    "owner": "configurator",
+    "evidence": ("trade_positions: value_mismatch on 4 of 4 rows, all in "
+                 "market_value (expected 30200, actual 30200.0); closing_price "
+                 "matches on every row."),
+    "why": ("The two numeric output columns are typed inconsistently "
+            "(market_value float, closing_price int) — a mixed numeric surface "
+            "usually points at the writer normalizing types mid-stream."),
+    "fix": ("make the numeric output columns consistent: type market_value AND "
+            "closing_price as float across derive_mv, sort_mv and out_positions"),
+    "suspect": "out_positions",
+}
+
+FEEDBACK_FIX_AFTER_MISS: Dict[str, Any] = {
+    "owner": "configurator",
+    "evidence": ("The float normalization widened the diff: run 3 mismatches "
+                 "market_value AND closing_price on all 4 rows (T004 "
+                 "closing_price expected 151, actual 151.0). The golden renders "
+                 "every numeric as an integer."),
+    "why": ("The golden's rendering is integral; float typing on either column "
+            "writes a .0 tail the textual oracle rejects."),
+    "fix": ("type market_value and closing_price as int across derive_mv, "
+            "sort_mv and out_positions"),
+    "suspect": "out_positions",
+}
+
+FEEDBACK_HUMAN: Dict[str, Any] = {
+    "owner": "human",
+    "evidence": ("Every mismatch is a rendering gap — expected 30200 vs actual "
+                 "30200.0 on all 4 rows — while the signed spec types "
+                 "market_value as decimal (R4: quantity × price, numeric)."),
+    "why": ("The golden's integer rendering may predate the spec's decimal "
+            "typing; repairing the config to match it would bake the golden's "
+            "formatting in as the contract."),
+    "fix": None,
+    "question": ("The golden renders market_value as integers (30200) while the "
+                 "spec types it decimal — is the golden right, and should the "
+                 "output match its exact rendering?"),
+}
+
+THINK_DIAG_FIX = (
+    "Run 1: every market_value carries a trailing .0 — 30200.0 against a golden "
+    "of 30200. Numerically identical, textually wrong; the oracle compares text. "
+    "The schemas type it float and the data is integral. Owner: Configurator; "
+    "the fix is one type."
+)
+THINK_DIAG_HUMAN = (
+    "Every diff is a rendering gap, and the signed spec says decimal while the "
+    "golden says integers. That is a question about the ORACLE, not the job — "
+    "auto-repair stops below the golden. The call is the human's."
+)
+THINK_DIAG_MISS = (
+    "market_value mismatches on every row while closing_price matches — the "
+    "numeric columns are typed inconsistently. Normalizing both to float should "
+    "settle the surface."
+)
+THINK_DIAG_AFTER = (
+    "The float normalization widened the diff — closing_price now mismatches too, "
+    "151 vs 151.0. The golden renders every numeric as an integer; the fix is int "
+    "typing on both columns, not float."
 )
 
 
@@ -656,10 +761,18 @@ def build_scripts() -> Dict[str, List[List[Dict[str, Any]]]]:
             u(5.4),
         ]],
         "config.repair": [[
-            {"think": "The diagnosis is one setting: sort_mv compares as text. Pinning sort_type = num; nothing else moves."},
-            *_reply("Applying the diagnosed fix — sort_type = num on sort_mv.",
+            {"think": "The diagnosis is one type: market_value writes 30200.0 against a golden of 30200. Typing it int across the write path; nothing else moves."},
+            *_reply("Applying the diagnosed fix — market_value typed int across the write path.",
                             CONFIG_DRAFT_REPAIRED),
             u(4.2),
+        ]],
+        # The faithful application of a misdiagnosis (rig: diag_misses) --
+        # the real harness then shows the diff genuinely widening.
+        "config.repair.miss": [[
+            {"think": "Applying the diagnosis as given: normalizing both numeric columns to float for a consistent surface."},
+            *_reply("Normalizing the numeric columns — market_value and closing_price both float.",
+                            CONFIG_DRAFT_MISS),
+            u(4.0),
         ]],
 
         # ---- assembler -----------------------------------------------------
@@ -674,9 +787,30 @@ def build_scripts() -> Dict[str, List[List[Dict[str, Any]]]]:
             u(3.1),
         ]],
 
-        # ---- stub diagnostician (ticket 19 replaces) -----------------------
+        # ---- diagnostician (ticket 19: real specialist replies; the reports
+        # they answer come from the real harness) -----------------------------
         "diag.run": [[
-            {"think": "run 1 output: rows 2 and 3 swapped against the golden. sort_mv compares as text — '15025.00' sorts above '6901.00' only numerically. Owner: Configurator; fix is one setting, sort_type = num."},
+            {"think": THINK_DIAG_FIX},
+            *_reply("Reading run 1's report — every diff is one column's rendering.",
+                            FEEDBACK_FIX),
             u(5.3),
+        ]],
+        "diag.run.human": [[
+            {"think": THINK_DIAG_HUMAN},
+            *_reply("This failure questions the golden itself — routing it to you.",
+                            FEEDBACK_HUMAN),
+            u(5.1),
+        ]],
+        "diag.run.miss": [[
+            {"think": THINK_DIAG_MISS},
+            *_reply("The numeric columns are typed inconsistently — proposing a normalization.",
+                            FEEDBACK_MISS),
+            u(4.8),
+        ]],
+        "diag.run.after": [[
+            {"think": THINK_DIAG_AFTER},
+            *_reply("The widened diff settles it — the golden's integer rendering is the contract.",
+                            FEEDBACK_FIX_AFTER_MISS),
+            u(5.0),
         ]],
     }

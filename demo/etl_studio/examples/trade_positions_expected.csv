@@ -1,0 +1,5 @@
+trade_id,account_name,region,symbol,market_value,closing_price
+T004,Gamma Funds,APAC,AAPL,30200,151
+T002,Beta Partners,EMEA,MSFT,20500,411
+T001,Alpha Capital,NA,AAPL,15000,151
+T005,,,TSLA,6900,689
