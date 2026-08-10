@@ -241,11 +241,29 @@ change to agent code.
   reading requirement_spec.json for a threaded answer and proposing a hold
   live (Mac-provisional, rig-answered; escalation beat double-proven only);
   usage-parts news for 20: live parts now arrive, token-shaped, no nano-AIU.
+- [19 - Verification wiring](issues/19-verification-wiring.md) -- the
+  verification spine is real: materializer (typed door synthesizes the
+  extract from attachments under the same canonical name; tier frozen
+  rung-aware), harness as a core subprocess (vendored run_and_validate,
+  reports enriched with 5 offending keys per bucket + expected-vs-actual
+  per column), value-visible diagnostician (work-dir reads + the only
+  src/v1 mount + config-surfaces; owner enum enforced fail-closed);
+  demo defect story replaced -- the order-insensitive oracle cannot see a
+  mis-sort, so run 1 fails on textual parity (market_value float writes
+  30200.0 vs golden 30200) and the repair is one type; assembler
+  enforcement extended to schema.output (a schema fix was otherwise
+  dropped in re-wiring); smoke 84 -> 93 green with real red->repair->green
+  on both doors plus owner:human, a diff-widening misdiagnosis, and one
+  granted exhaustion; one LIVE diagnostician turn on this Mac
+  (Mac-provisional, rig-answered: owner+evidence right with real values,
+  fix field off-target -- 20's live-tuning item); src/v1 clean before and
+  after.
 
 ## Not yet specified
 
-- Demo rehearsal / replay story -- deterministic run-through for the day;
-  revisit once the runtime exists.
+<!-- empty -- the rehearsal fog graduated to
+     [22 - Demo rehearsal and day-of run plan](issues/22-demo-rehearsal.md)
+     when ticket 19 completed the runtime it waited on -->
 
 ## Out of scope
 
