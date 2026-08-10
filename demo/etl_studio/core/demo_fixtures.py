@@ -419,7 +419,9 @@ def _reply(opening: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator placeholder voice (ticket 16's, unchanged until ticket 18)
+# Orchestrator scripted voice (ticket 18: what the scripted model says; the
+# REAL orchestrator agent -- conversation, tools, propose_control -- runs
+# these same labels live)
 # ---------------------------------------------------------------------------
 
 ORCH = {
@@ -478,20 +480,60 @@ def build_scripts() -> Dict[str, List[List[Dict[str, Any]]]]:
         "orch.gate": [[{"text": ORCH["gate"]}, u(1.9)]],
         "orch.verdict": [[{"text": ORCH["verdict"]}, u(2.4)]],
         "orch.reverdict": [[{"text": ORCH["reverdict"]}, u(1.8)]],
-        "orch.hold": [[
-            {"text": "You’d like me to pause. Confirm and I’ll hold at the next stage boundary — the stage in flight finishes and its artifact lands whole, then the build waits for you."},
-            u(1.4),
-        ]],
-        "orch.stop": [[
-            {"text": "You’d like to stop this build. Confirm and I’ll end it plainly at the next boundary — nothing else executes, everything so far stays on the canvas."},
-            u(1.3),
-        ]],
+        # Composer hold/stop intent (ticket 18): the scripted model CALLS
+        # propose_control -- the conductor raises the confirm card from the
+        # tool, exactly as a live model's call would.
+        "orch.hold": [
+            [
+                {"text": "You’d like me to pause — I’ll propose a hold. Nothing pauses until you confirm."},
+                {"tool": {"call_id": "pc-hold", "name": "propose_control",
+                          "args": {"action": "hold",
+                                   "note": "Hold the build at the next stage boundary? "
+                                           "The stage in flight finishes and its artifact "
+                                           "lands whole, then the build waits for you."}}},
+                u(1.4),
+            ],
+            [
+                {"text": "The confirm card is up. Take it and the hold arms at the next boundary; dismiss it and the build rolls on."},
+                u(0.8),
+            ],
+        ],
+        "orch.stop": [
+            [
+                {"text": "You’d like to stop this build — I’ll propose it. Nothing ends until you confirm."},
+                {"tool": {"call_id": "pc-stop", "name": "propose_control",
+                          "args": {"action": "stop",
+                                   "note": "Stop this build at the next stage boundary? "
+                                           "Everything so far stays on the canvas."}}},
+                u(1.3),
+            ],
+            [
+                {"text": "The confirm card is up — confirm and the build ends plainly at the next boundary."},
+                u(0.8),
+            ],
+        ],
         "orch.resume": [[{"text": "Resuming — picking the build up exactly where the hold left it."}, u(0.9)]],
         "orch.steer": [[
             {"text": "That’s spec-shaped feedback, so it routes to the Interpreter: the spec revises, you re-sign it, and the stages after it re-run."},
             u(1.2),
         ]],
-        "orch.ask": [[{"echo_prompt": True}, u(1.5)]],
+        # A composer question: the scripted model grounds itself with a real
+        # bus read (the tool handler is live code), then the echo streams the
+        # core-composed, state-derived answer.
+        "orch.ask": [
+            [
+                {"text": "Let me check the run’s own artifacts — one moment."},
+                {"tool": {"call_id": "oa-read", "name": "read_artifact",
+                          "args": {"name": "flow.json"}}},
+                u(0.6),
+            ],
+            [{"echo_prompt": True}, u(1.5)],
+        ],
+        # Escalation (ticket 18): the explanation the card's voice carries.
+        "orch.escalate": [[
+            {"text": "That step keeps returning unusable output — its retries are spent, and I won’t paper over it. I can stop the build here, or you dismiss this and it tries once more."},
+            u(1.1),
+        ]],
 
         # ---- doc-normalizer (the real validator judges every proposal) -----
         "brd.normalize.shape": [[
@@ -544,6 +586,15 @@ def build_scripts() -> Dict[str, List[List[Dict[str, Any]]]]:
             *_reply("Folding your revision note into the signed spec.",
                             SPEC_REVISED),
             u(4.6),
+        ]],
+
+        # A permanently malformed designer (rig: malformed_design) -- the one
+        # call repeats, so every bounded retry fails and the conductor
+        # escalates through the orchestrator (ticket 18's smoke beat).
+        "flow.design.bad": [[
+            {"think": "The shape will not settle — emitting what I have."},
+            {"text": "Choosing the shape — filter early, two keyed lookups. {\"pattern\": \"filter early"},
+            u(2.0),
         ]],
 
         # ---- flow designer (call 1 is a genuine malformed-output beat) -----

@@ -17,6 +17,13 @@
 // elicitation, a hold that steers (directed iteration to the interpreter,
 // draft 2, forward re-run), repair-loop exhaustion with one human grant.
 // Phase 8: composer stop -- confirmed, armed, lands plainly at a boundary.
+// Phase 9 (ticket 18): a permanently malformed specialist exhausts its
+// bounded retries; the orchestrator explains, the propose-confirm card
+// carries its words, and a confirmed stop ends the run plainly. Ticket 18
+// also grew phases 5-6: non-blocking narration alongside the stage, a
+// composer answer grounded through a real bus-read tool round, the
+// hold/stop proposals raised by the model's propose_control call, and a
+// post-restore ask that must not be journal-skipped.
 //
 // Run: npm run smoke   (from demo/etl_studio/extension)
 
@@ -234,6 +241,20 @@ async function main() {
   const firstR1 = ev.find((e) => e.run_id === "trade_positions-r1");
   check("run gets a fresh journal (seq restarts)", firstR1?.seq === 1 && started.run_id === "trade_positions-r1", `first=${firstR1?.type}#${firstR1?.seq}`);
 
+  // Ticket 18: narration is non-blocking -- the next stage starts while the
+  // orchestrator's opening line is still streaming alongside it.
+  const openingClose = await waitFor(
+    () => ev.find((e) => e.type === "stream.close" && e.payload?.label === "orch.opening.typed"),
+    10000,
+    "opening narration close"
+  );
+  const intakeStart = ev.find((e) => e.type === "stage.started" && e.payload?.stage === "intake");
+  check(
+    "narration streams alongside the stage (non-blocking)",
+    Boolean(intakeStart) && intakeStart.seq < openingClose.seq,
+    `intake#${intakeStart?.seq} vs close#${openingClose?.seq}`
+  );
+
   const gaps = await waitFor(
     () => { const g = ev.filter(isQ("gap")); return g.length >= 3 ? g : null; },
     15000,
@@ -340,6 +361,16 @@ async function main() {
     .map((e) => e.payload.part.text)
     .join("");
   check("ask answered from real run state", askClose.payload.finish_reason === "stop" && askText.includes("human gate"));
+  // Ticket 18: the answer grounds itself with a real bus read -- one stream
+  // carries the model's tool_call and the core-authored tool_result.
+  const askParts = ev
+    .filter((e) => e.type === "stream.delta" && e.payload?.stream_id === askReply.payload.stream_id)
+    .map((e) => e.payload.part?.kind);
+  check(
+    "ask reply grounded through a bus read (tool round on one stream)",
+    askParts.includes("tool_call") && askParts.includes("tool_result"),
+    askParts.join(",")
+  );
 
   const art = await three.connection.sendRequest("fetch_artifact", { name: "flow.json" });
   check("fetch_artifact returns the full artifact", art?.found === true && art?.artifact?.fields?.nodes?.length === 10);
@@ -370,6 +401,28 @@ async function main() {
   check("crash_restored continues the seq sequence",
     firstPostCrash.seq === preCrashMax + 1 && restored.seq <= preCrashMax + 2,
     `expected ${preCrashMax + 1}.., got first=${firstPostCrash.type}#${firstPostCrash.seq} restored=#${restored.seq}`);
+
+  // Ticket 18: conversation survives crash-restore -- a NEW composer ask is
+  // never journal-skipped, and its answer grounds in the restored state.
+  four.connection.sendNotification("command.ask", { ask_id: "a3", text: "where did we leave off?" });
+  const askReply3 = await waitFor(
+    () => four.events.find((e) => e.type === "stream.open" && e.payload?.in_reply_to === "a3"),
+    15000,
+    "post-restore ask reply"
+  );
+  const askClose3 = await waitFor(
+    () => four.events.find((e) => e.type === "stream.close" && e.payload?.stream_id === askReply3.payload.stream_id),
+    15000,
+    "post-restore ask close"
+  );
+  const askText3 = four.events
+    .filter((e) => e.type === "stream.delta" && e.payload?.stream_id === askReply3.payload.stream_id && e.payload?.part?.kind === "text_delta")
+    .map((e) => e.payload.part.text)
+    .join("");
+  check(
+    "post-restore ask answered from restored state (not journal-skipped)",
+    askClose3.payload.finish_reason === "stop" && askText3.includes("human gate")
+  );
 
   answer(four, human.payload.question_id, "approve");
   const ended = await waitFor(
@@ -595,6 +648,66 @@ async function main() {
   const exit6 = await six.exited;
   check("SIGTERM after the stopped run exits 0", exit6.code === 0);
   six.connection.dispose();
+
+  // ---- phase 9: forced malformed-specialist escalation (ticket 18) ---------
+  console.log("phase 9: malformed specialist -> orchestrator explains -> propose-confirm stop");
+  const nine = startCore();
+  const ev9 = nine.events;
+  nine.connection.sendNotification("command.start_run", {
+    door: "typed",
+    text: "Same job again",
+    attachments: ["demo/data/trades.csv", "demo/data/expected_positions.csv"],
+    rig: { malformed_design: true },
+  });
+  const gaps9 = await waitFor(
+    () => { const g = ev9.filter(isQ("gap")); return g.length >= 2 ? g : null; },
+    15000,
+    "phase 9 gap round"
+  );
+  for (const g of gaps9) {
+    answer(nine, g.payload.question_id, g.payload.gap_id === "G1" ? "keep_blanks" : "trade_id_asc");
+  }
+  const g3d = await waitFor(
+    () => ev9.find((e) => e.type === "question.raised" && e.payload?.kind === "gap" && e.payload?.gap_id === "G3"),
+    20000,
+    "phase 9 re-found gap"
+  );
+  answer(nine, g3d.payload.question_id, "validate_drop");
+  const spec9 = await waitFor(isQFind(ev9, "spec_gate", (p) => p.draft === 1), 30000, "phase 9 spec gate");
+  answer(nine, spec9.payload.question_id, "approve");
+
+  const pc9 = await waitFor(() => ev9.find(isQ("propose_confirm")), 60000, "escalation propose-confirm");
+  const badCloses = ev9.filter((e) => e.type === "stream.close" && e.payload?.label === "flow.design.bad");
+  check("malformed specialist spent its bounded retries (3 attempts streamed)", badCloses.length === 3, `${badCloses.length}`);
+  check(
+    "escalation proposes a stop with conductor-authored options",
+    pc9.payload?.proposal === "stop" && ["confirm", "dismiss"].every((id) => pc9.payload?.options?.some((o) => o.id === id))
+  );
+  const escOpen = ev9.find((e) => e.type === "stream.open" && e.payload?.label === "orch.escalate");
+  const escText = ev9
+    .filter((e) => e.type === "stream.delta" && e.payload?.stream_id === escOpen?.payload?.stream_id && e.payload?.part?.kind === "text_delta")
+    .map((e) => e.payload.part.text)
+    .join("");
+  check(
+    "the orchestrator explained first and the card carries its words",
+    Boolean(escOpen) && escOpen.seq < pc9.seq && pc9.payload?.voice === escText.trim(),
+    `voice=${JSON.stringify(pc9.payload?.voice ?? "").slice(0, 60)}`
+  );
+  answer(nine, pc9.payload.question_id, "confirm");
+  const ended9 = await waitFor(
+    () => ev9.find((e) => e.type === "run.ended" && e.run_id === spec9.run_id),
+    20000,
+    "phase 9 run.ended"
+  );
+  check(
+    "confirmed stop ends the run plainly",
+    ended9.payload?.status === "stopped" && /design/.test(ended9.payload?.note ?? ""),
+    JSON.stringify(ended9.payload)
+  );
+  nine.child.kill("SIGTERM");
+  const exit9 = await nine.exited;
+  check("SIGTERM after the escalated run exits 0", exit9.code === 0);
+  nine.connection.dispose();
 
   console.log(`\nsmoke result: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);

@@ -11,10 +11,13 @@ artifact moves on the bus. It records the human's resolutions untouched --
 no model in the return path -- and cannot improvise: on anything unplanned
 it stops and asks (propose-confirm), never silently acts.
 
-It is code, never a speaker. The orchestrator voice lines it plays through
-``orch.*`` fixture labels are placeholders ticket 18's LLM orchestrator
-replaces at the same call sites; the machine-truth events (run/stage/
-question/health) are conductor-authored forever.
+It is code, never a speaker. The speaking layer is ticket 18's LLM
+orchestrator (core/orchestrator.py): the conductor enqueues narration at
+fixed moments (non-blocking -- the walk never waits on prose), routes
+composer messages to it, and hands it unplanned failures to explain; the
+machine-truth events (run/stage/question/health) are conductor-authored
+forever, and the return path (answers, approvals) never passes through the
+model.
 
 Crash-restore: the bus owns the artifacts, ``audit.jsonl`` owns the
 decisions, and the UI journal owns the event sequence. On boot the
@@ -42,8 +45,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .bus import ArtifactBus
-from .llm import LlmCall, LlmCallError, StreamRunner
+from .llm import LlmCallError, StreamRunner
 from .models import ModelConfig
+from .orchestrator import Orchestrator
 from .port import ModelInfo, ProviderPort
 from .questions import QuestionChannel
 from .real_stages import LIVE_SLOTS
@@ -150,7 +154,7 @@ class Conductor:
         self.run.data_present = bool(request.get("attachments"))
 
         self.bus = ArtifactBus(run_dir)
-        self.questions = QuestionChannel(emit, audit=self.bus.audit)
+        self.questions = QuestionChannel(emit, audit=self.bus.audit, feed=self._feed)
         self._runner = StreamRunner(emit, port, provider_name, run_id, pace=pace,
                                     live_port=live_port, live_provider=live_provider)
         self._roster: List[ModelInfo] = []
@@ -192,10 +196,11 @@ class Conductor:
         self._grants = 0
         self._verdict: Dict[str, Any] = {}
 
-        # The orchestrator context-rebuild feed (ticket 05; ticket 18
-        # consumes): one compact line per machine event, rebuilt from
-        # bus + audit after a crash.
+        # The orchestrator context feed (ticket 05): one compact line per
+        # machine event, rebuilt from bus + audit after a crash. The
+        # orchestrator agent (ticket 18) consumes it turn by turn.
         self._orch_feed: List[Dict[str, str]] = []
+        self.orch = Orchestrator(self)
 
     # ---- lifecycle -----------------------------------------------------------
 
@@ -207,6 +212,7 @@ class Conductor:
         self._task = asyncio.get_running_loop().create_task(self._run())
 
     def dispose(self) -> None:
+        self.orch.dispose()
         for t in [self._task, *self._side_tasks]:
             if t is not None and not t.done():
                 t.cancel()
@@ -384,7 +390,8 @@ class Conductor:
                 text = f"human resolved {detail.get('question_id')}: {detail.get('choice')}"
             elif event in ("run_started", "run_ended", "stage_started", "stage_completed",
                            "tier_frozen", "grant", "loop_attempt", "hold_armed",
-                           "directed_iteration", "data_attached", "spec_signed"):
+                           "directed_iteration", "data_attached", "spec_signed",
+                           "verdict"):
                 text = f"{event}: {json.dumps(detail, ensure_ascii=True)}"
             else:
                 continue
@@ -526,13 +533,19 @@ class Conductor:
             return await adapter.run(ctx)  # human said continue: one more try
 
     async def _escalate_failure(self, slot: str, e: LlmCallError) -> None:
+        # 18: the orchestrator explains what it sees (awaited -- the walk is
+        # already stopped on the failure); its words become the card's voice.
+        # Options stay conductor-authored; the fallback line covers a
+        # journal-skipped turn on a crash re-walk.
+        text = await self.orch.escalate(slot, e.taxonomy, e.message)
         self._pc_count += 1
         qid = f"q-pc-{self._pc_count}"
+        voice = text or (f"The {slot} call failed ({e.taxonomy}: {e.message}). "
+                         f"I can stop the build here, or you dismiss this and I try once more.")
         res = await self.questions.ask(
             qid, "propose_confirm",
-            {"proposal": "stop", "n": self._pc_count,
-             "voice": (f"The {slot} call failed ({e.taxonomy}: {e.message}). "
-                       f"I can stop the build here, or you dismiss this and I try once more.")},
+            {"proposal": "stop", "n": self._pc_count, "voice": voice,
+             "slot": slot, "taxonomy": e.taxonomy},
             [
                 {"id": "confirm", "kind": "confirm", "label": "Stop the build"},
                 {"id": "dismiss", "kind": "dismiss", "label": "Try again"},
@@ -541,14 +554,42 @@ class Conductor:
         if res.get("choice") == "confirm":
             raise _Stopped(f"Stopped by you — {slot} failed ({e.taxonomy})")
 
-    # ---- orchestrator voice (fixture placeholders ticket 18 replaces) ------------
+    # ---- the orchestrator's read surface (ticket 18) -----------------------------
 
-    async def _orch(self, label: str, prompt: str = "",
-                    in_reply_to: Optional[str] = None) -> str:
-        return await self._runner.run(LlmCall(
-            source="orchestrator", who="Orchestrator", label=label, prompt=prompt,
-            in_reply_to=in_reply_to, model=await self._models_for("orchestrator"),
-        ))
+    def orchestrator_live(self) -> bool:
+        return self._slot_live("orchestrator")
+
+    async def orchestrator_model(self) -> Optional[ModelInfo]:
+        return await self._models_for("orchestrator")
+
+    def runner(self) -> StreamRunner:
+        """Always the CURRENT runner -- restore() rebuilds it with the
+        journal's closed-stream ledger."""
+        return self._runner
+
+    async def handle_propose_tool(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """propose_control: the orchestrator proposes, the human confirms,
+        the conductor executes (05: free to pull the cord, never to grab
+        the wheel). Raises the card as a side task -- the model's turn never
+        blocks on the human."""
+        action = str(args.get("action", ""))
+        if action not in ("hold", "stop"):
+            return {"ok": False, "note": "action must be hold or stop"}
+        if self.ended:
+            return {"ok": False, "note": "the build already ended; nothing to " + action}
+        if self._armed:
+            return {"ok": False,
+                    "note": f"a {self._armed} is already armed at the next boundary"}
+        if not self._stretch_active:
+            return {"ok": False, "note": "nothing is in flight; the build is waiting on the human"}
+        self._pc_count += 1
+        qid = f"q-pc-{self._pc_count}"
+        voice = str(args.get("note") or "").strip() or (
+            "Stop this build at the next stage boundary?" if action == "stop"
+            else "Hold the build at the next stage boundary?")
+        self._spawn_side(self._raise_proposal(qid, action, voice))
+        return {"ok": True, "question_id": qid,
+                "note": "proposal card raised -- nothing happens until the human confirms"}
 
     # ---- gap resolutions view ------------------------------------------------------
 
@@ -572,7 +613,9 @@ class Conductor:
         text = str(params.get("text", "")).strip()
         if not text:
             return
-        self._spawn_side(self._answer_ask(ask_id, text))
+        # 18: conversation, never a gate -- the orchestrator's worker runs
+        # the turn; a hold/stop instruction becomes its propose_control call.
+        self.orch.ask(ask_id, text)
 
     def _spawn_side(self, coro: Awaitable[None]) -> None:
         task = asyncio.get_running_loop().create_task(coro)
@@ -581,7 +624,10 @@ class Conductor:
             lambda t: self._side_tasks.remove(t) if t in self._side_tasks else None)
 
     @staticmethod
-    def _intent(text: str) -> Optional[str]:
+    def intent_hint(text: str) -> Optional[str]:
+        """Keyword LABEL hint for a composer message (stream label + the
+        double's fixture key). Whether a proposal card actually rises is the
+        model's call -- live, its judgment; scripted, the label's fixture."""
         low = text.lower()
         if any(w in low for w in ("stop", "halt", "abort", "kill the run")):
             return "stop"
@@ -589,15 +635,10 @@ class Conductor:
             return "hold"
         return None
 
-    async def _answer_ask(self, ask_id: str, text: str) -> None:
-        intent = self._intent(text)
-        if intent and self._stretch_active and not self._armed and not self.ended:
-            await self._propose(ask_id, intent)
-            return
-        reply = self._compose_ask_reply(text)
-        await self._orch("orch.ask", prompt=reply, in_reply_to=ask_id)
-
-    def _compose_ask_reply(self, text: str) -> str:
+    def compose_ask_reply(self, text: str) -> str:
+        """The scripted-path answer: what the scripted model says on an
+        echo_prompt fixture -- deterministic and grounded in real run state
+        (a live turn answers from its conversation + bus reads instead)."""
         if self.ended:
             return ("This build has ended — everything on the canvas is final. "
                     "Start a new build from the two doors whenever you’re ready.")
@@ -625,22 +666,18 @@ class Conductor:
                 f"complete. Ask about any step on the canvas — what you see there is the artifact, "
                 f"not a summary.")
 
-    async def _propose(self, ask_id: str, proposal: str) -> None:
-        self._pc_count += 1
-        qid = f"q-pc-{self._pc_count}"
-        await self._orch("orch.stop" if proposal == "stop" else "orch.hold",
-                         in_reply_to=ask_id)
-        await self._await_proposal(qid, proposal)
+    async def _await_proposal(self, qid: str) -> None:
+        """Re-await a pending proposal after crash-restart (payload and
+        voice already journaled; ask() short-circuits on the raised qid)."""
+        q = self.questions.raised.get(qid, {})
+        await self._raise_proposal(qid, str(q.get("proposal", "hold")),
+                                   str(q.get("voice") or ""))
 
-    async def _await_proposal(self, qid: str, proposal: Optional[str] = None) -> None:
-        if proposal is None:
-            proposal = self.questions.raised.get(qid, {}).get("proposal", "hold")
+    async def _raise_proposal(self, qid: str, proposal: str, voice: str) -> None:
         n = int(qid.rsplit("-", 1)[-1])
         res = await self.questions.ask(
             qid, "propose_confirm",
-            {"proposal": proposal, "n": n,
-             "voice": ("Stop this build at the next stage boundary?" if proposal == "stop"
-                       else "Hold the build at the next stage boundary?")},
+            {"proposal": proposal, "n": n, "voice": voice},
             [
                 {"id": "confirm", "kind": "confirm",
                  "label": "Stop the build" if proposal == "stop" else "Confirm hold"},
@@ -679,9 +716,9 @@ class Conductor:
         if choice == "stop":
             raise _Stopped("Stopped by you — from the hold")
         if choice in ("steer", "other") or (choice not in ("resume",) and res.get("free_text")):
-            await self._orch("orch.steer")
+            self.orch.narrate("steer")
             raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
-        await self._orch("orch.resume")
+        self.orch.narrate("resume")
 
     # ---- artifacts for fetch_artifact ----------------------------------------------
 
@@ -780,8 +817,8 @@ class Conductor:
                            {"job": self.run.job, "door": self.run.door,
                             "request": self.run.request})
             self._feed("run_started", f"run {self.run.run_id} started ({self.run.door} door)")
-        await self._orch("orch.opening.brd" if self.run.door == "brd"
-                         else "orch.opening.typed")
+        # Non-blocking (05): intake starts now; the opening streams alongside.
+        self.orch.narrate("opening.brd" if self.run.door == "brd" else "opening.typed")
 
     async def _s_intake(self) -> None:
         if self._stage_done("intake"):
@@ -894,7 +931,7 @@ class Conductor:
             round_k += 1
             batch = round_k > ELICITATION_ROUNDS
             round_id = "batch" if batch else f"r{round_k}"
-            await self._orch("orch.questions")
+            self.orch.narrate("questions")
             waits = []
             for g in gaps:
                 qid = f"q-{g['id'].lower()}-{round_id}"
@@ -986,7 +1023,7 @@ class Conductor:
             await self._s_interpret()
 
     async def _s_golden(self) -> None:
-        await self._orch("orch.signed")
+        self.orch.narrate("signed")
         result = await self._run_stage("materialize", "interpret")
         tier = result.data.get("tier") or ("verified" if self.run.data_present else "build")
         if self.run.tier != tier:
@@ -1003,7 +1040,7 @@ class Conductor:
         await self._run_stage("design", "design")
         await self._stage_completed("design")
         if not condensed:
-            await self._orch("orch.flow")
+            self.orch.narrate("flow")
         await self._boundary("design")
 
     async def _s_configure(self) -> None:
@@ -1067,7 +1104,7 @@ class Conductor:
         if not pending:
             return  # 04's re-pause rule: only new or changed cells re-raise
         if self._code_round == 1:
-            await self._orch("orch.gate")
+            self.orch.narrate("gate")
         new_keys = [c["_key"] for c in pending if c["new"]]
         if new_keys:
             self.bus.audit("conductor", "cells_raised",
@@ -1136,7 +1173,7 @@ class Conductor:
                            {"loop": loop, "new_budget": budget + GRANT_SIZE})
             return budget + GRANT_SIZE
         if choice == "steer" or (choice == "other" and res.get("free_text")):
-            await self._orch("orch.steer")
+            self.orch.narrate("steer")
             raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
         if choice == "stop":
             raise _Stopped("Stopped by you — from the exhausted "
@@ -1153,6 +1190,8 @@ class Conductor:
             self._verdict = {
                 "verdict": "unverified", "matched": "—", "runs": {"k": 0, "n": 0},
                 "diagnosis": "build tier — no data to grade against, nothing ran"}
+            self.bus.audit("conductor", "verdict", dict(self._verdict))
+            self._feed("verdict", "verdict: " + json.dumps(self._verdict, ensure_ascii=True))
             await self._stage_completed("verify")
             await self._boundary("verify")
             return
@@ -1193,7 +1232,7 @@ class Conductor:
                 )
                 choice = res.get("choice")
                 if choice == "steer" or (choice == "other" and res.get("free_text")):
-                    await self._orch("orch.steer")
+                    self.orch.narrate("steer")
                     raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
                 if choice == "stop_to_gate":
                     stopped_to_gate = True
@@ -1235,12 +1274,16 @@ class Conductor:
                 if stopped_to_gate else
                 "not verified — the last run still mismatched the golden"),
         }
+        # The verdict is a conductor decision: audit it (restore parity) and
+        # feed it, so the orchestrator narrates the real result (ticket 18).
+        self.bus.audit("conductor", "verdict", dict(self._verdict))
+        self._feed("verdict", "verdict: " + json.dumps(self._verdict, ensure_ascii=True))
         await self._stage_completed("verify")
         await self._boundary("verify")
 
     async def _s_human_gate(self) -> None:
         first = self._human_round == 1
-        await self._orch("orch.verdict" if first else "orch.reverdict")
+        self.orch.narrate("verdict" if first else "reverdict")
         verdict = dict(self._verdict or {})
         red = verdict.get("verdict") in ("failed", "smoke_failed")
         options = []

@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -80,6 +81,10 @@ class LlmCall:
     # When set, every text_delta of the winning attempt accumulates here --
     # the real stages parse their JSON artifact from it. Cleared per attempt.
     capture: Optional[List[str]] = None
+    # Ticket 18: conversation turns (composer asks, proposals) are NOT part
+    # of the deterministic walk -- a crash-restored core must never skip a
+    # NEW ask because the journal holds an older stream under the same label.
+    journal_guarded: bool = True
 
 
 class StreamRunner:
@@ -107,6 +112,10 @@ class StreamRunner:
         # populated by the conductor's restore pass.
         self._closed = dict(closed_streams or {})
         self._calls: Dict[str, int] = {}  # label -> logical calls this life
+        # Stream ids must stay unique across crash-restarts: unguarded calls
+        # (ticket 18's conversation turns) restart their per-label count each
+        # life, so the id carries a per-process epoch instead of the run id.
+        self._epoch = uuid.uuid4().hex[:4]
 
     def _port_for(self, call: LlmCall):
         if call.live and self._live_port is not None:
@@ -139,7 +148,7 @@ class StreamRunner:
         completed stream, the call no-ops (the stub stages' bus writes are
         separately idempotent, so skipping the stream skips no state)."""
         self._calls[call.label] = self._calls.get(call.label, 0) + 1
-        if self._closed.get(call.label, 0) >= self._calls[call.label]:
+        if call.journal_guarded and self._closed.get(call.label, 0) >= self._calls[call.label]:
             return "stop"  # journal already holds this call in full
 
         messages = list(call.messages) if call.messages is not None else [
@@ -147,7 +156,7 @@ class StreamRunner:
         ]
         last_error: Optional[ProviderError] = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            stream_id = f"s-{call.label}-{self._calls[call.label]}.{attempt}-{self._run_id[-4:]}"
+            stream_id = f"s-{call.label}-{self._calls[call.label]}.{attempt}-{self._epoch}"
             try:
                 return await self._attempt(call, messages, stream_id)
             except RateLimited as e:

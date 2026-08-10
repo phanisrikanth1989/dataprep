@@ -532,21 +532,44 @@ class StudioApp:
         if kind == "owner_human":
             return ("retry" if "retry" in ids else ids[0]), None
         if kind == "propose_confirm":
+            # A hold the probe itself asked for gets confirmed (ticket 18's
+            # composer-intent beat); anything else -- notably an escalation's
+            # stop proposal -- is dismissed so the run stays alive.
+            if q.get("proposal") == "hold" and "confirm" in ids:
+                return "confirm", None
             return ("dismiss" if "dismiss" in ids else ids[0]), None
         if kind == "hold":
             return ("resume" if "resume" in ids else ids[0]), None
         return (ids[0] if ids else "other"), None
 
-    async def _autorun_bot(self) -> None:
+    async def _autorun_bot(self, probe_asks: Optional[Dict[str, str]] = None) -> None:
+        """``probe_asks`` (ticket 18): {question_kind: composer_text} -- when
+        a kind first shows up pending, the bot types the text into the
+        composer (through the normal ``command.ask`` path) one tick before
+        answering the question, so the orchestrator's live turns -- threaded
+        answers and propose_control -- get exercised without a human."""
         answered: set = set()
+        asked: set = set()
+        ask_n = 0
         state: Dict[str, int] = {}
+        probe_asks = dict(probe_asks or {})
         while True:
             await asyncio.sleep(1.0)
             driver = self._driver
             if driver is None:
                 continue
+            fired_ask = False
             for q in driver.questions.pending():
                 qid = str(q.get("question_id"))
+                kind = str(q.get("kind"))
+                if kind in probe_asks and kind not in asked:
+                    asked.add(kind)
+                    ask_n += 1
+                    text = probe_asks[kind]
+                    logger.info("[autorun] probe ask at %s: %r", kind, text)
+                    await driver.handle_ask({"ask_id": f"probe-{ask_n}", "text": text})
+                    fired_ask = True
+                    break  # answer this question on the next tick
                 if qid in answered:
                     continue
                 choice, free_text = self._autorun_answer(q, state)
@@ -555,6 +578,10 @@ class StudioApp:
                             qid, q.get("kind"), choice)
                 await driver.handle_answer(
                     {"question_id": qid, "choice": choice, "free_text": free_text})
+            if fired_ask:
+                # Give the orchestrator's turn a beat to land (and any
+                # proposal card to rise) before the gates get answered.
+                await asyncio.sleep(4.0)
             if driver.ended:
                 logger.info("[autorun] run ended; probe bot done")
                 return
@@ -577,9 +604,11 @@ class StudioApp:
         if consumed.exists():
             consumed.unlink()
         marker.rename(consumed)
+        # probe_asks is the bot's, never part of the start_run request.
+        probe_asks = params.pop("probe_asks", None)
         logger.info("[autorun] starting %s-door probe run", params.get("door"))
         await self._on_start_run(params)
-        asyncio.get_running_loop().create_task(self._autorun_bot())
+        asyncio.get_running_loop().create_task(self._autorun_bot(probe_asks))
 
     def close(self) -> None:
         if self._driver is not None:

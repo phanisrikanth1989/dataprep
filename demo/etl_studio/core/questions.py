@@ -30,9 +30,14 @@ QUESTION_KINDS = (
 
 
 class QuestionChannel:
-    def __init__(self, emit: Emit, audit: Optional[Callable[..., None]] = None):
+    def __init__(self, emit: Emit, audit: Optional[Callable[..., None]] = None,
+                 feed: Optional[Callable[[str, str], None]] = None):
         self._emit = emit
         self._audit = audit or (lambda *a, **k: None)
+        # Ticket 18: the orchestrator's live context feed -- lines match the
+        # conductor's audit-rebuilt feed exactly, so a crash-restored
+        # conversation sees the same history a live one accumulated.
+        self._feed = feed or (lambda *a: None)
         self.raised: Dict[str, Dict[str, Any]] = {}  # qid -> raised payload
         self.resolved: Dict[str, Dict[str, Any]] = {}  # qid -> resolution
         self._waiters: Dict[str, asyncio.Future] = {}
@@ -54,6 +59,7 @@ class QuestionChannel:
             self.raised[qid] = raised
             await self._emit("conductor", "question.raised", raised)
             self._audit("conductor", "question_raised", {"question_id": qid, "kind": kind})
+            self._feed("question_raised", f"question raised: {kind} {qid}")
         fut = asyncio.get_running_loop().create_future()
         self._waiters[qid] = fut
         try:
@@ -95,6 +101,7 @@ class QuestionChannel:
             {"question_id": qid, "kind": q.get("kind"), "choice": choice,
              "free_text": free_text},
         )
+        self._feed("question_resolved", f"human resolved {qid}: {choice}")
         fut = self._waiters.get(qid)
         if fut is not None and not fut.done():
             fut.set_result(resolution)

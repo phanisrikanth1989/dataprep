@@ -40,8 +40,9 @@ from .vendored.validate_config import validate_config
 logger = logging.getLogger(__name__)
 
 # Slots whose streams route to the live provider when one resolved (17's
-# specialists; 18 adds the orchestrator, 19 the diagnostician).
-LIVE_SLOTS = frozenset({"doc_normalize", "interpret", "design", "configure", "assemble"})
+# specialists + 18's orchestrator; 19 adds the diagnostician).
+LIVE_SLOTS = frozenset({"doc_normalize", "interpret", "design", "configure", "assemble",
+                        "orchestrator"})
 
 STUDIO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_BRD = os.path.join(STUDIO_ROOT, "examples", "trade_position_demo.docx")
@@ -456,9 +457,14 @@ class RealFlowDesigner(StageAdapter):
 
     async def run(self, ctx: StageContext) -> StageResult:
         spec = ctx.bus.read_json("requirement_spec.json") or {}
+        # Rig knob (smoke's, fixture-label selector only): a permanently
+        # malformed designer forces the bounded-retry exhaustion ticket 18's
+        # escalation path demonstrates. Live runs play the plain label.
+        malformed = bool(ctx.run.rig.get("malformed_design"))
         parsed = await run_specialist(
             ctx, who="Flow Designer",
-            label="flow.repair" if ctx.repair else "flow.design",
+            label=("flow.design.bad" if malformed
+                   else "flow.repair" if ctx.repair else "flow.design"),
             stage_label="Design",
             messages=designer_messages(spec, repair=ctx.repair),
         )
