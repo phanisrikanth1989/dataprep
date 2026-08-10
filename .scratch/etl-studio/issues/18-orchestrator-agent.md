@@ -151,3 +151,10 @@ labels, same question kinds).
   mutation; tighten the verdict instruction if it grates.
 - Live `stream.close` on the vscode_lm adapter reports finish_reason
   "unknown" (within contract; the double says "stop").
+
+## Comments
+
+2026-08-10 -- HITL F5 pass (user-driven live BRD run, post gap-card fix):
+all four done-when beats confirmed on pixels at human pace; provenance for
+the composer beats upgrades from rig-answered to human-driven on this Mac.
+One live-feel finding (stage-boundary pacing beat) recorded on ticket 21.

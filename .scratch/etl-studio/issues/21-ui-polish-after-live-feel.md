@@ -116,3 +116,21 @@ duplicate answers), and waive now sends the waive option's REAL id instead
 of the literal "waive" (live-authored options need not use it -- same
 stranding pattern otherwise). Latent since 15; first conductor-era F5 pass
 surfaced it.
+
+2026-08-10 (live-feel finding from the ticket-18 HITL F5 pass, user):
+stage transitions need a breathing beat. Today a stage completes and the
+next specialist's stream opens immediately while the orchestrator's
+narration for the finished stage is still queued or streaming -- the room
+wants: stage completes -> orchestrator speaks -> next agent starts.
+Design tension to respect when fixing: 05/18 deliberately made narration
+non-blocking (the walk never waits on prose; smoke depends on overlap),
+so the fix is a paced choreography dwell at stage boundaries -- e.g. a
+conductor-side boundary beat at demo pace (zero at fast/smoke pace), or
+wait-for-narration-close with a hard cap -- NOT a return to blocking
+narration. Decide the shape in this ticket's pass.
+
+Same pass also confirmed on real pixels: the gap-round card fix (comment
+above) -- multi-gap live round answered clean, preselects shown, Send
+live; and ticket 18's beats (narration alongside stages, threaded
+tool-grounded composer answer, hold propose-confirm -> boundary hold ->
+resume) all read correctly at human pace.
