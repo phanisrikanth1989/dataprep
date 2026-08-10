@@ -40,6 +40,13 @@ class RunInfo:
     feedback: str = ""  # latest directed-iteration feedback
     data_present: bool = False  # sample/expected data available
     gap_resolutions: List[Dict[str, Any]] = field(default_factory=list)
+    # Extraction needs_human answers, conductor-recorded (ticket 17): the
+    # doc-normalizer folds these into its next proposal pass.
+    nh_resolutions: List[Dict[str, Any]] = field(default_factory=list)
+    # Interpreter call mode, conductor-set before each interpret invocation
+    # (ticket 17): "read" (fresh), "refind" (elicitation fold-in round),
+    # "revise" (directed revision). Deterministic across a restore re-walk.
+    interpret_mode: str = "read"
     rig: Dict[str, Any] = field(default_factory=dict)  # stub-rig knobs
 
 
@@ -69,12 +76,16 @@ class StageContext:
         emit_loop_attempt: Callable[..., Awaitable[None]],
         sleep: Callable[[float], Awaitable[None]],
         repair: Optional[Dict[str, Any]] = None,
+        live: bool = False,
     ):
         self.run = run
         self.bus = bus
         self.stage = stage
         self.iteration = iteration
         self.model = model
+        # Ticket 17: True for the real-specialist slots -- their streams route
+        # to the live provider when one resolved (the double otherwise).
+        self.live = live
         # Set when the conductor re-invokes this slot inside the repair loop:
         # the diagnostician's feedback.json content. A repairing stage reads
         # it first (04) and keeps its pass quiet -- no full re-walk.
@@ -97,23 +108,37 @@ class StageContext:
         tools: Optional[Dict[str, ToolHandler]] = None,
         tool_decls: Optional[List[ToolDecl]] = None,
         options: Optional[ChatOptions] = None,
+        messages: Optional[List[Any]] = None,
+        capture: Optional[List[str]] = None,
     ) -> str:
         """One model call through the port, forwarded per-part; returns
-        finish_reason. Backoff and the tool loop are the runner's."""
+        finish_reason. Backoff and the tool loop are the runner's. ``capture``
+        collects the winning attempt's text deltas for artifact parsing."""
         return await self._runner.run(
             LlmCall(
                 source=source or f"specialist:{self.stage}",
                 who=who,
                 label=label,
                 prompt=prompt,
+                messages=messages,
                 stage_label=stage_label,
                 in_reply_to=in_reply_to,
                 tools=dict(tools or {}),
                 tool_decls=list(tool_decls or []),
                 model=self.model,
                 options=options or ChatOptions(),
+                live=self.live,
+                capture=capture,
             )
         )
+
+    async def count_tokens(self, text: str) -> Optional[int]:
+        """Prompt-budget probe (ticket 17): the serving port's count_tokens
+        when the model has the capability; None otherwise (degrade)."""
+        if not (self.model and self.model.capabilities.get("counts_tokens")):
+            return None
+        probe = LlmCall(source="probe", who="", label="", model=self.model, live=self.live)
+        return await self._runner.count_tokens(probe, text)
 
     async def write_artifact(
         self,

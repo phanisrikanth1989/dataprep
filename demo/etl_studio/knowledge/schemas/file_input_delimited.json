@@ -1,0 +1,32 @@
+{
+  "type": "FileInputDelimited",
+  "aliases": ["tFileInputDelimited"],
+  "source": "src/v1/engine/components/file/file_input_delimited.py",
+  "keys": {
+    "filepath": {"type": "str", "default": "", "required": true},
+    "fieldseparator": {"type": "str", "default": ";"},
+    "row_separator": {"type": "str", "default": "\\n"},
+    "encoding": {"type": "str", "default": "ISO-8859-15"},
+    "header_rows": {"type": "int", "default": 0},
+    "footer_rows": {"type": "int", "default": 0},
+    "limit": {"type": "str", "default": ""},
+    "remove_empty_row": {"type": "bool", "default": true},
+    "csv_option": {"type": "bool", "default": false},
+    "csv_row_separator": {"type": "str", "default": "\\n"},
+    "escape_char": {"type": "str", "default": "\""},
+    "text_enclosure": {"type": "str", "default": "\""},
+    "trim_all": {"type": "bool", "default": false},
+    "trim_select": {"type": "list", "default": [], "item_keys": {
+      "column": {"type": "str"},
+      "trim": {"type": "bool"}
+    }},
+    "check_fields_num": {"type": "bool", "default": false},
+    "check_date": {"type": "bool", "default": false},
+    "die_on_error": {"type": "bool", "default": false},
+    "uncompress": {"type": "bool", "default": false},
+    "split_record": {"type": "bool", "default": false},
+    "random": {"type": "bool", "default": false},
+    "advanced_separator": {"type": "bool", "default": false},
+    "enable_decode": {"type": "bool", "default": false}
+  }
+}

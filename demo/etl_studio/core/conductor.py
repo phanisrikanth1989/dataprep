@@ -46,6 +46,7 @@ from .llm import LlmCall, LlmCallError, StreamRunner
 from .models import ModelConfig
 from .port import ModelInfo, ProviderPort
 from .questions import QuestionChannel
+from .real_stages import LIVE_SLOTS
 from .stages import RunInfo, StageAdapter, StageContext, StageResult
 from .vendored.surface_code_cells import surface_code_cells
 
@@ -127,10 +128,17 @@ class Conductor:
         stages: Dict[str, StageAdapter],
         model_config: Optional[ModelConfig] = None,
         pace: float = 1.0,
+        live_port: Optional[ProviderPort] = None,
+        live_provider: str = "",
     ):
         self._emit = emit
         self._port = port
         self._provider = provider_name
+        # Ticket 17: the real specialists' streams route here when a live
+        # provider resolved; orchestrator placeholders and stub slots stay on
+        # the scripted port until tickets 18/19 replace them.
+        self._live_port = live_port
+        self._live_provider = live_provider
         self.run_id = run_id
         self._stages_impl = stages
         self._models = model_config or ModelConfig()
@@ -143,8 +151,10 @@ class Conductor:
 
         self.bus = ArtifactBus(run_dir)
         self.questions = QuestionChannel(emit, audit=self.bus.audit)
-        self._runner = StreamRunner(emit, port, provider_name, run_id, pace=pace)
+        self._runner = StreamRunner(emit, port, provider_name, run_id, pace=pace,
+                                    live_port=live_port, live_provider=live_provider)
         self._roster: List[ModelInfo] = []
+        self._live_roster: List[ModelInfo] = []
         self._model_map: Optional[Dict[str, Optional[ModelInfo]]] = None
 
         self._task: Optional[asyncio.Task] = None
@@ -269,6 +279,7 @@ class Conductor:
         self._runner = StreamRunner(
             self._emit, self._port, self._provider, self.run_id,
             pace=self._pace, closed_streams=self._closed_streams,
+            live_port=self._live_port, live_provider=self._live_provider,
         )
         # A confirmed hold/stop proposal whose hold question never raised re-arms.
         for qid, res in self.questions.resolved.items():
@@ -330,6 +341,19 @@ class Conductor:
                     break
         self.run.draft = self._draft
         self.run.gap_resolutions = self._gap_resolutions()
+        # needs_human answers re-derive from the resolved questions (17): the
+        # re-walked normalizer passes get the same fold-in prompt they had.
+        for qid in sorted(self.questions.resolved):
+            q = self.questions.raised.get(qid, {})
+            if q.get("kind") != "needs_human":
+                continue
+            res = self.questions.resolved[qid]
+            self.run.nh_resolutions.append({
+                "source": q.get("source", "normalize_validate"),
+                "prompt": q.get("prompt", ""),
+                "choice": res.get("choice"),
+                "free_text": res.get("free_text"),
+            })
         if self._code_round > 1:
             self.run.rig["_cell_revised"] = True
 
@@ -450,17 +474,29 @@ class Conductor:
 
     # ---- stage invocation --------------------------------------------------------
 
+    def _slot_live(self, slot: str) -> bool:
+        return slot in LIVE_SLOTS and self._live_port is not None
+
     async def _models_for(self, slot: str) -> Optional[ModelInfo]:
+        live = self._slot_live(slot)
         if self._model_map is None:
             try:
                 self._roster = await self._port.list_models()
             except Exception as e:  # noqa: BLE001 -- selection degrades; calls surface errors
                 logger.warning("list_models failed (%s); adapter defaults apply", e)
                 self._roster = []
+            if self._live_port is not None:
+                try:
+                    self._live_roster = await self._live_port.list_models()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("live list_models failed (%s); adapter defaults apply", e)
+                    self._live_roster = []
             self._model_map = {}
-        if slot not in self._model_map:
-            self._model_map[slot] = self._models.pick(self._roster, slot)
-        return self._model_map[slot]
+        key = f"{slot}:{'live' if live else 'scripted'}"
+        if key not in self._model_map:
+            roster = self._live_roster if live else self._roster
+            self._model_map[key] = self._models.pick(roster, slot)
+        return self._model_map[key]
 
     async def _run_stage(
         self, slot: str, ui_stage: str, repair: Optional[Dict[str, Any]] = None
@@ -480,6 +516,7 @@ class Conductor:
             emit_loop_attempt=self._loop_attempt,
             sleep=self._sleep,
             repair=repair,
+            live=self._slot_live(slot),
         )
         try:
             return await adapter.run(ctx)
@@ -754,11 +791,16 @@ class Conductor:
             await self._run_stage("explode", "intake")
             shape_repairs = 0
             budget = SHAPE_REPAIR_CAP
+            shape_feedback: Optional[Dict[str, Any]] = None
             while True:
-                await self._run_stage("doc_normalize", "intake")
+                await self._run_stage("doc_normalize", "intake", repair=shape_feedback)
+                shape_feedback = None
                 nv = await self._run_stage("normalize_validate", "intake")
                 if nv.status == "shape_error":
                     shape_repairs += 1
+                    # The validator's structural errors[] route to the next
+                    # normalizer pass in-prompt (ticket 17).
+                    shape_feedback = {"errors": nv.data.get("errors") or []}
                     if shape_repairs > budget:
                         try:
                             budget = await self._exhaustion("shape_repair", "intake",
@@ -775,7 +817,7 @@ class Conductor:
                 if nv.status == "needs_human":
                     q = nv.data.get("question") or {}
                     self._nh_count += 1
-                    await self.questions.ask(
+                    res = await self.questions.ask(
                         f"q-nh-{self._nh_count}", "needs_human",
                         {"source": q.get("source", "normalize_validate"),
                          "prompt": q.get("prompt", ""),
@@ -784,16 +826,24 @@ class Conductor:
                          "voice": "Extraction needs one answer before the envelope closes."},
                         list(q.get("options") or []),
                     )
+                    # Recorded untouched, then folded into the next normalizer
+                    # pass in-prompt (ticket 17).
+                    self.run.nh_resolutions.append({
+                        "source": q.get("source", "normalize_validate"),
+                        "prompt": q.get("prompt", ""),
+                        "choice": res.get("choice"),
+                        "free_text": res.get("free_text"),
+                    })
                     continue
                 self.run.data_present = self.run.data_present or bool(
                     nv.data.get("data_present"))
                 break
-            note = "Doc Normalizer · extract proposed — Normalize · validated clean"
+            note = nv.data.get("note") or "Doc Normalizer · extract validated clean"
         else:
             result = await self._run_stage("intake_build", "intake")
             self.run.data_present = self.run.data_present or bool(
                 result.data.get("data_present"))
-            note = "Intake builder · envelope validated clean"
+            note = result.data.get("note") or "Intake builder · envelope validated clean"
         await self._sleep(0.7)
         await self._stage_completed("intake", note=note)
         await self._boundary("intake")
@@ -805,6 +855,7 @@ class Conductor:
         extra = ({"directed": True, "feedback": self.run.feedback} if revision else {})
         await self._stage_started("interpret", **extra)
         self.run.gap_resolutions = self._gap_resolutions()
+        self.run.interpret_mode = "revise" if revision else "read"
         result = await self._run_stage("interpret", "interpret")
         self._pending_gaps = list(result.data.get("gaps") or [])
         # Interpret completes at spec-gate entry: elicitation belongs to the
@@ -832,7 +883,8 @@ class Conductor:
         round_k = 0
         while gaps:
             round_k += 1
-            round_id = f"r{round_k}" if round_k <= ELICITATION_ROUNDS else "batch"
+            batch = round_k > ELICITATION_ROUNDS
+            round_id = "batch" if batch else f"r{round_k}"
             await self._orch("orch.questions")
             waits = []
             for g in gaps:
@@ -845,16 +897,26 @@ class Conductor:
                     "round": {"k": min(round_k, ELICITATION_ROUNDS),
                               "n": ELICITATION_ROUNDS},
                 }
-                if round_id == "batch":
+                if batch:
                     # 02: the soft budget ran out -- everything left lands as
                     # one answer-or-waive batch, never a silent drop.
                     payload["batch"] = True
                 waits.append(self.questions.ask(qid, "gap", payload, g["options"]))
             await asyncio.gather(*waits)
             self._apply_gap_effects(round_id, gaps)
-            # Dependency-first re-find belongs to the interpreter (ticket 17);
-            # the stub finds everything in round 1, so the loop drains here.
-            gaps = []
+            self.run.gap_resolutions = self._gap_resolutions()
+            # Dependency-first re-find (tickets 02/17): the interpreter folds
+            # the round's answers in and re-finds downstream gaps; the loop
+            # drains when it emits none. After the batch round everything
+            # left was answer-or-waive, so one fold-in pass closes the loop
+            # (any gap it still finds lands on the spec as an open item the
+            # human sees at sign-off -- never a silent drop, never round 5).
+            self.run.interpret_mode = "refind"
+            result = await self._run_stage("interpret", "interpret")
+            gaps = list(result.data.get("gaps") or [])
+            self._pending_gaps = gaps
+            if batch:
+                break
         self.run.gap_resolutions = self._gap_resolutions()
 
     def _apply_gap_effects(self, round_id: str, gaps: List[Dict[str, Any]]) -> None:
@@ -893,9 +955,9 @@ class Conductor:
                              "rules": len(spec.get("rules") or [])},
                  "gap_resolutions": self._gap_resolutions(),
                  "what_changed": spec.get("what_changed"),
-                 "voice": ("The spec is complete: six rules, your answers recorded. "
+                 "voice": ("The spec is complete: %d rules, your answers recorded. "
                            "Signing it fixes what the job must do — every later stage "
-                           "stands on it."
+                           "stands on it." % len(spec.get("rules") or [])
                            if self._draft == 1 else
                            "The revision is in. Same signed answers, your note folded in — "
                            "sign draft %d to continue." % self._draft)},
@@ -943,11 +1005,12 @@ class Conductor:
         await self._stage_started(
             "configure",
             **({"directed": True, "feedback": self.run.feedback} if directed else {}))
-        await self._run_stage("configure", "configure")
+        result = await self._run_stage("configure", "configure")
         await self._stage_completed(
             "configure",
-            note=("Configurator · revision applied — validate loop clean" if condensed
-                  else "Configurator · 10/10 configured — validate loop clean on attempt 2"))
+            note=(result.data.get("note")
+                  or ("Configurator · revision applied — validate loop clean" if condensed
+                      else "Configurator · configured — validate loop clean")))
         await self._boundary("configure")
 
     async def _s_assemble(self) -> None:

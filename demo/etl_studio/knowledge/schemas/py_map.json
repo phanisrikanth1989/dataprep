@@ -1,0 +1,29 @@
+{
+  "type": "PyMap",
+  "aliases": [],
+  "source": "src/v1/engine/components/transform/py_map.py",
+  "_validation_note": "PyMap is the pure-Python map-family component (no Java bridge). Its join_mode/matching_mode/lookup_mode and join keys live NESTED under 'inputs.lookups[]' (and column expressions under 'outputs[].columns[]'); this schema does NOT recurse into dict/list-typed keys, so those nested VALUES are documented here, not enforced. The engine _validate_config (py_map.py) enforces PRESENCE of: inputs (dict) with inputs.main.name; each lookup's name + join_keys (each with lookup_column + expression) + join_mode; and >=1 output each with name + columns. The oracle/reference diff is the value safety net. Engine-recognized nested values: matching_mode {UNIQUE_MATCH, FIRST_MATCH, LAST_MATCH, ALL_MATCHES}; join_mode {LEFT_OUTER_JOIN, INNER_JOIN}; lookup_mode {LOAD_ONCE, RELOAD_AT_EACH_ROW}. Every output column/join expression is plain Python eval'd in a SANDBOXED namespace (_code_component_mixin safe builtins: pd/np/re/datetime/Decimal/json/math; NO os/sys/open/eval/exec) -- surface_code_cells flags each expression for the human gate. Note: 'decimal'-typed numeric inputs arrive as pandas StringDtype; prefer 'float' for columns used in arithmetic (e.g. quantity*price) to avoid a string-multiply error.",
+  "keys": {
+    "inputs": {"type": "dict", "required": true},
+    "variables": {"type": "list", "default": []},
+    "outputs": {"type": "list", "required": true, "non_empty": true, "item_keys": {
+      "name": {"type": "str", "required": true},
+      "is_reject": {"type": "bool"},
+      "inner_join_reject": {"type": "bool"},
+      "activate_filter": {"type": "bool"},
+      "filter": {"type": "str"},
+      "columns": {"type": "list", "required": true, "item_keys": {
+        "name": {"type": "str"},
+        "expression": {"type": "str"},
+        "type": {"type": "str"},
+        "nullable": {"type": "bool"},
+        "length": {"type": "int"},
+        "precision": {"type": "int"},
+        "date_pattern": {"type": "str"}
+      }}
+    }},
+    "die_on_error": {"type": "bool", "default": true},
+    "enable_auto_convert_type": {"type": "bool", "default": false},
+    "label": {"type": "str", "default": ""}
+  }
+}

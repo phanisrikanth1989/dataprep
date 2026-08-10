@@ -1,0 +1,29 @@
+{
+  "type": "FileOutputDelimited",
+  "aliases": ["tFileOutputDelimited"],
+  "source": "src/v1/engine/components/file/file_output_delimited.py",
+  "keys": {
+    "filepath": {"type": "str", "default": "", "required": true},
+    "csv_option": {"type": "bool", "default": false},
+    "include_header": {"type": "bool", "default": false},
+    "append": {"type": "bool", "default": false},
+    "create_directory": {"type": "bool", "default": true},
+    "split": {"type": "bool", "default": false},
+    "split_every": {"type": "str", "default": "1000"},
+    "delete_empty_file": {"type": "bool", "default": false},
+    "file_exist_exception": {"type": "bool", "default": true},
+    "os_line_separator": {"type": "bool", "default": true},
+    "streamname": {"type": "str", "default": "outputStream"},
+    "fieldseparator": {"type": "str", "default": ";"},
+    "row_separator": {"type": "str", "default": "\\n"},
+    "encoding": {"type": "str", "default": "ISO-8859-15"},
+    "escape_char": {"type": "str", "default": "\""},
+    "text_enclosure": {"type": "str", "default": "\""},
+    "csvrowseparator": {"type": "str", "default": "LF"},
+    "compress": {"type": "bool", "default": false},
+    "usestream": {"type": "bool", "default": false},
+    "row_mode": {"type": "bool", "default": false},
+    "flushonrow": {"type": "bool", "default": false},
+    "advanced_separator": {"type": "bool", "default": false}
+  }
+}

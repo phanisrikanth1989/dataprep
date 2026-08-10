@@ -1,0 +1,14 @@
+{
+  "type": "ConvertType",
+  "aliases": ["tConvertType"],
+  "source": "src/v1/engine/components/transform/convert_type.py",
+  "keys": {
+    "autocast": {"type": "bool", "default": false},
+    "emptytonull": {"type": "bool", "default": false},
+    "dieonerror": {"type": "bool", "default": false},
+    "manualtable": {"type": "list", "default": [], "item_keys": {
+      "input_column": {"type": "str", "required": true},
+      "output_column": {"type": "str"}
+    }}
+  }
+}

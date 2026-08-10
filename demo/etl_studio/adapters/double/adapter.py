@@ -11,6 +11,8 @@ dicts consumed in order:
 
     {"think": str}          -> ThinkingDelta, streamed in small chunks
     {"text": str}           -> TextDelta, streamed word by word
+    {"blob": str}           -> TextDelta, streamed in large chunks (fenced
+                               JSON artifacts -- word pacing would crawl)
     {"echo_prompt": True}   -> TextDelta stream of the last user message
                                (the core composes the reply, the double plays it)
     {"tool": {"call_id", "name", "args"}} -> ToolCall
@@ -127,6 +129,11 @@ class DoubleAdapter(ProviderPort):
             elif "text" in part:
                 async for ev in self._chunked(str(part["text"])):
                     yield ev
+            elif "blob" in part:
+                blob = str(part["blob"])
+                for i in range(0, len(blob), 240):
+                    await asyncio.sleep(self._chunk_delay)
+                    yield TextDelta(blob[i:i + 240])
             elif part.get("echo_prompt"):
                 async for ev in self._chunked(prompt):
                     yield ev

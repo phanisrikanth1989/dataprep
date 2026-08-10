@@ -73,6 +73,13 @@ class LlmCall:
     tool_decls: List[ToolDecl] = field(default_factory=list)
     model: Optional[ModelInfo] = None
     options: ChatOptions = field(default_factory=ChatOptions)
+    # Ticket 17: real specialists set live=True -- the runner routes them to
+    # the live provider when one resolved (else the scripted double plays the
+    # fixture); orchestrator placeholders (18's) and stub stages stay scripted.
+    live: bool = False
+    # When set, every text_delta of the winning attempt accumulates here --
+    # the real stages parse their JSON artifact from it. Cleared per attempt.
+    capture: Optional[List[str]] = None
 
 
 class StreamRunner:
@@ -84,16 +91,41 @@ class StreamRunner:
         run_id: str,
         pace: float = 1.0,
         closed_streams: Optional[Dict[str, int]] = None,
+        live_port: Optional[ProviderPort] = None,
+        live_provider: str = "",
     ):
         self._emit = emit
         self._port = port
         self._provider = provider_name
         self._run_id = run_id
         self._pace = pace
+        # Live routing (ticket 17): calls flagged live go to the live port
+        # when one resolved; everything else plays through the scripted port.
+        self._live_port = live_port
+        self._live_provider = live_provider or provider_name
         # label -> completed (non-error) closes already in the journal;
         # populated by the conductor's restore pass.
         self._closed = dict(closed_streams or {})
         self._calls: Dict[str, int] = {}  # label -> logical calls this life
+
+    def _port_for(self, call: LlmCall):
+        if call.live and self._live_port is not None:
+            return self._live_port, self._live_provider
+        return self._port, self._provider
+
+    async def count_tokens(self, call_or_model, text: str) -> Optional[int]:
+        """Prompt-budget probe on the port that would serve the call; None
+        when the capability is absent (the core degrades)."""
+        if isinstance(call_or_model, LlmCall):
+            port, _ = self._port_for(call_or_model)
+            model = call_or_model.model
+        else:
+            port = self._live_port or self._port
+            model = call_or_model
+        try:
+            return await port.count_tokens(model.id if model else None, text)
+        except ProviderError:
+            return None
 
     async def _sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds * self._pace)
@@ -150,9 +182,12 @@ class StreamRunner:
     async def _attempt(
         self, call: LlmCall, messages: List[ChatMessage], stream_id: str
     ) -> str:
+        if call.capture is not None:
+            call.capture.clear()  # a retry attempt starts a fresh transcript
+        _, provider_name = self._port_for(call)
         open_payload: Dict[str, Any] = {
             "stream_id": stream_id,
-            "provider": self._provider,
+            "provider": provider_name,
             "who": call.who,
             "label": call.label,
         }
@@ -237,7 +272,8 @@ class StreamRunner:
             tools=list(call.tool_decls),
             options=call.options,
         )
-        agen = self._port.chat(request)
+        port, _ = self._port_for(call)
+        agen = port.chat(request)
         finish = "unknown"
         tool_calls: List[Dict[str, Any]] = []
         try:
@@ -246,6 +282,8 @@ class StreamRunner:
                 if kind == "done":
                     finish = ev.finish_reason
                 elif kind in ("text_delta", "thinking_delta"):
+                    if kind == "text_delta" and call.capture is not None:
+                        call.capture.append(ev.text)
                     await self._emit(
                         call.source, "stream.delta",
                         {"stream_id": stream_id, "part": {"kind": kind, "text": ev.text}},

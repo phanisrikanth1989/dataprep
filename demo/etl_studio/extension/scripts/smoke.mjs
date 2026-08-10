@@ -229,7 +229,10 @@ async function main() {
   });
   const started = await waitFor(() => ev.find((e) => e.type === "run.started"), 10000, "run.started");
   check("run.started carries job + itinerary", started.payload?.job === "trade_positions" && started.payload?.itinerary?.length === 9);
-  check("run gets a fresh journal (seq restarts)", started.seq === 1 && started.run_id === "trade_positions-r1");
+  // The run journal may open with the announced provider fallback (ticket 17:
+  // the live leg resolves per run); seq 1 is the run's first event either way.
+  const firstR1 = ev.find((e) => e.run_id === "trade_positions-r1");
+  check("run gets a fresh journal (seq restarts)", firstR1?.seq === 1 && started.run_id === "trade_positions-r1", `first=${firstR1?.type}#${firstR1?.seq}`);
 
   const gaps = await waitFor(
     () => { const g = ev.filter(isQ("gap")); return g.length >= 3 ? g : null; },
@@ -253,8 +256,18 @@ async function main() {
     "gap resolutions"
   );
 
-  const spec1 = await waitFor(isQFind(ev, "spec_gate", (p) => p.draft === 1), 15000, "spec gate draft 1");
-  check("spec gate carries gap resolutions", spec1.payload.gap_resolutions?.length === 3);
+  // Dependency-first re-find (ticket 17): the real interpreter folds round 1
+  // in and finds the downstream disposition gap, so a second round arrives.
+  const g3 = await waitFor(
+    () => ev.find((e) => e.type === "question.raised" && e.payload?.kind === "gap" && e.payload?.gap_id === "G3"),
+    20000,
+    "re-found gap G3 (round 2)"
+  );
+  check("re-found gap rides round r2", g3.payload?.round_id === "r2" && g3.payload?.severity === "advisory");
+  answer(three, g3.payload.question_id, "validate_drop");
+
+  const spec1 = await waitFor(isQFind(ev, "spec_gate", (p) => p.draft === 1), 30000, "spec gate draft 1");
+  check("spec gate carries gap resolutions", spec1.payload.gap_resolutions?.length === 4, `${spec1.payload.gap_resolutions?.length}`);
   answer(three, spec1.payload.question_id, "request_changes", "Also carry account_id through to the output");
   const interp2 = await waitFor(
     () => ev.find((e) => e.type === "stage.started" && e.payload?.stage === "interpret" && e.payload?.iteration === 2),
@@ -351,7 +364,12 @@ async function main() {
     10000,
     "run.crash_restored"
   );
-  check("crash_restored continues the seq sequence", restored.seq === preCrashMax + 1, `expected ${preCrashMax + 1}, got ${restored.seq}`);
+  // The restored core may announce its provider fallback first (ticket 17:
+  // the live leg re-resolves at restore); seq continuity holds either way.
+  const firstPostCrash = four.events.reduce((m, e) => (e.seq < m.seq ? e : m), restored);
+  check("crash_restored continues the seq sequence",
+    firstPostCrash.seq === preCrashMax + 1 && restored.seq <= preCrashMax + 2,
+    `expected ${preCrashMax + 1}.., got first=${firstPostCrash.type}#${firstPostCrash.seq} restored=#${restored.seq}`);
 
   answer(four, human.payload.question_id, "approve");
   const ended = await waitFor(
@@ -423,8 +441,8 @@ async function main() {
   const my7 = (pred) => (e) => e.run_id === "trade_positions-r2" && pred(e);
   five.connection.sendNotification("command.start_run", {
     door: "brd",
-    brd_path: "/tmp/Trade_Positions_BRD.docx",
-    brd_name: "Trade_Positions_BRD.docx",
+    brd_path: path.join(studioRoot, "examples", "trade_position_demo.docx"),
+    brd_name: "trade_position_demo.docx",
     attachments: [],
     rig: { verify_fails: 4, shape_errors: 1, needs_human: true },
   });
@@ -440,9 +458,10 @@ async function main() {
     "shape-repair loop attempt"
   );
   check("shape-repair loop surfaced in intake", /shape repair 1 of 3/.test(shapeChip.payload?.note ?? ""));
-  const nh = await waitFor(() => ev7.find(isQ("needs_human")), 15000, "needs_human question");
+  const nh = await waitFor(() => ev7.find(isQ("needs_human")), 30000, "needs_human question");
   check("extraction needs_human rides the question channel", nh.payload?.source === "normalize_validate" && nh.payload?.options?.length >= 2);
-  answer(five, nh.payload.question_id, "same");
+  check("needs_human names the real unaccounted handle", /para:0/.test(nh.payload?.prompt ?? ""), nh.payload?.prompt);
+  answer(five, nh.payload.question_id, "irrelevant");
 
   // The demo BRD is deliberately incomplete (its section 3 never settles
   // unmatched trades), so G1/G2 rise here too -- but its tables ARE data,
@@ -551,7 +570,13 @@ async function main() {
   for (const g of gaps8) {
     answer(six, g.payload.question_id, g.payload.gap_id === "G1" ? "keep_blanks" : "trade_id_asc");
   }
-  const spec8 = await waitFor(isQFind(ev8, "spec_gate", (p) => p.draft === 1), 20000, "phase 8 spec gate");
+  const g3b = await waitFor(
+    () => ev8.find((e) => e.type === "question.raised" && e.payload?.kind === "gap" && e.payload?.gap_id === "G3"),
+    20000,
+    "phase 8 re-found gap"
+  );
+  answer(six, g3b.payload.question_id, "validate_drop");
+  const spec8 = await waitFor(isQFind(ev8, "spec_gate", (p) => p.draft === 1), 30000, "phase 8 spec gate");
   answer(six, spec8.payload.question_id, "approve");
   const ended8 = await waitFor(
     () => ev8.find(my8((e) => e.type === "run.ended")),

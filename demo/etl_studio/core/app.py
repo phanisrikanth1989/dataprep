@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import re
@@ -38,8 +39,9 @@ from .port import (
     ProviderPort,
     RequestCanceled,
 )
+from .real_stages import build_stages
 from .rpc import JsonRpcConnection
-from .stub_stages import JOB, build_stub_stages
+from .stub_stages import JOB
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,10 @@ class StudioApp:
         self._streams: Dict[str, asyncio.Task] = {}
         self._session: Optional[RunSession] = None
         self._driver: Optional[Conductor] = None
+        # Boot restore may suspend on the live-provider round trip (17); the
+        # wire handlers hold until it settles so a racing command can never
+        # swap the session out from under it.
+        self._ready = asyncio.Event()
 
         conn.on_request("attach", self._on_attach)
         conn.on_request("fetch_artifact", self._on_fetch_artifact)
@@ -136,6 +142,12 @@ class StudioApp:
     # ---- boot restore (ticket 08: the journal owns the run) ------------------
 
     async def restore_at_boot(self) -> None:
+        try:
+            await self._restore_at_boot()
+        finally:
+            self._ready.set()
+
+    async def _restore_at_boot(self) -> None:
         candidates: List[Path] = []
         root = self._work_dir / "ui_journal.jsonl"
         if root.exists():
@@ -159,9 +171,13 @@ class StudioApp:
         async def emit(source: str, type_: str, payload: Dict[str, Any]) -> None:
             await self._emit(session, source, type_, payload)
 
+        # A finished run never issues live calls, so it skips the provider
+        # round trip entirely (it only serves attach/fetch from the journal).
+        ended = any(e.get("type") == "run.ended" for e in events)
+        live = None if ended else await self._resolve_live(session)
         # Door and request are recovered inside restore() from the run's own
         # audit trail (the bus + audit own the run; the journal owns the seq).
-        driver = self._new_conductor(emit, run_id, door="typed", request={})
+        driver = self._new_conductor(emit, run_id, door="typed", request={}, live=live)
         driver.restore(events)
         self._driver = driver
         if driver.ended:
@@ -172,8 +188,33 @@ class StudioApp:
         driver.resume()
         logger.info("crash-restored run %s at seq %d", run_id, session.journal.last_seq)
 
+    async def _resolve_live(
+        self, session: RunSession
+    ) -> Optional[Tuple[ProviderPort, str]]:
+        """The run's live provider (ticket 17): the primary adapter when it
+        answers with models; the announced double fallback otherwise. With
+        --provider double there is no live leg at all."""
+        if self._primary is self._scripted_port:
+            return None
+        reason: Optional[str] = None
+        try:
+            models = await self._primary.list_models()
+            if models:
+                return (self._primary, self._primary_name)
+            reason = "provider returned no models"
+        except ProviderError as e:
+            reason = f"{type(e).__name__}: {e}"
+        await self._emit(
+            session, "conductor", "health.provider_fallback",
+            {"from": self._primary_name, "to": "double", "reason": reason},
+        )
+        logger.warning("run provider fallback: %s -> double (%s)",
+                       self._primary_name, reason)
+        return None
+
     def _new_conductor(
-        self, emit: Any, run_id: str, door: str, request: Dict[str, Any]
+        self, emit: Any, run_id: str, door: str, request: Dict[str, Any],
+        live: Optional[Tuple[ProviderPort, str]] = None,
     ) -> Conductor:
         return Conductor(
             emit,
@@ -184,14 +225,17 @@ class StudioApp:
             door,
             request,
             run_dir=self._work_dir / run_id,
-            stages=build_stub_stages(),
+            stages=build_stages(),
             model_config=self._model_config,
             pace=self._pace,
+            live_port=live[0] if live else None,
+            live_provider=live[1] if live else "",
         )
 
     # ---- attach / replay -----------------------------------------------------
 
     async def _on_attach(self, params: Any) -> Dict[str, Any]:
+        await self._ready.wait()
         since = int((params or {}).get("since_seq", 0) or 0)
         if self._session is None:
             logger.info("attach with no session -> idle")
@@ -218,6 +262,7 @@ class StudioApp:
     # ---- run commands (tickets 15/16) ----------------------------------------
 
     async def _on_start_run(self, params: Any) -> None:
+        await self._ready.wait()
         p = dict(params or {})
         door = str(p.get("door", "typed"))
         if self._driver is not None and self._driver.active:
@@ -240,16 +285,19 @@ class StudioApp:
         async def emit(source: str, type_: str, payload: Dict[str, Any]) -> None:
             await self._emit(session, source, type_, payload)
 
-        self._driver = self._new_conductor(emit, session.run_id, door, p)
+        live = await self._resolve_live(session)
+        self._driver = self._new_conductor(emit, session.run_id, door, p, live=live)
         self._driver.start()
 
     async def _on_answer(self, params: Any) -> None:
+        await self._ready.wait()
         if self._driver is None:
             logger.warning("answer with no active run ignored")
             return
         await self._driver.handle_answer(dict(params or {}))
 
     async def _on_ask(self, params: Any) -> None:
+        await self._ready.wait()
         if self._driver is None:
             logger.warning("ask with no active run ignored")
             return
@@ -429,6 +477,93 @@ class StudioApp:
     async def _on_crash(self, params: Any) -> None:
         logger.warning("skeleton.crash received -- hard-exiting for restart proof")
         os._exit(13)
+
+    # ---- autorun (ticket 17's live-probe rig; a dev affordance, never the
+    # demo path -- the F5 demo stays human-driven per ticket 20) --------------
+
+    @staticmethod
+    def _autorun_answer(q: Dict[str, Any], state: Dict[str, int]) -> Tuple[str, Optional[str]]:
+        """Deterministic kind-policy answers for a probe run: recommended
+        option where one exists, approve at gates, keep the run moving. One
+        exhaustion grant only -- a live loop that cannot converge stops
+        instead of burning budget unattended."""
+        kind = q.get("kind")
+        opts = list(q.get("options") or [])
+        ids = [str(o.get("id")) for o in opts]
+
+        def recommended() -> str:
+            for o in opts:
+                if o.get("recommended"):
+                    return str(o.get("id"))
+            return ids[0] if ids else "other"
+
+        if kind == "gap":
+            if q.get("gap_id") == "G0":
+                return ("waive" if "waive" in ids else recommended()), None
+            return recommended(), None
+        if kind == "needs_human":
+            return recommended(), None
+        if kind in ("spec_gate", "code_gate", "human_gate"):
+            return ("approve" if "approve" in ids else ids[0]), None
+        if kind == "exhaustion":
+            if state.get("grants", 0) < 1 and "grant" in ids:
+                state["grants"] = state.get("grants", 0) + 1
+                return "grant", None
+            for fallback in ("stop_to_gate", "stop"):
+                if fallback in ids:
+                    return fallback, None
+            return ids[0], None
+        if kind == "owner_human":
+            return ("retry" if "retry" in ids else ids[0]), None
+        if kind == "propose_confirm":
+            return ("dismiss" if "dismiss" in ids else ids[0]), None
+        if kind == "hold":
+            return ("resume" if "resume" in ids else ids[0]), None
+        return (ids[0] if ids else "other"), None
+
+    async def _autorun_bot(self) -> None:
+        answered: set = set()
+        state: Dict[str, int] = {}
+        while True:
+            await asyncio.sleep(1.0)
+            driver = self._driver
+            if driver is None:
+                continue
+            for q in driver.questions.pending():
+                qid = str(q.get("question_id"))
+                if qid in answered:
+                    continue
+                choice, free_text = self._autorun_answer(q, state)
+                answered.add(qid)
+                logger.info("[autorun] answering %s (%s) -> %s",
+                            qid, q.get("kind"), choice)
+                await driver.handle_answer(
+                    {"question_id": qid, "choice": choice, "free_text": free_text})
+            if driver.ended:
+                logger.info("[autorun] run ended; probe bot done")
+                return
+
+    async def maybe_autorun(self) -> None:
+        """Consume ``<work-dir>/autorun.json`` (written by the live-probe
+        driver): self-start the run it describes and answer its questions by
+        the kind policy. Answers land through the normal ``handle_answer``
+        path and journal as ordinary resolutions."""
+        marker = self._work_dir / "autorun.json"
+        if not marker.is_file():
+            return
+        try:
+            params = json.loads(marker.read_text(encoding="utf-8"))
+        except ValueError as e:
+            logger.warning("[autorun] autorun.json unreadable (%s); ignored", e)
+            marker.rename(self._work_dir / "autorun.bad.json")
+            return
+        consumed = self._work_dir / "autorun.consumed.json"
+        if consumed.exists():
+            consumed.unlink()
+        marker.rename(consumed)
+        logger.info("[autorun] starting %s-door probe run", params.get("door"))
+        await self._on_start_run(params)
+        asyncio.get_running_loop().create_task(self._autorun_bot())
 
     def close(self) -> None:
         if self._driver is not None:

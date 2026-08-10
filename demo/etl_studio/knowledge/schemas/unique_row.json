@@ -1,0 +1,13 @@
+{
+  "type": "UniqueRow",
+  "aliases": ["tUniqRow", "tUniqueRow", "tUnqRow"],
+  "source": "src/v1/engine/components/aggregate/unique_row.py",
+  "keys": {
+    "key_columns": {"type": "list", "default": []},
+    "keep": {"default": "first", "enum": ["first", "last", false]},
+    "case_sensitive": {"type": "bool", "default": true},
+    "output_duplicates": {"type": "bool", "default": true},
+    "is_reject_duplicate": {"type": "bool", "default": true},
+    "only_once_each_duplicated_key": {"type": "bool", "default": false}
+  }
+}

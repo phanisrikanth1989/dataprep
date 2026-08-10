@@ -22,9 +22,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 from core.app import StudioApp
+from core.demo_fixtures import build_scripts
+from core.knowledge import render_at_startup
 from core.models import ModelConfig
 from core.rpc import stdio_connection
-from core.stub_stages import build_scripts
 from adapters.double.adapter import DoubleAdapter
 from adapters.vscode_lm.adapter import VscodeLmAdapter
 
@@ -68,6 +69,11 @@ async def amain(args: argparse.Namespace) -> None:
     conn = await stdio_connection()
     pace = PACES[args.pace]
 
+    # Ticket 11: the knowledge render happens at EVERY core startup from the
+    # vendored sources (the enum-ref drift check rides it -- fail loud).
+    render_dir = render_at_startup()
+    logger.info("knowledge rendered to %s", render_dir)
+
     # One double instance serves both roles: scripted demo runs (keyed
     # fixtures) and the skeleton echo fallback (legacy synthesized echo).
     double = DoubleAdapter(scripts=build_scripts(), chunk_delay=pace["chunk_delay"])
@@ -87,16 +93,22 @@ async def amain(args: argparse.Namespace) -> None:
         pace=pace["scale"],
         model_config=ModelConfig.load(Path(args.config)),
     )
-    # Crash-restore before serving: an un-ended run continues from its
-    # journal (run.crash_restored lands ahead of any attach replay).
-    await app.restore_at_boot()
-
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
 
+    # The read loop must serve BEFORE restore: a crash-restored run resolves
+    # its live provider over lm/* (ticket 17), which needs responses flowing.
+    # Restore still journals run.crash_restored before resume; an attach that
+    # races in replays the journal and picks the rest up live (the reducer is
+    # seq-idempotent either way).
     run_task = asyncio.create_task(conn.run())
+    await app.restore_at_boot()
+    # Ticket 17's live-probe rig: a pending autorun.json self-starts a run
+    # and answers its questions by the kind policy (dev affordance only).
+    await app.maybe_autorun()
+
     stop_task = asyncio.create_task(stop.wait())
     logger.info(
         "core up: provider=%s work_dir=%s pace=%s python=%s",
