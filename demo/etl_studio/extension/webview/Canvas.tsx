@@ -55,12 +55,19 @@ function useAssembly(flowKey: string | null): boolean {
 
 export function Canvas({ state, scene, vw, vh, setComposer }: CanvasProps): React.ReactElement {
   const r = region(vw, vh);
+  const specQ = latestPending(state, "spec_gate");
+  const specHold = Boolean(specQ);
 
   // ---- scatter camera ------------------------------------------------------
   const scatterCam: Cam = useMemo(() => {
-    const s = Math.min(0.95, r.w / SCATTER.W, r.h / SCATTER.H);
-    return { s, tx: r.left + (r.w - SCATTER.W * s) / 2, ty: r.top + (r.h - SCATTER.H * s) / 2 };
-  }, [r.left, r.top, r.w, r.h]);
+    // Sign-off keeps every rule clear of the gate card (ticket 21: a
+    // scatter rule could sit half under it): while the spec gate is up,
+    // the scatter fits in the region minus the card's right-side band.
+    const reserve = specHold ? 380 : 0;
+    const w = Math.max(r.w - reserve, SCATTER.W * 0.4);
+    const s = Math.min(0.95, w / SCATTER.W, r.h / SCATTER.H);
+    return { s, tx: r.left + (w - SCATTER.W * s) / 2, ty: r.top + (r.h - SCATTER.H * s) / 2 };
+  }, [r.left, r.top, r.w, r.h, specHold]);
 
   // ---- dag layout + camera -------------------------------------------------
   const L: DagLayout | null = useMemo(
@@ -95,7 +102,6 @@ export function Canvas({ state, scene, vw, vh, setComposer }: CanvasProps): Reac
 
   // ---- cards ---------------------------------------------------------------
   const gaps = pendingOf(state, "gap");
-  const specQ = latestPending(state, "spec_gate");
   const codeQ = latestPending(state, "code_gate");
   const humanQ = latestPending(state, "human_gate");
   const holdQ = latestPending(state, "hold");
@@ -110,11 +116,6 @@ export function Canvas({ state, scene, vw, vh, setComposer }: CanvasProps): Reac
   const gapAnchors: Anchor[] = gaps
     .map((q) => ruleAnchor(String(q.payload.rule_id ?? "")))
     .filter((a): a is Anchor => a !== null);
-  const specAnchors: Anchor[] = (state.spec?.rules ?? [])
-    .filter((rl: any) => rl.gap)
-    .map((rl: any) => ruleAnchor(String(rl.id)))
-    .filter((a: Anchor | null): a is Anchor => a !== null);
-
   const nodeAnchor = (nodeId: string | null): Anchor[] => {
     if (!nodeId || !L || !L.pos[nodeId]) {
       return [];
@@ -145,8 +146,11 @@ export function Canvas({ state, scene, vw, vh, setComposer }: CanvasProps): Reac
       {scene.mode === "scatter" && scene.card === "gaps" && gaps.length ? (
         <GapRoundCard qs={gaps} vw={vw} vh={vh} anchors={gapAnchors} />
       ) : null}
+      {/* No per-rule leaders at sign-off (21): they anchored only the
+          gap-answered rules, which read as signing R1/R2 when the
+          signature covers the whole spec. */}
       {scene.mode === "scatter" && scene.card === "spec" && specQ ? (
-        <SpecGateCard q={specQ} vw={vw} vh={vh} anchors={specAnchors} />
+        <SpecGateCard q={specQ} vw={vw} vh={vh} anchors={[]} />
       ) : null}
       {scene.mode === "dag" && scene.card === "code" && codeQ ? (
         <CodeGateCard

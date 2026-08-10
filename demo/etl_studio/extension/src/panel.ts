@@ -147,16 +147,20 @@ export class StudioPanel {
 
     if (msg.method === "editor.pick_file") {
       // Webviews cannot open native dialogs (ticket 08): the BRD door and
-      // data attachments pick through the shim.
+      // data attachments pick through the shim. Multi-select (ticket 21: a
+      // BRD plus three data files was four round-trips).
       const p = (msg.params ?? {}) as { label?: string; filters?: Record<string, string[]> };
       try {
         const picked = await vscode.window.showOpenDialog({
-          canSelectMany: false,
-          openLabel: p.label ?? "Choose file",
+          canSelectMany: true,
+          openLabel: p.label ?? "Choose files",
           filters: p.filters,
         });
-        const uri = picked?.[0];
-        respond({ result: uri ? { path: uri.fsPath, name: path.basename(uri.fsPath) } : null });
+        respond({
+          result: picked?.length
+            ? { files: picked.map((u) => ({ path: u.fsPath, name: path.basename(u.fsPath) })) }
+            : null,
+        });
       } catch (e) {
         respond({ error: { code: "pick_failed", message: String(e) } });
       }

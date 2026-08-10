@@ -385,26 +385,43 @@ function Idle({
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    const files = Array.from(e.dataTransfer?.files ?? []).map((f) => ({
-      // Electron exposes .path on dropped files; elsewhere the name still
-      // identifies the file for the scripted build.
-      path: (f as unknown as { path?: string }).path ?? f.name,
-      name: f.name,
-    }));
+    // VS Code Explorer drags carry uri-list payloads, never File objects
+    // (ticket 21: the scripted-era File.path handler was dead code live).
+    const uriList =
+      e.dataTransfer?.getData("application/vnd.code.uri-list") ||
+      e.dataTransfer?.getData("text/uri-list") ||
+      "";
+    const fromUris: PickedFile[] = uriList
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#") && l.startsWith("file://"))
+      .map((u) => {
+        let p = decodeURIComponent(u.replace(/^file:\/\//, ""));
+        if (/^\/[A-Za-z]:\//.test(p)) {
+          p = p.slice(1); // windows file:///C:/… form
+        }
+        return { path: p, name: p.split(/[\\/]/).pop() ?? p };
+      });
+    const files = fromUris.length
+      ? fromUris
+      : Array.from(e.dataTransfer?.files ?? []).map((f) => ({
+          path: (f as unknown as { path?: string }).path ?? f.name,
+          name: f.name,
+        }));
     classify(files);
   };
 
   const pick = async () => {
     try {
-      const file = await sendRequest<PickedFile | null>("editor.pick_file", {
+      const res = await sendRequest<{ files: PickedFile[] } | null>("editor.pick_file", {
         label: "Attach a BRD or data files",
         filters: {
           "BRD and data": ["docx", "csv", "xlsx", "json"],
           "All files": ["*"],
         },
       });
-      if (file) {
-        classify([file]);
+      if (res?.files?.length) {
+        classify(res.files);
       }
     } catch {
       // shim not ready; the composer stays open

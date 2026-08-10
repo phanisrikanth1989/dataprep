@@ -316,7 +316,11 @@ class RealNormalizeValidate(StageAdapter):
         await ctx.write_artifact(
             "intake.json", intake, kind="intake",
             fields={"sources": sources, "door": "brd"}, note=note)
-        return StageResult(data={"data_present": data_present, "note": note})
+        # Stage-completed line words differently from the artifact note above
+        # (ticket 21: the same string rendered twice in the feed).
+        return StageResult(data={
+            "data_present": data_present,
+            "note": f"Doc Normalizer · intake sealed — {len(sources)} sources, tier {tier_hint}"})
 
 
 # ---------------------------------------------------------------------------
