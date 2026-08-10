@@ -366,6 +366,9 @@ svg.edges { position: absolute; inset: 0; overflow: visible; pointer-events: non
 .vfiles .vfl { font-size: 9.5px; letter-spacing: .05em; color: var(--faint); font-weight: 500; text-transform: uppercase; }
 .fchip { font-family: var(--mono); font-size: 10.5px; color: var(--ink2); background: var(--s1); border-radius: 9px; padding: 5px 10px; transition: background .18s, color .18s; }
 .fchip:hover { background: var(--s2); color: var(--ink); }
+/* scripted-content marker (21): unmistakable whenever the fallback fired */
+.chip.scripted { background: rgba(232, 148, 90, .14); color: var(--ember); }
+.chip.scripted b { font-size: 10px; letter-spacing: .08em; }
 /* leader lines (viewport space) */
 svg.leads { position: absolute; inset: 0; pointer-events: none; z-index: 41; }
 .lead { stroke: rgba(232, 148, 90, .5); stroke-width: 1.5; fill: none; stroke-dasharray: 5 5; }

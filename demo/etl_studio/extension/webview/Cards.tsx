@@ -468,7 +468,14 @@ export function VerdictCard({
 }): React.ReactElement {
   const [rejecting, setRejecting] = useState(false);
   const [sent, setSent] = useState(false);
-  const verified = q.payload.verdict === "verified";
+  const verdict = String(q.payload.verdict ?? "");
+  const verified = verdict === "verified";
+  const clean = verified || verdict === "smoke_clean";
+  // Ticket 13 "smoke-clean approvable" was wire-true, pixel-false (21):
+  // Approve renders whenever the conductor sent the option, whatever the
+  // verdict string; the tier chip prices it.
+  const approveOpt = q.options.find((o) => o.kind === "approve");
+  const tier = q.payload.tier ? String(q.payload.tier) : null;
   const table = q.payload.table ?? { headers: [], rows: [] };
   const runs = q.payload.runs ?? {};
   // Ticket 20: the whole files behind the graded sample open in the real
@@ -479,12 +486,18 @@ export function VerdictCard({
       <div className="eyebrow ja">
         Harness verdict · human gate
         <span className="n">
-          run {runs.k ?? "?"} of {runs.n ?? "?"}
+          {tier ? `${tier} tier · ` : ""}run {runs.k ?? "?"} of {runs.n ?? "?"}
         </span>
       </div>
       <div className="vhead">
-        <span className={`vt${verified ? "" : " red"}`}>{verified ? "Verified" : "Not verified"}</span>
-        <span className="vs">{q.payload.matched} rows matched your golden</span>
+        <span className={`vt${clean ? "" : " red"}`}>
+          {verified ? "Verified" : verdict === "smoke_clean" ? "Ran clean" : "Not verified"}
+        </span>
+        <span className="vs">
+          {verdict === "smoke_clean"
+            ? "ran clean — nothing graded (smoke tier)"
+            : `${q.payload.matched} rows matched your golden`}
+        </span>
       </div>
       {q.payload.diagnosis ? <div className="vsub">{q.payload.diagnosis}</div> : null}
       <div className="vtw">
@@ -532,9 +545,13 @@ export function VerdictCard({
         />
       ) : null}
       <div className="cfoot">
-        {verified ? (
-          <button className="go jadec" disabled={sent} onClick={() => (setSent(true), answer(q.id, "approve"))}>
-            Approve job
+        {approveOpt ? (
+          <button
+            className="go jadec"
+            disabled={sent}
+            onClick={() => (setSent(true), answer(q.id, approveOpt.id))}
+          >
+            {approveOpt.label ?? "Approve job"}
           </button>
         ) : null}
         {!rejecting ? (

@@ -139,7 +139,11 @@ export function App(): React.ReactElement {
         </div>
       )}
       {showDoors ? (
-        <Idle onBack={scene.mode !== "idle" ? () => setDoorsOverride(false) : undefined} />
+        <Idle
+          ready={state.attachNote.startsWith("attached")}
+          attachNote={state.attachNote}
+          onBack={scene.mode !== "idle" ? () => setDoorsOverride(false) : undefined}
+        />
       ) : null}
       <Chrome
         state={state}
@@ -150,8 +154,27 @@ export function App(): React.ReactElement {
         <Feed state={state} composer={composer} setComposer={setComposer} onSend={onSend} />
       ) : null}
       <LifecycleBanner state={state} />
+      <NoticeBanner state={state} />
     </div>
   );
+}
+
+// Ticket 21: two feedback gaps that read as dead clicks live — a refused
+// door click (RunActive) and a crash-restored run silently waiting on a
+// pending gate. Both surface here, above the fold, until resolved.
+function NoticeBanner({ state }: { state: State }): React.ReactElement | null {
+  const pending = state.questionOrder.filter((qid) => !state.questions[qid]?.resolved).length;
+  if (state.notice) {
+    return <div className="lifebanner">{state.notice}</div>;
+  }
+  if (state.crashRestored && !state.ended && pending > 0) {
+    return (
+      <div className="lifebanner">
+        This build continues from its journal — a question below is waiting for your answer.
+      </div>
+    );
+  }
+  return null;
 }
 
 // ---- chrome ----------------------------------------------------------------
@@ -213,6 +236,11 @@ function Chrome({
               <span className={`pip${pipClass}`} />
               <b className="mono">{state.run.job}</b>
             </div>
+            {state.scripted ? (
+              <div className="chip scripted" title="A provider fallback fired — this run plays scripted content, not the live model">
+                <b>SCRIPTED</b>
+              </div>
+            ) : null}
             <div className="chip">
               {state.creditsNano > 0 ? (
                 <>
@@ -330,7 +358,15 @@ function LifecycleBanner({ state }: { state: State }): React.ReactElement | null
 // Typing = the typed door; a dropped/attached .docx = the BRD door; other
 // files ride as data attachments. Same command.start_run payloads as ever.
 
-function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
+function Idle({
+  ready,
+  attachNote,
+  onBack,
+}: {
+  ready: boolean;
+  attachNote: string;
+  onBack?: () => void;
+}): React.ReactElement {
   const [text, setText] = useState("");
   const [brd, setBrd] = useState<PickedFile | null>(null);
   const [attachments, setAttachments] = useState<PickedFile[]>([]);
@@ -457,11 +493,13 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
             +
           </button>
           <span className="herohint">
-            {dragging
-              ? "Drop it — .docx becomes the BRD, the rest rides as data"
-              : "BRD .docx · sample & expected data · attach to earn a verified build"}
+            {!ready
+              ? `Connecting to the agent core… (${attachNote})`
+              : dragging
+                ? "Drop it — .docx becomes the BRD, the rest rides as data"
+                : "BRD .docx · sample & expected data · attach to earn a verified build"}
           </span>
-          <button className="go" disabled={!canStart} onClick={start}>
+          <button className="go" disabled={!canStart || !ready} onClick={start}>
             Start build
           </button>
         </div>

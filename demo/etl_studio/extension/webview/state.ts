@@ -89,6 +89,8 @@ export interface State {
   feed: FeedItem[];
   creditsNano: number;
   tokensTotal: number;
+  scripted: boolean;
+  notice: string | null;
   holdArmed: boolean;
   lifecycle: { state: LifecycleState; detail?: string; pid?: number } | null;
   attachNote: string;
@@ -114,6 +116,8 @@ export const initialState: State = {
   feed: [],
   creditsNano: 0,
   tokensTotal: 0,
+  scripted: false,
+  notice: null,
   holdArmed: false,
   lifecycle: null,
   attachNote: "attaching…",
@@ -165,6 +169,7 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       }
       return {
         ...state,
+        notice: null,
         run: {
           job: String(p.job ?? ""),
           door: String(p.door ?? ""),
@@ -186,6 +191,7 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       const s2 = {
         ...state,
         ended: { status, note: p.note, ts: Date.parse(env.ts) || Date.now() },
+        notice: null,
         activeNode: null,
         currentStage: null,
       };
@@ -461,12 +467,30 @@ function reduceEnvelope(prev: State, env: Envelope): State {
         seq: env.seq,
         text: `rate-limited — retrying (attempt ${p.attempt ?? "?"} of ${p.of ?? "?"}) · backoff ${p.backoff_s ?? "?"}s`,
       });
-    case "health.error":
-      return pushFeed(state, {
+    case "health.error": {
+      const next = pushFeed(state, {
         kind: "warn",
         seq: env.seq,
         text: `${p.taxonomy ?? "error"} — ${p.message ?? ""}`,
       });
+      if (String(p.taxonomy) === "RunActive") {
+        // Ticket 21: a silently refused door click read as dead clicks —
+        // surface it as a banner until the run ends or a new one starts.
+        return { ...next, notice: "A build is already active — one build per panel. Finish or stop it before starting another." };
+      }
+      return next;
+    }
+    case "health.provider_fallback":
+      // Ticket 21: a run playing scripted content must be unmistakable —
+      // the persistent SCRIPTED chip in the chrome keys off this flag.
+      return pushFeed(
+        { ...state, scripted: true },
+        {
+          kind: "warn",
+          seq: env.seq,
+          text: `provider fallback: ${p.from ?? "live"} → ${p.to ?? "double"} — this run plays scripted content`,
+        }
+      );
     default:
       return state; // skip-unknown: vocabulary can grow without lockstep releases
   }
