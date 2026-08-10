@@ -215,6 +215,20 @@ change to agent code.
   re-walks from bus+audit with count-based journal ledgers; stub
   trade_positions rig is 17's replacement target; smoke 51 -> 74 green;
   renderer gaps (3 kind cards, smoke-clean Approve) flagged to 21.
+- [17 - Doors and specialists](issues/17-doors-and-specialists.md) -- both
+  doors and the five design-side specialists are real on 16's chassis:
+  vendored explode/normalize_validate (fail-closed, real shape-repair and
+  failure-typed needs_human), typed intake, one intake.json envelope;
+  interpreter with gap objects and dependency-first re-find rounds;
+  tier-1/2 prompt ports with 11's startup-rendered knowledge slices
+  (enum-ref drift check rides the render); specialist harness (opening
+  line, JSON parse + bounded retries, count_tokens budget); live/scripted
+  port routing (announced per-run fallback); assembler enforces
+  config-from-draft, repairs preserve gated cells; smoke 74 -> 76 green and
+  one LIVE BRD chain run on this Mac (vscode_lm specialists, live-raised
+  gaps, an 11-component live design, approved end -- Mac-provisional,
+  rig-answered per the provenance rule); no usage DataParts live (flagged
+  to 20), renderer gaps stay with 21.
 
 ## Not yet specified
 
