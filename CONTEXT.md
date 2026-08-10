@@ -136,7 +136,8 @@ _Avoid_: snapshot, event log (unqualified)
 The webview's act of joining a build — declaring what it last saw and
 receiving everything since, whether it loaded fresh, reloaded mid-build, or
 returned after a crash. Attaching when no build exists yields the idle
-state: the two front doors, offered.
+state: one hero composer with both front doors behind it (typed text = the
+typed door; an attached or dropped .docx = the BRD door).
 
 **Feed**:
 The conversational surface of the webview — where the build talks to the

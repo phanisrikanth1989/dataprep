@@ -190,7 +190,7 @@ function Chrome({
   // The doors screen is a clean slate: no chrome from the finished build.
   const showRunChrome = !idleLook && Boolean(state.run);
   const spine = idleLook
-    ? { entries: [], word: "Two ways in", wordTone: "dim" as const }
+    ? { entries: [], word: "Ready", wordTone: "dim" as const }
     : deriveSpine(state);
   const cr = credits(state);
   const pipClass = state.ended
@@ -311,56 +311,75 @@ function LifecycleBanner({ state }: { state: State }): React.ReactElement | null
   return null;
 }
 
-// ---- idle: the two front doors ---------------------------------------------
+// ---- idle: one hero composer, two doors behind it --------------------------
+// Typing = the typed door; a dropped/attached .docx = the BRD door; other
+// files ride as data attachments. Same command.start_run payloads as ever.
 
 function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
   const [text, setText] = useState("");
+  const [brd, setBrd] = useState<PickedFile | null>(null);
   const [attachments, setAttachments] = useState<PickedFile[]>([]);
-  const [picking, setPicking] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-  const pickBrd = async () => {
-    if (picking) {
-      return;
-    }
-    setPicking(true);
-    try {
-      const file = await sendRequest<PickedFile | null>("editor.pick_file", {
-        label: "Choose a BRD (.docx)",
-        filters: { "Word documents": ["docx"], "All files": ["*"] },
-      });
-      if (file) {
-        sendNotify("command.start_run", { door: "brd", brd_path: file.path, brd_name: file.name });
+  const classify = (files: PickedFile[]) => {
+    for (const f of files) {
+      if (f.name.toLowerCase().endsWith(".docx")) {
+        setBrd(f);
+      } else {
+        setAttachments((a) => (a.some((x) => x.path === f.path) ? a : [...a, f]));
       }
-    } catch {
-      // shim not ready; the doors stay open
-    } finally {
-      setPicking(false);
     }
   };
 
-  const pickAttachment = async () => {
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer?.files ?? []).map((f) => ({
+      // Electron exposes .path on dropped files; elsewhere the name still
+      // identifies the file for the scripted build.
+      path: (f as unknown as { path?: string }).path ?? f.name,
+      name: f.name,
+    }));
+    classify(files);
+  };
+
+  const pick = async () => {
     try {
       const file = await sendRequest<PickedFile | null>("editor.pick_file", {
-        label: "Attach sample or expected data",
-        filters: { "Data files": ["csv", "xlsx", "json"], "All files": ["*"] },
+        label: "Attach a BRD or data files",
+        filters: {
+          "BRD and data": ["docx", "csv", "xlsx", "json"],
+          "All files": ["*"],
+        },
       });
       if (file) {
-        setAttachments((a) => [...a, file]);
+        classify([file]);
       }
     } catch {
-      // ignore
+      // shim not ready; the composer stays open
     }
   };
 
+  const canStart = Boolean(brd) || Boolean(text.trim());
   const start = () => {
-    if (!text.trim()) {
+    if (!canStart) {
       return;
     }
-    sendNotify("command.start_run", {
-      door: "typed",
-      text: text.trim(),
-      attachments: attachments.map((a) => a.path),
-    });
+    if (brd) {
+      sendNotify("command.start_run", {
+        door: "brd",
+        brd_path: brd.path,
+        brd_name: brd.name,
+        note: text.trim() || undefined,
+        attachments: attachments.map((a) => a.path),
+      });
+    } else {
+      sendNotify("command.start_run", {
+        door: "typed",
+        text: text.trim(),
+        attachments: attachments.map((a) => a.path),
+      });
+    }
   };
 
   return (
@@ -373,32 +392,63 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
         A requirement goes in. Agents design, configure and assemble the job on the RecTran
         engine — and verify it against your data before you approve anything.
       </div>
-      <div className="portals">
-        <div className="portal">
-          <h3>Start from a BRD</h3>
-          <p>Drop a .docx. Rules are extracted; anything unclear becomes a question, never an assumption.</p>
-          <button className="drop" onClick={pickBrd}>
-            <span className="ic">⇪</span>
-            {picking ? "Choosing…" : "Drop .docx — or browse"}
-            <i>tables · rules · sample data</i>
-          </button>
-        </div>
-        <div className="portal">
-          <h3>Describe the job</h3>
-          <p>Type it. Attach sample and expected data to earn a verified build.</p>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Keep settled trades, add account and price details, compute each trade’s value…"
-          />
-          <div className="row">
-            <button className="ghostbtn" onClick={pickAttachment}>
-              {attachments.length ? `${attachments.length} attached` : "Attach data"}
-            </button>
-            <button className="go" onClick={start}>
-              Start build
-            </button>
+      <div
+        className={`herobox${dragging ? " drag" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        <textarea
+          className="herotext"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              start();
+            }
+          }}
+          placeholder="Describe the job — or drop a BRD (.docx) and sample data here…"
+        />
+        {brd || attachments.length ? (
+          <div className="filerow">
+            {brd ? (
+              <span className="filechip brd">
+                <b>BRD</b>
+                {brd.name}
+                <button className="x" aria-label="Remove BRD" onClick={() => setBrd(null)}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            {attachments.map((a) => (
+              <span key={a.path} className="filechip">
+                {a.name}
+                <button
+                  className="x"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => setAttachments((xs) => xs.filter((x) => x.path !== a.path))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
+        ) : null}
+        <div className="herorow">
+          <button className="plusbtn" onClick={pick} title="Attach a BRD or data files">
+            +
+          </button>
+          <span className="herohint">
+            {dragging
+              ? "Drop it — .docx becomes the BRD, the rest rides as data"
+              : "BRD .docx · sample & expected data · attach to earn a verified build"}
+          </span>
+          <button className="go" disabled={!canStart} onClick={start}>
+            Start build
+          </button>
         </div>
       </div>
       <div className="fine">Every gate is yours — the spec, the generated code, and the final approval.</div>

@@ -369,25 +369,31 @@ svg.leads { position: absolute; inset: 0; pointer-events: none; z-index: 41; }
 .idlewrap .wm .arc { width: 34px; height: 17px; border: 5px solid var(--arc); border-bottom: 0; border-radius: 34px 34px 0 0; }
 .idlewrap .wm em { font-style: normal; color: var(--ember); }
 .idlewrap .lede { margin: 14px 0 40px; color: var(--ink2); font-size: 15px; max-width: 56ch; text-align: center; line-height: 1.6; animation: springin .7s var(--spring) .08s both; }
-.portals { display: flex; gap: 20px; width: min(820px, 94%); }
-.portal { flex: 1; background: rgba(29, 25, 21, .72); backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
-  border-radius: 24px; padding: 26px 26px 22px; box-shadow: 0 34px 90px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .055);
-  display: flex; flex-direction: column; animation: springin .65s var(--spring) both; transition: transform .25s, box-shadow .25s; }
-.portal:hover { transform: translateY(-3px); box-shadow: 0 44px 110px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .07); }
-.portal:nth-child(2) { animation-delay: .1s; }
-.portal h3 { margin: 0 0 7px; font-family: var(--disp); font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
-.portal p { margin: 0 0 16px; font-size: 13px; color: var(--ink2); line-height: 1.55; }
-.drop { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 16px;
-  background: rgba(0, 0, 0, .22); box-shadow: inset 0 0 0 1.5px rgba(244, 240, 232, .09); padding: 26px 14px; color: var(--ink2);
-  font-size: 13.5px; cursor: pointer; transition: .25s; min-height: 112px; width: 100%; }
-.drop:hover { box-shadow: inset 0 0 0 1.5px rgba(232, 148, 90, .55); color: var(--ink); background: rgba(232, 148, 90, .06); }
-.drop .ic { font-size: 22px; animation: floaty 3.4s ease-in-out infinite; }
-.drop i { font-family: var(--mono); font-size: 10.5px; color: var(--faint); font-style: normal; }
-.portal textarea { width: 100%; min-height: 84px; resize: none; background: rgba(0, 0, 0, .26); border: 0; border-radius: 15px; color: var(--ink);
-  padding: 12px 14px; font-size: 13.5px; line-height: 1.55; outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05); }
-.portal textarea:focus { box-shadow: inset 0 0 0 1.5px rgba(232, 148, 90, .5); }
-.portal .row { display: flex; align-items: center; gap: 11px; margin-top: 13px; }
-.portal .row .go { margin-left: auto; }
+/* the hero composer — one box, both doors behind it */
+.herobox { width: min(760px, 92%); background: rgba(29, 25, 21, .72); backdrop-filter: blur(28px) saturate(1.1); -webkit-backdrop-filter: blur(28px) saturate(1.1);
+  border-radius: 26px; padding: 8px 10px 10px; display: flex; flex-direction: column;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .055);
+  animation: springin .65s var(--spring) .1s both; transition: box-shadow .25s, background .25s; }
+.herobox:focus-within { box-shadow: 0 34px 90px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .055), inset 0 0 0 1.5px rgba(232, 148, 90, .45); }
+.herobox.drag { background: rgba(41, 31, 24, .8); box-shadow: 0 34px 90px rgba(0, 0, 0, .5), inset 0 0 0 2px rgba(232, 148, 90, .65), 0 0 44px rgba(232, 148, 90, .18); }
+.herotext { width: 100%; min-height: 96px; resize: none; background: none; border: 0; outline: none;
+  color: var(--ink); font-size: 15px; line-height: 1.6; padding: 14px 16px 6px; }
+.herotext::placeholder { color: var(--faint); }
+.filerow { display: flex; flex-wrap: wrap; gap: 7px; padding: 2px 14px 4px; }
+.filechip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11px; color: var(--ink2);
+  background: rgba(0, 0, 0, .28); border-radius: 999px; padding: 4px 6px 4px 12px; }
+.filechip b { font-family: var(--sans); font-size: 9.5px; font-weight: 700; letter-spacing: .1em; color: var(--ember-hi); }
+.filechip.brd { box-shadow: inset 0 0 0 1px rgba(232, 148, 90, .35); }
+.filechip .x { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  color: var(--mute); font-size: 13px; line-height: 1; transition: background .15s, color .15s; }
+.filechip .x:hover { color: var(--ink); background: rgba(255, 255, 255, .08); }
+.herorow { display: flex; align-items: center; gap: 11px; padding: 6px 8px 6px 10px; }
+.plusbtn { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  background: var(--s1); color: var(--ink2); font-size: 19px; font-weight: 500; line-height: 1; transition: background .15s, color .15s; }
+.plusbtn:hover { background: var(--s2); color: var(--ink); }
+.herohint { flex: 1; font-size: 11.5px; color: var(--faint); line-height: 1.4; }
+.herobox.drag .herohint { color: var(--ember-hi); }
+.herorow .go { padding: 11px 21px; }
 .idlewrap .fine { margin-top: 26px; font-size: 12px; color: var(--mute); animation: springin .7s var(--spring) .2s both; }
 .idlewrap .backlink { margin-top: 12px; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .idlewrap .backlink:hover { color: var(--ink2); }
@@ -485,12 +491,16 @@ body.light .vtw tbody tr:hover { background: rgba(34, 29, 21, .035); }
 body.light .lead { stroke: rgba(176, 94, 32, .55); }
 body.light .lead.ja { stroke: rgba(27, 143, 93, .55); }
 body.light .lead.vi { stroke: rgba(107, 63, 168, .5); }
-body.light .portal { background: rgba(255, 255, 255, .78); box-shadow: 0 30px 80px rgba(66, 50, 28, .18), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(34, 29, 21, .05); }
-body.light .portal:hover { box-shadow: 0 40px 100px rgba(66, 50, 28, .22), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(34, 29, 21, .05); }
-body.light .drop { background: rgba(34, 29, 21, .045); box-shadow: inset 0 0 0 1.5px rgba(34, 29, 21, .12); }
-body.light .drop:hover { box-shadow: inset 0 0 0 1.5px rgba(197, 106, 43, .55); background: rgba(197, 106, 43, .07); }
-body.light .portal textarea { background: rgba(34, 29, 21, .05); box-shadow: inset 0 0 0 1px rgba(34, 29, 21, .08); }
-body.light .portal textarea:focus { box-shadow: inset 0 0 0 1.5px rgba(176, 94, 32, .5); }
+body.light .herobox { background: rgba(255, 255, 255, .8); box-shadow: 0 30px 80px rgba(66, 50, 28, .18), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(34, 29, 21, .05); }
+body.light .herobox:focus-within { box-shadow: 0 30px 80px rgba(66, 50, 28, .18), inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1.5px rgba(176, 94, 32, .5); }
+body.light .herobox.drag { background: rgba(255, 249, 240, .9); box-shadow: 0 30px 80px rgba(66, 50, 28, .18), inset 0 0 0 2px rgba(197, 106, 43, .6), 0 0 40px rgba(197, 106, 43, .16); }
+body.light .filechip { background: rgba(34, 29, 21, .05); }
+body.light .filechip b { color: #B05E20; }
+body.light .filechip.brd { box-shadow: inset 0 0 0 1px rgba(176, 94, 32, .35); }
+body.light .filechip .x:hover { background: rgba(34, 29, 21, .08); }
+body.light .plusbtn { background: rgba(34, 29, 21, .05); }
+body.light .plusbtn:hover { background: rgba(34, 29, 21, .09); }
+body.light .herobox.drag .herohint { color: #B05E20; }
 body.light .idlewrap .wm em { color: #C56A2B; }
 
 @media (prefers-reduced-motion: reduce) {

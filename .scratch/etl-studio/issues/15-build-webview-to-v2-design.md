@@ -146,6 +146,18 @@ leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
 
+2026-08-10 — Design amendment (user direction, superseding the ticket 12
+idle beat): the two-portal opening retires for a hero composer in the
+AI-product pattern — one large glass box, typed text = typed door,
+attached/dropped .docx = BRD door (ember-ringed BRD chip), other files =
+data-attachment chips, [+] native pick via editor.pick_file, drag state
+with ember ring, Cmd/Ctrl+Enter starts. Wire unchanged (same
+command.start_run payloads; BRD wins when both present, text rides as
+note). Idle spine word "Two ways in" → "Ready". The v2 prototype file
+remains the design record for the other four beats. Also: tool name
+corrected DataPrep → RecTran across effort-owned surfaces (brand chip,
+lede, extension description, LM consent line, CONTEXT.md).
+
 2026-08-10 — F5 pass feedback (user): (1) HUD actions collapse behind a
 "⋯" overflow menu at the extreme right — accidental clicks avoided, HUD
 stays status-only; [+ New build] shows in the menu once the build ends,

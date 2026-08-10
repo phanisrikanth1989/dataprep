@@ -624,7 +624,7 @@ export interface SpineEntry {
 
 export function deriveSpine(state: State): { entries: SpineEntry[]; word: string; wordTone: "em" | "ok" | "dim" } {
   if (!state.run) {
-    return { entries: [], word: "Two ways in", wordTone: "dim" };
+    return { entries: [], word: "Ready", wordTone: "dim" };
   }
   const gateState = (key: string): "todo" | "done" | "hold" => {
     const kind = key === "spec" ? "spec_gate" : key === "code" ? "code_gate" : "human_gate";
