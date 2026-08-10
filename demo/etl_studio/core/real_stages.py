@@ -675,6 +675,37 @@ class RealConfigurator(StageAdapter):
 class RealAssembler(StageAdapter):
     key = "assemble"
 
+    # Components whose engine execution compiles Java (the {{java}} marker is
+    # the other trigger). PyMap is python-side; it does not need the bridge.
+    _JAVA_TYPES = frozenset({"Map", "tMap"})
+    _JAVA_ROUTINES = ["routines.TalendDate", "routines.TalendString",
+                      "routines.StringHandling", "routines.Mathematical",
+                      "routines.Relational", "routines.Numeric",
+                      "routines.DataOperation"]
+
+    @classmethod
+    def _enforce_java_config(cls, job: Dict[str, Any]) -> None:
+        """Structural enforcement (ticket 20): ``java_config`` is DERIVED
+        state, never model-authored. Two live walks enabled the JVM for a
+        Join-only job (the envelope example is a tMap job and example beat
+        rule), which hard-fails hosts without the bridge JAR. The need is
+        mechanically checkable, so the chassis decides."""
+        needs_java = any(str(c.get("type")) in cls._JAVA_TYPES
+                         for c in job.get("components") or [])
+        if not needs_java:
+            needs_java = "{{java}}" in json.dumps(
+                [c.get("config") for c in job.get("components") or []])
+        authored = job.get("java_config")
+        if needs_java:
+            job["java_config"] = {"enabled": True,
+                                  "routines": list(cls._JAVA_ROUTINES),
+                                  "libraries": []}
+        else:
+            job["java_config"] = {"enabled": False}
+        if (authored or {}).get("enabled") != job["java_config"]["enabled"]:
+            logger.info("[assemble] java_config corrected: enabled=%s (model wrote %s)",
+                        job["java_config"]["enabled"], (authored or {}).get("enabled"))
+
     @staticmethod
     def _enforce_draft_configs(job: Dict[str, Any], draft: Dict[str, Any]) -> None:
         """Structural enforcement of the assembler contract: every component's
@@ -747,6 +778,7 @@ class RealAssembler(StageAdapter):
         for comp in job["components"]:
             if comp.get("type"):
                 comp["type"] = knowledge.canonical_type(str(comp["type"]))
+        self._enforce_java_config(job)
         self._enforce_draft_configs(job, draft)
         if ctx.repair:
             await ctx.write_artifact("job.json", job, kind="job")

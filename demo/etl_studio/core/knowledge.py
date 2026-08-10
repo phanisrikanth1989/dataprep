@@ -233,13 +233,18 @@ def render_job_envelope(worked_example: bool = True) -> str:
         "out, with null lookup columns. `inner_join_reject: true` on an output is AVAILABLE if a "
         "job must route unmatched source rows to a reject output (`is_reject` stays empty for a "
         "join miss), but that is NOT the left-join default.\n\n"
-        "A terminal FileOutputDelimited's `id` MUST equal the output name it writes (the harness maps on "
-        "this), and every delimited FileInput/FileOutput that reads/writes a materialized CSV MUST set "
-        "`csv_option: true` (with `text_enclosure: \"\\\"\"`) so a value containing the `;` separator "
-        "round-trips instead of shifting columns.\n\n"
+        "A terminal FileOutputDelimited's configured `filepath` MUST be `<output-name>.csv` for the "
+        "spec output it delivers (the harness finds and grades outputs by the FILE they write, never by "
+        "component id), and every delimited FileInput/FileOutput that reads/writes a materialized CSV "
+        "MUST set `csv_option: true` (with `text_enclosure: \"\\\"\"`) so a value containing the `;` "
+        "separator round-trips instead of shifting columns.\n\n"
         "Any job containing a `Map`/`tMap` component REQUIRES a top-level "
         "`\"java_config\": {\"enabled\": true, ...}` block: the tMap engine always compiles a Java "
-        "script and crashes without the bridge. tMap expressions carry a `{{java}}` marker (as below).\n"
+        "script and crashes without the bridge. tMap expressions carry a `{{java}}` marker (as below). "
+        "A job with NO Map/tMap and no `{{java}}` expression must carry "
+        "`\"java_config\": {\"enabled\": false}` instead -- enabling the JVM a job never uses "
+        "hard-fails on hosts without the bridge JAR. (The example below enables it because it IS a "
+        "tMap job.)\n"
     )
     if not worked_example:
         return prose

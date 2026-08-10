@@ -191,3 +191,25 @@ executed the engine at all):
 Steer text simplified accordingly (plain re-walk, no id rename needed).
 smoke 93 + seam green after the harness change (fixtures resolve
 identically under file-stem mapping).
+
+2026-08-10 -- Second live run (fresh r1 after work/ clear): the
+canonicalization fix confirmed on live pixels (design came out
+FileInputDelimited/Join/PythonDataFrameComponent throughout, join-based,
+zero {{java}}) -- but the assembler enabled java_config AGAIN (empty
+routines this time), despite the new prompt rule. Root cause: the
+rendered job-envelope knowledge doc's one worked example is a tMap job
+ending in enabled:true -- example beat rule, twice. The failure then
+played correctly: engine hard-fails on the unbuilt JAR, diagnostician
+called it human-owned work, and the NEW owner_human card rendered live
+(3 raises; first two answers were steer-QUESTIONS, which route to spec
+revisions and cannot change an assembler habit; then stop_to_gate ->
+red human gate, where the run now sits). Fixed structurally: java_config
+is now DERIVED state -- RealAssembler._enforce_java_config computes need
+from Map/tMap types + {{java}} markers and overwrites whatever the model
+wrote (correction logged); the envelope doc got the explicit
+enabled:false rule beside its example, and its stale id-contract
+sentence became the file contract. Guard proven: smoke fixture job now
+carries enabled:false, 93 + seam green. UX note for 21: steer/reject
+free-text is a directive channel -- questions belong in the composer
+where the orchestrator answers grounded; two live steers were spent on
+questions.
