@@ -42,6 +42,16 @@ surfaces the wire already carries but the webview cannot show):
       pattern (validator reason as card text, recommended option primary,
       free-required options reveal an input), both themes checked via the
       journal-replay harness. Still open here:
+- [ ] `health.error RunActive` ("a build is already active — one build per
+      panel") renders nothing: clicking a door while a restored run still
+      holds a gate is silently refused (first live session, 2026-08-10,
+      hit it 12 times across two restarts — reads as dead clicks). Needs a
+      visible banner, and ideally the door surface disabled while a run is
+      active.
+- [ ] After a crash-restore lands mid-gate, the webview needs an obvious
+      "this build continues — answer the pending gate" cue (and/or a
+      deliberate start-over affordance): the user reopened the panel and
+      reached for the doors instead of the restored gate card.
 - [ ] Question kinds `exhaustion` and `owner_human` have no card — they
       raise as real pending questions (journaled, replayed, answerable over
       the wire; smoke exercises them) but render nothing, so a live run
