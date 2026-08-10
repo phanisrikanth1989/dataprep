@@ -96,7 +96,11 @@ class RealExplode(StageAdapter):
             else:
                 from .llm import LlmCallError
                 raise LlmCallError("BrdNotFound", f"no BRD at {brd_path!r}")
-        inventory = explode(brd_path, ctx.bus.path("_explode"))
+        # Attachment contract (first live session, user decision): the
+        # inventory carries the data files the human ATTACHED -- never
+        # whatever shares a directory with the document.
+        data_files = [str(a) for a in (ctx.run.request.get("attachments") or [])]
+        inventory = explode(brd_path, ctx.bus.path("_explode"), data_files=data_files)
         inventory["brd"] = os.path.basename(brd_path)
         counts: Dict[str, int] = {}
         for h in inventory["handles"]:

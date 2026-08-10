@@ -107,8 +107,9 @@ Schema-provenance ladder: declared schema block -> STTM mapping rows -> the exac
 prose (flag it) -> none (flag it).
 
 WORKED EXAMPLE (a complete minimal proposal -- copy this shape and its ref style). For an \
-inventory whose sibling trades.csv (handle sibling:trades.csv) is a sample source, a table \
-(handle table:1) is the expected output, and one prose block (para:0) is an overview:
+inventory whose attached data file trades.csv (handle sibling:trades.csv -- the sibling: \
+prefix marks a human-attached data file) is a sample source, a table (handle table:1) is the \
+expected output, and one prose block (para:0) is an overview:
 
 ```json
 {

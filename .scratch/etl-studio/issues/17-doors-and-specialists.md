@@ -191,3 +191,16 @@ core modules); tsc + esbuild clean. The webview needed zero changes.
 - Known rough edge: a steer arriving AFTER a code-gate revision reuses the
   cell-revise framing on the configurator's next pass (rig `_cell_revised`
   persists); content stays correct (cells preserved), framing only.
+
+## Comments
+
+2026-08-10 (first live session, user decision) -- Sibling discovery is
+gone: the vendored exploder no longer scans the BRD's directory for CSVs.
+That behavior was a vestige of the path-based Copilot world; the studio's
+contract is ATTACHMENT, and scanning whatever shares a folder with a picked
+file is a correctness and privacy hazard (a BRD in ~/Downloads would have
+inventoried every unrelated CSV as candidate business data). The inventory
+now carries exactly the attached data files (handle ids keep the
+``sibling:<name>`` grammar, meaning "attached data file"); a BRD attached
+without data runs honestly dataless. Smoke's BRD phase attaches the three
+example CSVs like a real user.

@@ -7,7 +7,14 @@ import from agents/), with ticket 04's structural deltas:
   explode -> doc-normalizer -> normalize_validate chain, no opt-in branch);
 - the ``_jailed`` / ``_safe_name`` helpers are inlined from
   agents/tools/materialize_golden.py so this module is self-contained (the
-  materializer itself is ticket 19's vendor).
+  materializer itself is ticket 19's vendor);
+- sibling DISCOVERY is gone (first live session, user decision): the old
+  world was handed a PATH and scanned the docx's folder for CSVs; the
+  studio's contract is ATTACHMENT -- the inventory carries exactly the data
+  files the human attached, never whatever happens to share a directory
+  with the document. Handle ids keep the ``sibling:<name>`` grammar (the
+  validator's rung derivation and the prompts key on it); they now mean
+  "attached data file".
 
 This is the only stage code on the design side allowed to WRITE data files
 (04's line 1: models never author input/golden bytes -- the exploder's jailed
@@ -193,37 +200,23 @@ def _extract_media(zippath, out_dir) -> list[dict]:
     return handles
 
 
-def _resolve_sibling(docx_dir, name) -> Path:
-    """Read-jail a sibling reference to inside docx_dir; raise ValueError on absolute/.. escape."""
-    if os.path.isabs(name) or ".." in PurePosixPath(name.replace("\\", "/")).parts:
-        raise ValueError(f"[explode_doc] sibling reference escapes docx dir: {name!r}")
-    base = Path(os.path.realpath(docx_dir))
-    target = Path(os.path.realpath(base / name))
-    if not target.is_relative_to(base):
-        raise ValueError(f"[explode_doc] sibling reference escapes docx dir: {name!r}")
-    return target
-
-
-def _inventory_siblings(docx_dir, out_dir) -> list[dict]:
-    """Copy sibling *.csv files from the docx's own directory into out_dir under read+write jails."""
-    src_dir = Path(docx_dir)
+def _inventory_attached(data_files, out_dir) -> list[dict]:
+    """Copy the ATTACHED data files into out_dir under the write jail. Only
+    what the human handed over enters the inventory -- no directory scans."""
     handles: list[dict] = []
-    if not src_dir.is_dir():
-        return handles
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     used: set = set()
-    for name in sorted(os.listdir(src_dir)):
-        if not name.lower().endswith(".csv"):
-            continue
-        src = _resolve_sibling(docx_dir, name)  # read-jail; raises on escape
+    for given in data_files or []:
+        src = Path(given)
         if not src.is_file():
+            logger.warning("[explode_doc] attached data file missing, skipped: %s", given)
             continue
-        basename = _unique_basename(_safe_basename(name), used)
+        basename = _unique_basename(_safe_basename(src.name), used)
         target = _jailed(out, basename)  # defense in depth on top of _safe_basename
         target.write_bytes(src.read_bytes())
         handles.append({"id": f"sibling:{basename}", "type": "sibling", "path": str(target)})
-    logger.debug("[explode_doc] inventoried %d sibling CSV(s) from %s", len(handles), src_dir)
+    logger.debug("[explode_doc] inventoried %d attached data file(s)", len(handles))
     return handles
 
 
@@ -246,23 +239,27 @@ def _sniff_csv_dialect(path) -> dict | None:
     return {"delimiter": dialect.delimiter, "quotechar": dialect.quotechar}
 
 
-def explode(docx_path, out_dir) -> dict:
-    """Explode a .docx into one inventory of stable handles (+ jailed media/siblings, CSV dialects)."""
+def explode(docx_path, out_dir, data_files=None) -> dict:
+    """Explode a .docx into one inventory of stable handles: the document's
+    block stream, its embedded media, and the ATTACHED data files (jailed
+    copies with sniffed CSV dialects). Only attachments enter -- the docx's
+    directory is never scanned."""
     doc = Document(str(docx_path))
     blocks = _inventory_blocks(doc)
-    # Distinct jails: media/embeds under out_dir/, siblings under out_dir/sibling/,
-    # so a media basename can never overwrite an identically named sibling file.
+    # Distinct jails: media/embeds under out_dir/, attached data files under
+    # out_dir/sibling/, so a media basename can never overwrite a data file.
     media = _extract_media(docx_path, out_dir)
-    siblings = _inventory_siblings(os.path.dirname(os.path.abspath(str(docx_path))), Path(out_dir) / "sibling")
-    for handle in siblings:  # every sibling is a .csv by construction
-        handle["csv_dialect"] = _sniff_csv_dialect(handle["path"])
+    attached = _inventory_attached(data_files, Path(out_dir) / "sibling")
+    for handle in attached:
+        if handle["path"].lower().endswith(".csv"):
+            handle["csv_dialect"] = _sniff_csv_dialect(handle["path"])
     for handle in media:  # dialect only for embedded CSVs (images/xlsx get none)
         if handle["type"] == "embed" and handle["path"].lower().endswith(".csv"):
             handle["csv_dialect"] = _sniff_csv_dialect(handle["path"])
-    handles = blocks + media + siblings
+    handles = blocks + media + attached
     prose_text = "\n".join(b["text"] for b in blocks if b["type"] == "prose" and b["text"])
     logger.info(
-        "[explode_doc] %s: %d handle(s) (%d block, %d media/embed, %d sibling)",
-        os.path.basename(str(docx_path)), len(handles), len(blocks), len(media), len(siblings),
+        "[explode_doc] %s: %d handle(s) (%d block, %d media/embed, %d attached)",
+        os.path.basename(str(docx_path)), len(handles), len(blocks), len(media), len(attached),
     )
     return {"handles": handles, "prose_text": prose_text}

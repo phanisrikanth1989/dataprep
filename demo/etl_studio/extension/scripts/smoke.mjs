@@ -443,7 +443,13 @@ async function main() {
     door: "brd",
     brd_path: path.join(studioRoot, "examples", "trade_position_demo.docx"),
     brd_name: "trade_position_demo.docx",
-    attachments: [],
+    // Attachment contract: the run sees exactly the data files the human
+    // attached -- the exploder never scans the document's directory.
+    attachments: [
+      path.join(studioRoot, "examples", "trades.csv"),
+      path.join(studioRoot, "examples", "accounts.csv"),
+      path.join(studioRoot, "examples", "prices.csv"),
+    ],
     rig: { verify_fails: 4, shape_errors: 1, needs_human: true },
   });
   const started7 = await waitFor(
