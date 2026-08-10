@@ -46,6 +46,18 @@ surfaces the wire already carries but the webview cannot show):
       four separate picker round-trips (user, first live session
       2026-08-10). Allow multi-select (`canSelectMany` in the shim's
       editor.pick_file) and/or real drag-and-drop onto the composer.
+- [ ] The idle screen is fully clickable before the wire is actually ready:
+      while attach is pending (or the core is frozen/holding a run) the
+      composer renders as a normal "READY" idle surface, and health chips
+      only render inside the run view — so every wire-level failure reads
+      as dead clicks (first live session, third dead-click variant; the
+      core-side freeze itself is fixed by the 8s resolve timeout,
+      commit 40051689). Needs a connecting/health state on the idle
+      surface and Start build disabled until attach resolves.
+- [ ] `health.provider_fallback` (live -> double) renders only as a feed
+      chip — a run playing SCRIPTED content instead of live Copilot should
+      be unmistakable (e.g. a persistent header marker near the credits),
+      or a cold-start fallback will be mistaken for a live run.
 - [ ] `health.error RunActive` ("a build is already active — one build per
       panel") renders nothing: clicking a door while a restored run still
       holds a gate is silently refused (first live session, 2026-08-10,
