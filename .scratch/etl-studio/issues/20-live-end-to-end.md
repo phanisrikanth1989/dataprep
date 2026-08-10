@@ -192,6 +192,21 @@ Steer text simplified accordingly (plain re-walk, no id rename needed).
 smoke 93 + seam green after the harness change (fixtures resolve
 identically under file-stem mapping).
 
+2026-08-10 -- Mac testing ended (user's Copilot subscription lapsed);
+the live pass moves to the Citi laptop. Pre-Citi build sweep landed
+everything buildable across 20/21 (see ticket 21's dated list; commits
+cefda779 / 6f4e9eb1 / efac5e68). This ticket's remaining work is
+LIVE-ONLY, on the Citi machine: the small-document run, the complex-
+document run, the 16-era F5 checklist beats, usage-parts verification
+against the gateway (nano-AIU expected there -- credits chip now renders
+either shape), thinking-parts probe, verdict file-chips pixel proof, and
+the fix round both runs feed. CITI SETUP NOTES: work/ ships empty (runs
+regenerate it); repo .venv needs the engine deps INCLUDING attrs (pip
+install attrs -- the Mac venv gap that hid behind the early-bail
+harness); NO maven/JAR needed (catalog is Java-free since the tMap
+removal); provider setting auto resolves vscode.lm on-machine; fallback
+to double is announced by the new SCRIPTED chip.
+
 2026-08-10 -- Second live run (fresh r1 after work/ clear): the
 canonicalization fix confirmed on live pixels (design came out
 FileInputDelimited/Join/PythonDataFrameComponent throughout, join-based,

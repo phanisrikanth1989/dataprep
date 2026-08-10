@@ -95,6 +95,15 @@ surfaces the wire already carries but the webview cannot show):
       predicted — both kinds now ride the needs_human feed card (title by
       kind, prompt falls back to payload.voice, free-text placeholder from
       the option). First live render pending the r3 crash-restore.
+- [ ] Orchestrator narration reads near-verbatim across runs (user, after
+      4 runs of the small BRD): journal-compared, no beat is string-equal
+      run to run — it IS generated — but the fixed beats (opening,
+      spec-signed, gate) get near-identical prompts and land on the same
+      sentence shape every time, which reads memorized. Candidates:
+      richer per-beat state in the narration prompt (name the actual
+      rules/components/values), an anti-repetition style instruction, or
+      sampling options if the port exposes them. Presentation-free zone —
+      content-real is not in question.
 - [ ] Canvas configured-state (type caption + Configurator byline) is
       keyed by node id and never re-associates: when a re-design renames a
       node (r3: join_accounts -> join_trades_accounts) the new id renders
@@ -150,3 +159,31 @@ above) -- multi-gap live round answered clean, preselects shown, Send
 live; and ticket 18's beats (narration alongside stages, threaded
 tool-grounded composer answer, hold propose-confirm -> boundary hold ->
 resume) all read correctly at human pace.
+
+2026-08-10 -- Pre-Citi build sweep (user lost the Mac Copilot
+subscription; everything buildable landed so the Citi laptop session is
+pure testing; commits cefda779 / 6f4e9eb1 / efac5e68). BUILT, live
+pixel-check pending -- the checklist boxes stay for the live pass:
+- Multi-select picker (canSelectMany + list contract) AND working drop
+  (uri-list payloads from Explorer drags, windows drive form handled).
+- Scatter reserves the gate card's band at sign-off (no rule under it).
+- Sign-off leaders dropped (whole-spec signature reading).
+- Intake stage-completed line reworded (dup feed line).
+- Idle connecting state: Start disabled + hint until attach resolves.
+- Persistent SCRIPTED chrome chip on provider fallback (+ feed warning).
+- RunActive renders a banner (cleared on run start/end).
+- Crash-restored run with a pending question announces itself.
+- VerdictCard: Approve keyed on the conductor's approve option
+  (smoke-clean approvable), tier chip in the eyebrow, honest smoke
+  wording.
+- Repair-pass configure sweep (stale Flow-Designer bylines heal).
+- Stage-boundary breathing beat: conductor waits for the orchestrator
+  queue to drain, 8s cap, demo pace only (shape decided per the
+  2026-08-10 comment above).
+- Narration variety: style rule (never reuse a sentence shape this run;
+  anchor in the moment's particulars).
+- Credits chip: renders credits (nano-AIU) or tokens, whichever the
+  provider sent; nothing when neither.
+Still open here: microcopy collection during live runs (the ticket's
+original core), both-themes re-check of the new surfaces, and the
+checklist ticks themselves.
