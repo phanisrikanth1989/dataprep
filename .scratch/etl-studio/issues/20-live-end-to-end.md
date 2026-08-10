@@ -46,3 +46,26 @@ nothing outside the folder modified.
 Done when the user confirms the full run in the F5 dev host on this Mac --
 both doors demonstrated, the beats 15 scripted now emerging from real
 events, no scripted sources anywhere in the path.
+
+## Comments
+
+2026-08-10 -- Deferred from ticket 16 (user decision: F5 verification waits
+until real things are present; smoke's editor-free wire proof is green).
+The conductor swap changed a few visible beats the live pass should
+confirm alongside this ticket's own list:
+
+- [ ] Injected G0 card: a dataless typed run shows a three-gap round
+      (G0 "attach data" + G1 + G2); answering G0 with paths in the
+      free-text row completes the round and the run reaches `verified`.
+- [ ] Configure retry choreography: the rate-limit beat is now a real
+      re-issue -- errored stream close, retry chip, fresh Configurator
+      stream (attempt 2) -- confirm it reads calm, not broken.
+- [ ] Draft-2 walks re-materialize: a second "Materializer · wrote
+      golden/" feed line after any re-sign-off is expected (honest
+      re-materialization), not a duplicate-event bug.
+- [ ] Hold -> steer live: directed interpreter re-run, draft-2 card,
+      forward spine segments un-filling.
+- [ ] Crash-restore live (Ctrl+Alt+Shift+K mid-run): banner, silent
+      re-walk, zero duplicated feed items, seq continuity on screen.
+- [ ] Bus spot-check after a run: `work/<job>-rN/` holds the canonical
+      artifacts, golden/, runs/, history/<artifact>.<k>, audit.jsonl.
