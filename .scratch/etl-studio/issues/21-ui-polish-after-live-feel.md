@@ -46,6 +46,10 @@ surfaces the wire already carries but the webview cannot show):
       four separate picker round-trips (user, first live session
       2026-08-10). Allow multi-select (`canSelectMany` in the shim's
       editor.pick_file) and/or real drag-and-drop onto the composer.
+- [ ] At the spec sign-off, a scatter rule card can sit partially under the
+      gate card (R6 in the replay-harness check after the blur lift) — the
+      scatter camera or card placement should keep every rule fully visible
+      at sign-off.
 - [ ] At the spec sign-off, the card's leader lines anchor only to the
       gap-answered rules — which reads as "you are signing R1 and R2" when
       the signature covers the whole spec (user asked exactly this, live

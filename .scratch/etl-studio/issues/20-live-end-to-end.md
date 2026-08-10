@@ -69,3 +69,11 @@ confirm alongside this ticket's own list:
       re-walk, zero duplicated feed items, seq continuity on screen.
 - [ ] Bus spot-check after a run: `work/<job>-rN/` holds the canonical
       artifacts, golden/, runs/, history/<artifact>.<k>, audit.jsonl.
+
+2026-08-10 -- From ticket 17's live probe (contract gap to reconcile here):
+the vscode.lm adapter surfaced NO usage DataParts on this Mac, so the
+credit readout counts scripted turns only and shows nothing for live model
+calls. Confirm whether the shim drops the part or the local provider never
+emits it, and reconcile (06's rule stands: absent part -> no number, never
+an estimate). Also already done by 17, from this ticket's list: the demo
+BRD + CSVs are vendored under demo/etl_studio/examples/.
