@@ -4,7 +4,7 @@
 // and the hold card. Every affordance resolves through 08's one answer
 // shape {question_id, choice, free_text?} -- <= 3 affordances per card.
 
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { answer } from "./bridge";
 import type { QuestionView } from "./state";
 import type { CodeCell, QuestionOption } from "./types";
@@ -185,22 +185,36 @@ export function GapRoundCard({
   vh: number;
   anchors: Anchor[];
 }): React.ReactElement {
-  const [sels, setSels] = useState<Record<string, GapSel>>(() => {
-    const out: Record<string, GapSel> = {};
-    for (const q of qs) {
-      const rec = q.options.find((o) => o.recommended);
-      out[q.id] = { choice: rec?.id ?? null, free: "", waived: false };
-    }
-    return out;
+  // A round can GROW after mount: its question.raised events ride separate
+  // postMessages, and the envelope pump flushes per animation frame -- two
+  // events landing astride a frame boundary mount the card with only the
+  // first (seen live: G1 in the mount flush, G2 in the next). Selections
+  // therefore derive lazily: any member without a stored record gets a
+  // COMPLETE default (recommended preselected), and every write merges onto
+  // that default -- a partial record can never exist, so send() can never
+  // trip over a missing field mid-loop.
+  const defaultSel = (q: QuestionView): GapSel => ({
+    choice: q.options.find((o) => o.recommended)?.id ?? null,
+    free: "",
+    waived: false,
   });
+  const [sels, setSels] = useState<Record<string, GapSel>>({});
+  const selOf = (q: QuestionView): GapSel => sels[q.id] ?? defaultSel(q);
   const [sent, setSent] = useState(false);
 
-  const upd = (qid: string, patch: Partial<GapSel>) =>
-    setSels((s) => ({ ...s, [qid]: { ...s[qid], ...patch } }));
+  const upd = (q: QuestionView, patch: Partial<GapSel>) =>
+    setSels((s) => ({ ...s, [q.id]: { ...(s[q.id] ?? defaultSel(q)), ...patch } }));
+
+  // qs holds only PENDING gaps, so a resolution changes its composition.
+  // Re-arm Send then: if any answer was dropped or ignored, the survivors
+  // stay pending and remain sendable (the core ignores duplicate answers,
+  // so re-sending is safe) -- a one-shot latch stranded the round before.
+  const pendingKey = qs.map((q) => q.id).join("|");
+  useEffect(() => setSent(false), [pendingKey]);
 
   const ready = qs.every((q) => {
-    const s = sels[q.id];
-    return s && (s.waived || s.choice || s.free.trim());
+    const s = selOf(q);
+    return s.waived || s.choice || s.free.trim();
   });
 
   const send = () => {
@@ -209,9 +223,11 @@ export function GapRoundCard({
     }
     setSent(true);
     for (const q of qs) {
-      const s = sels[q.id];
+      const s = selOf(q);
       if (s.waived) {
-        answer(q.id, "waive");
+        // The waive OPTION's real id: live-authored options need not use
+        // the literal "waive" (the core validates answers against ids).
+        answer(q.id, q.options.find((o) => o.kind === "waive")?.id ?? "waive");
       } else if (s.free.trim() && !s.choice) {
         answer(q.id, "other", s.free.trim());
       } else {
@@ -230,11 +246,11 @@ export function GapRoundCard({
         </span>
       </div>
       {qs.map((q) => {
-        const s = sels[q.id];
+        const s = selOf(q);
         const waivable = q.options.some((o) => o.kind === "waive");
         const choices = q.options.filter((o) => o.kind !== "waive");
         return (
-          <div key={q.id} className={`qgap${s?.waived ? " waived" : ""}`}>
+          <div key={q.id} className={`qgap${s.waived ? " waived" : ""}`}>
             <div className={`sev ${q.payload.severity}`}>
               <span className="d" />
               {q.payload.severity === "blocking" ? "Blocking" : "Advisory"}
@@ -247,8 +263,8 @@ export function GapRoundCard({
               {choices.map((o) => (
                 <button
                   key={o.id}
-                  className={`opt${s?.choice === o.id ? " sel" : ""}`}
-                  onClick={() => upd(q.id, { choice: o.id, waived: false })}
+                  className={`opt${s.choice === o.id ? " sel" : ""}`}
+                  onClick={() => upd(q, { choice: o.id, waived: false })}
                 >
                   <span className="radio" />
                   <span>
@@ -260,13 +276,13 @@ export function GapRoundCard({
             </div>
             <input
               className="qfree"
-              value={s?.free ?? ""}
+              value={s.free}
               placeholder={q.payload.free_prompt ?? "Something else…"}
-              onChange={(e) => upd(q.id, { free: e.target.value, choice: null, waived: false })}
+              onChange={(e) => upd(q, { free: e.target.value, choice: null, waived: false })}
             />
             {waivable ? (
               <>
-                <button className="qwaive" onClick={() => upd(q.id, { waived: !s?.waived })}>
+                <button className="qwaive" onClick={() => upd(q, { waived: !s.waived })}>
                   Waive — proceed with the default
                 </button>
                 <div className="waivetag">✓ Waived — default applies, recorded on the spec</div>

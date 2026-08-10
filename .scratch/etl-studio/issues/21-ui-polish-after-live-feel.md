@@ -96,3 +96,23 @@ surfaces the wire already carries but the webview cannot show):
 None fire in the default demo walk; they matter the moment ticket 17's
 real specialists surface extraction questions or a dataless run reaches
 the gate.
+
+## Comments
+
+2026-08-10 (found during ticket 18's F5 verification; fixed immediately --
+a stuck-run defect, not polish): the gap-round card stranded a live run.
+Root cause chain, confirmed against the run journal (trade_positions-r3:
+G1 resolved, G2 raised with a recommended option yet never auto-answered,
+never resolved): question.raised events ride separate postMessages and the
+envelope pump flushes per animation frame, so a round's cards can mount
+before all members arrive; GapRoundCard initialized selections only at
+mount, a click on a late member created a partial record without `free`,
+send() threw on `s.free.trim()` mid-loop AFTER earlier answers went out,
+and the one-shot `sent` latch left "Send answers" permanently disabled.
+Fixed in Cards.tsx (fix commit on this branch): selections derive lazily
+from complete per-question defaults (recommended preselect works for late
+arrivals), Send re-arms when the pending set changes (core ignores
+duplicate answers), and waive now sends the waive option's REAL id instead
+of the literal "waive" (live-authored options need not use it -- same
+stranding pattern otherwise). Latent since 15; first conductor-era F5 pass
+surfaced it.
