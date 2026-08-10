@@ -252,14 +252,65 @@ class JsonRpcConnection:
 
 
 async def stdio_connection() -> JsonRpcConnection:
-    """Wire a connection over this process's stdin/stdout (POSIX)."""
+    """Wire a connection over this process's stdin/stdout.
+
+    POSIX uses the loop's pipe transports. Windows' proactor loop cannot
+    connect pipe transports to console/stdio handles (NotImplementedError),
+    so there stdio is pumped through daemon threads instead -- same binary
+    framing, same StreamReader, a duck-typed writer (ticket 20: the Citi
+    laptop is Windows; this was the core's hard startup failure there)."""
     import sys
 
     loop = asyncio.get_running_loop()
+    if sys.platform != "win32":
+        reader = asyncio.StreamReader()
+        await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin.buffer)
+        w_transport, w_protocol = await loop.connect_write_pipe(
+            asyncio.streams.FlowControlMixin, sys.stdout.buffer
+        )
+        writer = asyncio.StreamWriter(w_transport, w_protocol, None, loop)
+        return JsonRpcConnection(reader, writer)
+
+    import threading
+
     reader = asyncio.StreamReader()
-    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin.buffer)
-    w_transport, w_protocol = await loop.connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout.buffer
-    )
-    writer = asyncio.StreamWriter(w_transport, w_protocol, None, loop)
-    return JsonRpcConnection(reader, writer)
+
+    def _pump_stdin() -> None:
+        stdin = sys.stdin.buffer
+        try:
+            while True:
+                data = stdin.read1(65536)  # blocks for >=1 byte, returns what's there
+                if not data:
+                    break
+                loop.call_soon_threadsafe(reader.feed_data, data)
+        except Exception:  # noqa: BLE001 -- a dying pipe is EOF, not a crash
+            pass
+        loop.call_soon_threadsafe(reader.feed_eof)
+
+    threading.Thread(target=_pump_stdin, name="stdio-read", daemon=True).start()
+
+    class _ThreadWriter:
+        """StreamWriter stand-in: write() buffers on the loop thread,
+        drain() flushes the buffer to stdout off-loop, serialized."""
+
+        def __init__(self) -> None:
+            self._chunks: list = []
+            self._lock = asyncio.Lock()
+
+        def write(self, data: bytes) -> None:
+            self._chunks.append(data)
+
+        async def drain(self) -> None:
+            async with self._lock:
+                chunks, self._chunks = self._chunks, []
+                if not chunks:
+                    return
+                payload = b"".join(chunks)
+                await loop.run_in_executor(None, self._blocking_write, payload)
+
+        @staticmethod
+        def _blocking_write(payload: bytes) -> None:
+            sys.stdout.buffer.write(payload)
+            sys.stdout.buffer.flush()
+
+    return JsonRpcConnection(reader, _ThreadWriter())

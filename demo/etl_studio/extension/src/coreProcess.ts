@@ -43,11 +43,16 @@ export function resolvePython(studioRoot: string): string {
     return configured;
   }
   const repoRoot = path.resolve(studioRoot, "..", "..");
-  const venvPython = path.join(repoRoot, ".venv", "bin", "python");
+  // Windows venvs put the interpreter under Scripts\, and "python3" is
+  // usually absent from PATH there (ticket 20: Citi laptop portability).
+  const isWin = process.platform === "win32";
+  const venvPython = isWin
+    ? path.join(repoRoot, ".venv", "Scripts", "python.exe")
+    : path.join(repoRoot, ".venv", "bin", "python");
   if (fs.existsSync(venvPython)) {
     return venvPython;
   }
-  return "python3";
+  return isWin ? "python" : "python3";
 }
 
 export class CoreProcess implements vscode.Disposable {

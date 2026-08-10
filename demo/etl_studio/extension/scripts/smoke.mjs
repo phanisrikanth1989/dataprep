@@ -47,8 +47,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const studioRoot = path.resolve(here, "..", "..");
 const repoRoot = path.resolve(studioRoot, "..", "..");
 const workDir = path.join(studioRoot, "work", "_smoke");
-const venvPython = path.join(repoRoot, ".venv", "bin", "python");
-const python = fs.existsSync(venvPython) ? venvPython : "python3";
+const isWin = process.platform === "win32";
+const venvPython = isWin
+  ? path.join(repoRoot, ".venv", "Scripts", "python.exe")
+  : path.join(repoRoot, ".venv", "bin", "python");
+const python = fs.existsSync(venvPython) ? venvPython : isWin ? "python" : "python3";
 
 let passed = 0;
 let failed = 0;

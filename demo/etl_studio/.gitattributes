@@ -1,0 +1,4 @@
+# Fixture bytes are the demo's ground truth: no line-ending normalization
+# on a Windows checkout (the BRD is binary; the CSVs feed delimiter
+# sniffing and golden materialization byte-exact).
+examples/** -text

@@ -207,6 +207,31 @@ harness); NO maven/JAR needed (catalog is Java-free since the tMap
 removal); provider setting auto resolves vscode.lm on-machine; fallback
 to double is announced by the new SCRIPTED chip.
 
+2026-08-10 -- Windows portability audit (user asked before the Citi
+transfer; the laptop is expected to be Windows). Two fatal breaks found
+and fixed, one insurance added:
+  1. Interpreter resolution (shim + smoke) checked .venv/bin/python then
+     python3 -- on Windows the venv is .venv\\Scripts\\python.exe and
+     python3 is normally absent. Now platform-aware (python.exe /
+     "python" fallback). The etlStudio.pythonPath setting remains the
+     manual override.
+  2. core/rpc.py wired stdio via connect_read_pipe/connect_write_pipe --
+     unsupported for console handles on the Windows proactor loop
+     (NotImplementedError at startup, core dead on arrival). win32 now
+     pumps stdio through daemon threads: same binary LSP framing, real
+     StreamReader fed cross-thread, duck-typed writer with serialized
+     off-loop flushes. POSIX path unchanged (smoke 93 still green).
+     PROVENANCE: the win32 leg is code-reviewed but has never executed
+     (no Windows here) -- first Citi F5 proves it; if the core dies
+     instantly there, look at this seam first.
+  3. demo/etl_studio/.gitattributes: examples/** -text so a Windows
+     checkout cannot CRLF-normalize the fixture CSVs/docx.
+Audited clean: pathlib throughout the core, binary framing, asyncio
+subprocess harness (proactor supports it), explicit encodings on every
+open, vscode.open/path.join in the shim, uri-list drop already handles
+the windows drive form. Known benign difference: SIGTERM on Windows is
+a hard kill -- the per-event journal + crash-restore already absorb it.
+
 2026-08-10 -- Second live run (fresh r1 after work/ clear): the
 canonicalization fix confirmed on live pixels (design came out
 FileInputDelimited/Join/PythonDataFrameComponent throughout, join-based,
