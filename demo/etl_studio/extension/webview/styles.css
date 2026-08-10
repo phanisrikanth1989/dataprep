@@ -85,12 +85,12 @@ input, textarea { font: inherit; color: inherit; }
 .dotsbtn:focus-visible { outline: none; box-shadow: 0 16px 40px rgba(0, 0, 0, .4), inset 0 0 0 1.5px rgba(232, 148, 90, .55); }
 .menuveil { position: fixed; inset: 0; z-index: 55; background: transparent; cursor: default; }
 @keyframes menupop { 0% { opacity: 0; transform: scale(.96) translateY(-4px); } 100% { opacity: 1; transform: none; } }
-.hudmenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 56; min-width: 168px; width: max-content; padding: 5px;
+.hudmenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 56; min-width: 122px; width: max-content; padding: 4px;
   display: flex; flex-direction: column; background: rgba(26, 23, 19, .94);
   backdrop-filter: blur(28px) saturate(1.15); -webkit-backdrop-filter: blur(28px) saturate(1.15);
-  border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06);
+  border-radius: 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06);
   transform-origin: top right; animation: menupop .18s cubic-bezier(.2, .9, .3, 1) both; }
-.mitem { display: flex; align-items: center; justify-content: center; gap: 2px; padding: 9px 16px; border-radius: 10px;
+.mitem { display: flex; align-items: center; justify-content: center; padding: 7px 13px; border-radius: 9px;
   font-size: 12.5px; font-weight: 600; color: var(--ember-hi); text-align: center; width: 100%; transition: background .15s; }
 .mitem:hover { background: var(--ember-soft); }
 .mitem.quiet { color: var(--ink2); font-weight: 500; }
