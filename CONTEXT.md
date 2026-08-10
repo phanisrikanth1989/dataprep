@@ -1,15 +1,17 @@
 # ETL Studio
 
 Domain language for the ETL Studio effort: a VS Code extension where agents turn
-a typed request or an uploaded BRD into a harness-verified DataPrep job, with the
+a typed request or an uploaded BRD into a harness-verified RecTran job, with the
 human in the loop through the UI. (Map: `.scratch/etl-studio/map.md`.)
+RecTran is the tool name for the Python ETL engine in this repo (`src/v1/`),
+called DataPrep in older material.
 
 ## Language
 
 **Build**:
 The one agent session from front door to human gate — what a door starts and
 an approval (or stop) ends: agents interpret, design, configure, assemble and
-verify a DataPrep job with the human at the gates. The product's display
+verify a RecTran job with the human at the gates. The product's display
 language everywhere ("Start build", "Build feed", "+ New build"). Distinct
 from a *run*, which this vocabulary reserves for its ETL meaning: the harness
 / Test Runner executing the assembled job during Verify ("run 1 — clean",

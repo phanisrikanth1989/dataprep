@@ -203,7 +203,7 @@ function Chrome({
       <div className="brand">
         <span className="arc" />
         <span className="t">ETL Studio</span>
-        <span className="s">on DataPrep</span>
+        <span className="s">on RecTran</span>
       </div>
       <div className="hud">
         {showRunChrome && state.run ? (
@@ -370,7 +370,7 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
         ETL <em>Studio</em>
       </div>
       <div className="lede">
-        A requirement goes in. Agents design, configure and assemble the job on the DataPrep
+        A requirement goes in. Agents design, configure and assemble the job on the RecTran
         engine — and verify it against your data before you approve anything.
       </div>
       <div className="portals">

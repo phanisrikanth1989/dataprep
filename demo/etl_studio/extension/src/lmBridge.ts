@@ -11,7 +11,7 @@ import { CancellationToken, MessageConnection, ResponseError } from "vscode-json
 const REQUEST_CANCELLED = -32800; // LSP ErrorCodes.RequestCancelled
 const LM_ERROR = 1000; // app-range code; taxonomy travels in error.data
 const JUSTIFICATION =
-  "ETL Studio: agent-authored DataPrep jobs (walking skeleton echo).";
+  "ETL Studio: agent-authored RecTran jobs (walking skeleton echo).";
 
 interface WireChatMessage {
   role: string;
