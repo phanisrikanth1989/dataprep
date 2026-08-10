@@ -295,10 +295,12 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       if (q.kind === "propose_confirm") {
         next = pushFeed(next, { kind: "pc", seq: env.seq, qid });
       }
-      if (q.kind === "needs_human") {
-        // Extraction question (ticket 17's real doors; card pulled forward
-        // from the ticket 21 gap list): a feed card in the propose-confirm
-        // pattern -- its resolution chip carries the record afterward.
+      if (q.kind === "needs_human" || q.kind === "exhaustion" || q.kind === "owner_human") {
+        // Feed-card questions in the propose-confirm pattern -- the
+        // resolution chip carries the record afterward. needs_human came
+        // forward from the ticket 21 gap list for 17's live doors;
+        // exhaustion/owner_human joined on ticket 20's live pass (a
+        // budget-spent run otherwise waits invisibly).
         next = pushFeed(next, { kind: "nh", seq: env.seq, qid });
       }
       return next;

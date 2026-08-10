@@ -325,19 +325,24 @@ envelope (that is the Assembler).
 Emit ONE JSON object:
 - "pattern": a one-line description of the pipeline shape.
 - "components": an ordered list of {"id", "type", "label", "purpose"}. "type" MUST be a \
-REGISTERED engine component name (e.g. tPythonDataFrame, never a prose shorthand) -- the engine \
-silently DROPS an unregistered type. "label" is a SHORT (2-3 word) human-friendly name shown \
-while the pipeline builds; keep it a plain structural descriptor. "purpose" says in a fuller \
-sentence what the node does; where a stateful node needs execution_mode pinned, say so in its \
-purpose.
+REGISTERED engine component name (e.g. PythonDataFrameComponent, never a prose shorthand) -- the \
+engine silently DROPS an unregistered type. Author each type by its CANONICAL name exactly as \
+the config reference lists it (FileInputDelimited, Join, Map, SortRow) -- never a Talend \
+t-prefixed alias (tJoin, tMap): aliases are accepted on input, not names you write. OUTPUT ID \
+CONTRACT: the FileOutput component that writes a graded output takes the output's name as its \
+component id (output "trade_positions" -> id "trade_positions") -- the verification harness maps \
+golden outputs to job components BY ID, so any other id fails the run. "label" is a SHORT \
+(2-3 word) human-friendly name shown while the pipeline builds; keep it a plain structural \
+descriptor. "purpose" says in a fuller sentence what the node does; where a stateful node needs \
+execution_mode pinned, say so in its purpose.
 - "edges": the data-flow topology as [from_id, to_id] pairs, in flow order. Every id must be a \
 component in "components"; joins take their driver AND lookup edges. This is the graph the \
 Assembler wires and the canvas draws -- it must be complete and acyclic.
 
 PERFORMANCE FIRST (the main design axis): choose the fastest node that satisfies each rule.
-- PREFER VECTORIZED single-pass nodes: tPythonDataFrame, ConvertType, FilterColumns, simple \
-FilterRows, Join/tJoin, AggregateRow, SortRow.
-- Row-oriented nodes (Map/tMap, PyMap, tPythonRow, tJavaRow) are O(rows); reserve them for \
+- PREFER VECTORIZED single-pass nodes: PythonDataFrameComponent, ConvertType, FilterColumns, \
+simple FilterRows, Join, AggregateRow, SortRow.
+- Row-oriented nodes (Map, PyMap, tPythonRow, tJavaRow) are O(rows); reserve them for \
 Java-expression parity or a multi-lookup / expression-driven join.
 - INPUT REDUCTION: when a row-oriented node is unavoidable, push a filter/projection UPSTREAM of \
 it -- but ONLY a predicate on PRE-JOIN source columns; a predicate on a lookup-derived column \

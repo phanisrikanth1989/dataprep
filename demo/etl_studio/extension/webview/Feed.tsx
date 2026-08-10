@@ -164,10 +164,13 @@ function NeedsHuman({ state, qid }: { state: State; qid: string }): React.ReactE
     return null; // its resolution chip carries the record
   }
   const send = (choice: string, free?: string) => answer(qid, choice, free);
+  const title =
+    q.payload.source ??
+    (q.kind === "exhaustion" ? "Loop budget" : q.kind === "owner_human" ? "Owner: you" : "Extraction");
   return (
     <div className="fi pcard">
       <div className="pv">
-        <b>{q.payload.source ?? "Extraction"}</b> — {q.payload.prompt ?? "One answer needed."}
+        <b>{title}</b> — {q.payload.prompt ?? q.payload.voice ?? "One answer needed."}
       </div>
       <div className="row">
         {q.options.map((o) =>
@@ -196,7 +199,11 @@ function NeedsHuman({ state, qid }: { state: State; qid: string }): React.ReactE
             className="qfree"
             autoFocus
             value={text}
-            placeholder={q.payload.free_prompt ?? "Tell it what to do…"}
+            placeholder={
+              q.options.find((o) => o.id === freeFor)?.placeholder ??
+              q.payload.free_prompt ??
+              "Tell it what to do…"
+            }
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && text.trim()) {

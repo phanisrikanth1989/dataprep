@@ -46,6 +46,14 @@ surfaces the wire already carries but the webview cannot show):
       four separate picker round-trips (user, first live session
       2026-08-10). Allow multi-select (`canSelectMany` in the shim's
       editor.pick_file) and/or real drag-and-drop onto the composer.
+      Confirmed live in ticket 20 run 1 (2026-08-10): drag-and-drop lands
+      NOTHING in the dev host — Finder drags carry no `File.path` (removed
+      in modern Electron; the scripted-era handler falls back to a bare
+      name), Explorer drags arrive as `uri-list` payloads with no `File`
+      objects, so the current `dataTransfer.files` handler is dead code
+      live. Fix = consume `text/uri-list` / VS Code's uri-list mime in the
+      drop handler, or retire the drop affordance so the composer doesn't
+      invite a gesture that can't work.
 - [ ] At the spec sign-off, a scatter rule card can sit partially under the
       gate card (R6 in the replay-harness check after the blur lift) — the
       scatter camera or card placement should keep every rule fully visible
@@ -81,12 +89,20 @@ surfaces the wire already carries but the webview cannot show):
       "this build continues — answer the pending gate" cue (and/or a
       deliberate start-over affordance): the user reopened the panel and
       reached for the doors instead of the restored gate card.
-- [ ] Question kinds `exhaustion` and `owner_human` have no card — they
-      raise as real pending questions (journaled, replayed, answerable over
-      the wire; smoke exercises them) but render nothing, so a live run
-      that hits one waits invisibly. They start firing with ticket 19's
-      real repair loops. Payload shapes are in `core/envelope.py`; the
-      needs_human/propose-confirm feed cards are the pattern to follow.
+- [x] ~~Question kinds `exhaustion` and `owner_human` have no card~~ pulled
+      forward (2026-08-10, ticket 20 live pass): r3's repair budget spent
+      and the run waited invisibly on the exhaustion question, exactly as
+      predicted — both kinds now ride the needs_human feed card (title by
+      kind, prompt falls back to payload.voice, free-text placeholder from
+      the option). First live render pending the r3 crash-restore.
+- [ ] Canvas configured-state (type caption + Configurator byline) is
+      keyed by node id and never re-associates: when a re-design renames a
+      node (r3: join_accounts -> join_trades_accounts) the new id renders
+      designer-fresh though its config cell exists — and repair-pass
+      configure skips the completion sweep entirely (`if not ctx.repair`),
+      so repaired nodes never re-light. A spec-door forward re-run heals
+      both (full sweep); consider a repair-pass sweep or id-migration by
+      label for the polish pass.
 - [ ] VerdictCard keys Approve on `verdict === "verified"` — an approvable
       `smoke_clean` (or build-tier `unverified`) verdict hides its Approve
       button. Ticket 13's "smoke-clean approvable" is wire-true (the

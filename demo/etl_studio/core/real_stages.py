@@ -502,6 +502,12 @@ class RealFlowDesigner(StageAdapter):
         if parsed is None:
             parsed = ctx.bus.read_json("flow.json") or {}
         components = list(parsed.get("components") or [])
+        # One vocabulary on the canvas and in job.json (ticket 20): any
+        # Talend alias the model authored lands as the schema's canonical
+        # type. The engine registers both names; the studio shows one.
+        for c in components:
+            if c.get("type"):
+                c["type"] = knowledge.canonical_type(str(c["type"]))
         edges = [list(e) for e in (parsed.get("edges") or [])]
         nodes = [{
             "id": c.get("id"),
@@ -627,6 +633,9 @@ class RealConfigurator(StageAdapter):
         if parsed is None:
             parsed = {"components": (ctx.bus.read_json("config.json") or {}).get("components", [])}
         components = list(parsed.get("components") or [])
+        for c in components:
+            if c.get("type"):
+                c["type"] = knowledge.canonical_type(str(c["type"]))
         if ctx.repair:
             self._preserve_gated_cells(components, ctx.bus.read_json("config.json") or {})
         if not ctx.repair:
@@ -735,6 +744,9 @@ class RealAssembler(StageAdapter):
         job.setdefault("components", [])
         job.setdefault("flows", [])
         job.setdefault("triggers", [])
+        for comp in job["components"]:
+            if comp.get("type"):
+                comp["type"] = knowledge.canonical_type(str(comp["type"]))
         self._enforce_draft_configs(job, draft)
         if ctx.repair:
             await ctx.write_artifact("job.json", job, kind="job")

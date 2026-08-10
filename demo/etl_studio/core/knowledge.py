@@ -58,6 +58,19 @@ def _canonical_files(types: Optional[Iterable[str]] = None) -> List[str]:
     return sorted(files)
 
 
+def canonical_type(name: str) -> str:
+    """Canonical component type for any catalog name or Talend alias
+    (ticket 20: one vocabulary on the canvas and in job.json -- the
+    schema's own ``type`` field). Uncurated/unknown names pass through
+    unchanged; the engine + oracle gate those."""
+    index = _index()
+    filename = index.get(str(name))
+    if not filename:
+        return str(name)
+    schema = json.loads((_SCHEMA_DIR / filename).read_text(encoding="utf-8"))
+    return str(schema.get("type") or name)
+
+
 def _canonical_types(types: Iterable[str]) -> set:
     """Expand component types/aliases to every name that shares their curated
     schema (tJoin -> {tJoin, Join}, ...) so landmine keying by canonical name
@@ -132,7 +145,7 @@ def render_config_reference(types: Optional[Iterable[str]] = None) -> str:
         out.append(f"## {schema['type']}")
         aliases = schema.get("aliases", [])
         if aliases:
-            out.append(f"Aliases: {', '.join(aliases)}")
+            out.append(f"Aliases (accepted on input, never author these): {', '.join(aliases)}")
         out.extend(_render_keys(schema.get("keys", {})))
         out.append("")
     return "\n".join(out)

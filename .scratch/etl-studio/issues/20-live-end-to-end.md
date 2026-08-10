@@ -98,3 +98,63 @@ frontier pick): run live end to end with a small document first, then a
 bigger, more complicated document; only once both work, fix whatever
 those runs expose -- the fixes belong to this ticket. .vsix packaging
 reconfirmed not needed.
+
+2026-08-10 -- Claimed; pre-run build landed (commit b3ff9683). Survey
+found the scope list mostly already real: the webview has ridden the live
+conductor feed since 16 (no scripted event sources left to replace;
+LIVE_SLOTS covers all seven model moments -- five specialists,
+orchestrator, diagnostician), editor.pick_file landed earlier, examples/
+vendored by 17. What this commit adds: editor.open_file end to end --
+human-gate payload gains ``files`` (actual output beside its golden, real
+bus paths), the verdict card renders them as "Open in editor" chips, the
+shim opens them beside the panel (06's whole-files-never-the-feed).
+fetch_artifact stays a wire capability; no webview zoom surface exists
+yet (that's 21's renderer-gap territory). Verified: typecheck/esbuild
+clean, smoke 93 green, seam green, ``files`` wire-verified in fresh smoke
+journals. Pixel proof of the chips rides run 1. Stale-state check:
+work/_skeleton holds two ENDED dev runs (r1/r2) -- panel will boot-restore
+the finished r2 view; the overflow menu's New build reaches the composer.
+autorun marker: only the inert .consumed file present; no hijack risk.
+Next: run 1 (small document = vendored trade_position_demo.docx, BRD
+door, live adapter), user-driven in the F5 dev host.
+
+2026-08-10 -- Run 1 findings (live, F5 dev host):
+- Drag-and-drop of the BRD onto the composer lands nothing (user, first
+  attempt). Scripted-era handler; live-dead for structural reasons --
+  detail recorded on ticket 21's existing picker/drag item. Unblock:
+  attach via the picker (editor.pick_file), which is live-capable.
+  Fix-phase decision rides this ticket's close-out or 21.
+- Live normalizer (r3, BRD + 3 attached CSVs) located everything right
+  (CSVs -> sample inputs, table:1 -> expected output, prose consumed) but
+  omitted table:0 (the section-2 source-to-target mapping table) from the
+  coverage_map while filing it in extra_sections -- normalize_validate
+  fail-closed and raised needs_human, card rendered and answerable (the
+  17-era pull-forward earning its keep). Recovery path = free-text steer,
+  re-find round. Fix-phase candidate: prompt nudge so spec tables consumed
+  into schema/rules get coverage_map entries like prose does, else the
+  demo BRD trips this card every run.
+- r3 repair-loop burn, root-caused from the journal + reports: the
+  vendored harness maps golden outputs to job components BY COMPONENT ID
+  (wants id == "trade_positions"); the live designer named it
+  output_trade_positions. Diagnostician got owner+evidence right every
+  pass but its fix field restated the wrong id (19's "fix field
+  off-target" item, reproduced live 3/3) -- three passes reproduced the
+  same job, budget exhausted, and the exhaustion question raised
+  INVISIBLY (21's predicted gap). Landed in response (same commit):
+  exhaustion/owner_human ride the needs_human feed card; designer prompt
+  now carries the OUTPUT ID CONTRACT line. Unblock plan: reload window ->
+  crash-restore re-raises the card -> Steer routes the id fix through the
+  interpreter (an uncapped human act; the forward re-walk is a spec-door
+  full reconfigure, which also re-lights the orphaned join nodes).
+- Component vocabulary canonicalized (user direction, this session): the
+  designer prompt itself taught the t-alias ("e.g. tPythonDataFrame") --
+  now canonical-only prompts, "never author" alias phrasing in the config
+  reference, and knowledge.canonical_type() normalization at all three
+  parse seams (design/configure/assemble), so canvas and job.json speak
+  one vocabulary whatever the model writes. Proven: smoke fixtures author
+  tJoin/tPythonDataFrame, fresh smoke bus holds Join/
+  PythonDataFrameComponent, 93 checks + engine walk green.
+- Thought-for accordions render only streamed parts: tool chips when the
+  turn made tool calls; thinking deltas never arrive on this Mac (09's
+  probe, reasoning_tokens 0), so no-tool turns show an empty body --
+  expected here, re-check on the Citi gateway (ticket 22).
