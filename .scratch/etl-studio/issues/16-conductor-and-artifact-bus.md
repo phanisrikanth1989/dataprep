@@ -1,6 +1,6 @@
 # 16 - Conductor and artifact bus
 
-Status: open
+Status: resolved
 Type: task
 
 ## Question
@@ -111,3 +111,103 @@ from its delta, replace its placeholder:
   over `lm/*`, the tool-use loop runner, count_tokens, typed options,
   per-stage model selectors, core-owned backoff beyond the scripted
   rate-limit retry.
+
+## Answer
+
+Built 2026-08-10. `npm run smoke` grew 51 -> 74 checks, all green (both
+doors end to end, crash-restore mid-gate, bus assertions on disk); seam
+tripwire green (16 core modules); `tsc --noEmit` and esbuild clean; the
+webview needed zero changes, as required.
+
+**Module map** (all new code under `demo/etl_studio/core/`):
+
+- `conductor.py` -- the code conductor: both doors' fixed itinerary, loop
+  counters (shape-repair <=3, repair attempts <=3 + uncapped grants,
+  elicitation 3 rounds + batch fallback), owner+forward rule via one
+  `_DirectedIteration(owner)` primitive (spec door = interpret, code door =
+  configure), tier routing (verified loops; smoke runs once; build never
+  runs), gate raising, boundary/hold/stop/steer verbs, propose-confirm
+  escalation on unplanned stage failure, orchestrator context feed
+  (`orchestrator_context()`, rebuilt from audit+bus -- ticket 18 consumes).
+- `bus.py` + `vendored/audit_log.py` -- ArtifactBus: canonical names,
+  produce-don't-mutate, supersede to `history/<artifact>.<k>` (k monotonic
+  per artifact), `audit.jsonl` maps each k to its context; artifact index
+  feeds `fetch_artifact` (full artifacts served from the bus).
+- `questions.py` -- all nine kinds on one raised->resolved lifecycle;
+  resolutions recorded untouched; answers validated against the
+  conductor-authored option ids (an out-of-contract choice -- e.g. approve
+  on a red verdict -- is ignored and the question stays pending).
+- `llm.py` -- StreamRunner: per-part forwarding, the tool-use loop runner
+  (shared by 17/18/19; handlers dispatched core-side, `tool_result` parts
+  core-authored, results fed back as message items), core-owned visible
+  backoff (`health.retry`, bounded attempts, errored stream closes then a
+  fresh stream opens).
+- `models.py` -- per-stage selectors from optional `studio_config.json`
+  (select by vendor+id via enumeration; absent = adapter defaults;
+  `--config` on main.py).
+- `stages.py` -- the StageAdapter/StageContext/StageResult interface
+  17/18/19 implement against; slots: explode, doc_normalize,
+  normalize_validate, intake_build, interpret, materialize, design,
+  configure, assemble, test_run, diagnose (+ `ctx.repair` for quiet
+  repair-loop re-runs).
+- `stub_stages.py` -- the trade_positions rig (content constants moved from
+  the deleted `scripted_run.py`); rig knobs ride `start_run.rig`
+  (verify_fails / shape_errors / needs_human / owner_human).
+- Port completed (`port.py`, both adapters, `lmBridge.ts`): content items
+  (text/image/tool_call/tool_result), tool declarations, typed ChatOptions,
+  `count_tokens` capability (`lm/countTokens` in the shim), system-role
+  emulation and tool-convention mapping in the Python adapter (shim stays
+  mechanical), `request.label` = UI stream label = the double's fixture
+  key. The double's fixtures now script real loops: `config.main` round 2
+  is the tool-results follow-up; `config.write` call 1 rate-limits so the
+  backoff genuinely re-issues.
+
+**Decisions locked while building** (the deltas 17/18/19 stand on):
+
+- Run dir is per-run: `work/<job>-r<k>/` (the run id, ticket 15's naming);
+  04's `work/<job>/` reads as "per job-run", since one job runs many times.
+- Restore model: bus + audit own the state (door/request/rig ride the
+  audited `run_started` entry; tier/cells/grants re-derive from audit +
+  resolutions), the UI journal owns seq and emission idempotence. The
+  conductor re-walks its deterministic itinerary with count-based ledgers
+  (artifacts by name, streams by label, loop chips by stage) -- the Nth
+  call this walk matches the Nth journaled emission, so nothing replays.
+- Tool-loop stream semantics reconciled into the contract (envelope.py):
+  one stream per attempt; follow-up rounds reuse the attempt's stream_id;
+  port-to-pixel holds because every round's `lm/chat` carries that id.
+- `run.started.tier` is now null -- the tier is honestly frozen at
+  materialization (audit `tier_frozen`; golden artifact fields + human-gate
+  payload carry it). The webview stores but never rendered run.tier, so
+  nothing changed on screen.
+- The code gate re-pause rule is hash-based: cells surface via the vendored
+  walker over job.json, display metadata merges from config.json's
+  `cell_meta` sidecar, and approval records sha1(component|field|code) in
+  the audit -- only unapproved hashes re-raise (new vs changed flags from
+  the raised-cells set).
+- The injected G0 gap: advisory, `rule_id: "verification"`, options
+  attach (free text carries comma-separated paths -- the mid-run file-picker
+  affordance is ticket 17+ UI) / waive; an attach answer flips the tier
+  computation input and lands `data_attached` on the audit.
+- Verdict vocabulary: verified | failed | smoke_clean | smoke_failed |
+  unverified(build); Approve is omitted from the OPTIONS on red verdicts
+  (13), enforced wire-side by the option-id validation.
+- Stub interpreter always raises G1/G2 on both doors -- the demo BRD is
+  deliberately incomplete (that IS the demo story); 02's zero-question path
+  survives as mechanism (the round loop drains when no gaps exist, proven
+  by G0-only suppression on the BRD door).
+- Unplanned failures (LlmCallError after backoff) raise a propose-confirm
+  (stop / dismiss-and-retry-once) -- 05's "free to pull the cord" without
+  the ticket-18 orchestrator yet.
+
+**Provisional extensions recorded here** (documented in envelope.py):
+question kinds needs_human / exhaustion / owner_human payload shapes
+(source+prompt / loop+k+n+grant_size / prompt+evidence, all with structured
+options); `health.retry.stream_label`; `stream.open.model {vendor, id}`.
+
+**Webview renderer gaps flagged to ticket 21** (wire and journal carry
+everything; the UI lacks cards): needs_human / exhaustion / owner_human
+raise real pending questions the webview cannot yet display or answer, and
+VerdictCard keys Approve on `verdict === "verified"`, so an approvable
+smoke_clean/build verdict hides its Approve button (13's "smoke-clean
+approvable" is wire-true, pixel-false). None of these fire in the default
+demo walk.

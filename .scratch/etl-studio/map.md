@@ -203,6 +203,18 @@ change to agent code.
   extensions recorded (stage.progress, tool_result part, stream labels,
   runless attach, editor.pick_file); scripted driver is the placeholder
   ticket 16's conductor replaces behind the same wire.
+- [16 - Conductor and artifact bus](issues/16-conductor-and-artifact-bus.md)
+  -- the deterministic chassis is real behind the unchanged wire (webview
+  zero changes): code conductor with both doors' itinerary, caps/grants,
+  owner+forward directed iteration, tier routing, hold/steer/stop verbs and
+  propose-confirm escalation; file bus with canonical names,
+  history/<artifact>.<k> and audit.jsonl; all nine question kinds on one
+  validated lifecycle (resolutions recorded untouched); port completed
+  (tool loop runner, count_tokens, typed options, per-stage selectors,
+  core-owned backoff) with the shim's lm/countTokens + tools; crash-restore
+  re-walks from bus+audit with count-based journal ledgers; stub
+  trade_positions rig is 17's replacement target; smoke 51 -> 74 green;
+  renderer gaps (3 kind cards, smoke-clean Approve) flagged to 21.
 
 ## Not yet specified
 

@@ -1,16 +1,22 @@
-// Stdio bridge smoke harness (tickets 10 + 15). Drives the Python agent core
-// over REAL LSP-framed stdio using the same vscode-jsonrpc client the shim
-// uses, so a green run here proves the wire interop without the editor. The
-// one thing it cannot prove is the live vscode.lm leg -- that stays with the
-// F5 checklist. Note: no lm/* handlers are registered here on purpose, so the
-// core's auto provider must visibly fall back to the double.
+// Stdio bridge smoke harness (tickets 10 + 15 + 16). Drives the Python agent
+// core over REAL LSP-framed stdio using the same vscode-jsonrpc client the
+// shim uses, so a green run here proves the wire interop without the editor.
+// The one thing it cannot prove is the live vscode.lm leg -- that stays with
+// the F5 checklist. Note: no lm/* handlers are registered here on purpose, so
+// the core's auto provider must visibly fall back to the double.
 //
 // Phases 1-4: walking-skeleton proofs (attach, echo, cancel, crash, SIGTERM).
-// Phases 5-6: the ticket 15 scripted run -- every beat over the wire: gaps,
-// spec-gate reject + re-sign, streams with thinking/tool parts, rate-limit
-// retry + errored stream, code-gate reject on the changed cell, a composer
-// hold with resume, crash-restart mid-human-gate with seq continuity, full
-// replay fidelity, fetch_artifact.
+// Phases 5-6: the typed-door conductor run (ticket 16; stub specialists) --
+// the injected missing-data gap + a real elicitation round, spec-gate reject
+// + re-sign, a genuine tool-use loop and rate-limit backoff over the double,
+// code-gate reject re-raising only the changed cell, a composer hold with
+// resume, the repair loop, crash-restart mid-human-gate with seq continuity,
+// full replay fidelity, fetch_artifact from the bus, and the bus itself
+// (canonical names, history/<artifact>.<k>, audit.jsonl).
+// Phase 7: the BRD-door walk -- needs_human extraction question, zero-gap
+// elicitation, a hold that steers (directed iteration to the interpreter,
+// draft 2, forward re-run), repair-loop exhaustion with one human grant.
+// Phase 8: composer stop -- confirmed, armed, lands plainly at a boundary.
 //
 // Run: npm run smoke   (from demo/etl_studio/extension)
 
@@ -211,8 +217,8 @@ async function main() {
   check("SIGTERM exits 0", exit2.code === 0, `code=${exit2.code} signal=${exit2.signal}`);
   two.connection.dispose();
 
-  // ---- phase 5: the scripted run (ticket 15) -------------------------------
-  console.log("phase 5: scripted run -- every beat, one spec reject, one code reject, one hold");
+  // ---- phase 5: the typed-door conductor run (ticket 16) -------------------
+  console.log("phase 5: conductor run -- injected gap, spec reject, code reject, hold, repair");
   const three = startCore();
   const ev = three.events;
   await three.connection.sendRequest("attach", { v: 1, since_seq: 0 });
@@ -226,26 +232,29 @@ async function main() {
   check("run gets a fresh journal (seq restarts)", started.seq === 1 && started.run_id === "trade_positions-r1");
 
   const gaps = await waitFor(
-    () => { const g = ev.filter(isQ("gap")); return g.length >= 2 ? g : null; },
+    () => { const g = ev.filter(isQ("gap")); return g.length >= 3 ? g : null; },
     15000,
-    "two gap questions"
+    "three gap questions (G0 injected + G1 + G2)"
   );
+  const g0 = gaps.find((e) => e.payload.gap_id === "G0");
   const g1 = gaps.find((e) => e.payload.gap_id === "G1");
   const g2 = gaps.find((e) => e.payload.gap_id === "G2");
-  check("gap round shares round_id r1", g1?.payload?.round_id === "r1" && g2?.payload?.round_id === "r1");
+  check("dataless request injects the advisory data gap (G0)", g0?.payload?.severity === "advisory" && g0?.payload?.options?.some((o) => o.kind === "waive"));
+  check("gap round shares round_id r1", g0?.payload?.round_id === "r1" && g1?.payload?.round_id === "r1" && g2?.payload?.round_id === "r1");
   check("G1 blocking with recommended option", g1?.payload?.severity === "blocking" && g1?.payload?.options?.[0]?.recommended === true);
   check("G2 advisory offers waive", g2?.payload?.severity === "advisory" && g2?.payload?.options?.some((o) => o.kind === "waive"));
 
+  answer(three, g0.payload.question_id, "attach", "demo/data/trades.csv, demo/data/expected_positions.csv");
   answer(three, g1.payload.question_id, "keep_blanks");
   answer(three, g2.payload.question_id, "waive");
   await waitFor(
-    () => ev.filter((e) => e.type === "question.resolved" && e.payload?.kind === "gap").length >= 2,
+    () => ev.filter((e) => e.type === "question.resolved" && e.payload?.kind === "gap").length >= 3,
     8000,
     "gap resolutions"
   );
 
   const spec1 = await waitFor(isQFind(ev, "spec_gate", (p) => p.draft === 1), 15000, "spec gate draft 1");
-  check("spec gate carries gap resolutions", spec1.payload.gap_resolutions?.length === 2);
+  check("spec gate carries gap resolutions", spec1.payload.gap_resolutions?.length === 3);
   answer(three, spec1.payload.question_id, "request_changes", "Also carry account_id through to the output");
   const interp2 = await waitFor(
     () => ev.find((e) => e.type === "stage.started" && e.payload?.stage === "interpret" && e.payload?.iteration === 2),
@@ -377,6 +386,184 @@ async function main() {
   const exit4 = await four.exited;
   check("SIGTERM after the run exits 0", exit4.code === 0);
   four.connection.dispose();
+
+  // ---- the bus on disk (ticket 16): canonical names, history, audit -------
+  console.log("phase 6b: the artifact bus on disk");
+  const r1 = path.join(workDir, "trade_positions-r1");
+  const has = (p) => fs.existsSync(path.join(r1, p));
+  check(
+    "canonical artifacts on the bus",
+    ["intake.json", "requirement_spec.json", "flow.json", "config.json", "job.json", "feedback.json"].every(has),
+    ["intake.json", "requirement_spec.json", "flow.json", "config.json", "job.json", "feedback.json"].filter((p) => !has(p)).join(",")
+  );
+  check("golden + run reports on the bus", has("golden/trade_positions.csv") && has("runs/run-1/test_report.json") && has("runs/run-2/test_report.json"));
+  check(
+    "supersede moved priors to history/<artifact>.<k>",
+    has("history/requirement_spec.json.1") && has("history/config.json.1") && has("history/job.json.1"),
+    fs.existsSync(path.join(r1, "history")) ? fs.readdirSync(path.join(r1, "history")).join(",") : "no history/"
+  );
+  const auditLines = fs
+    .readFileSync(path.join(r1, "audit.jsonl"), "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+  const auditEvents = new Set(auditLines.map((e) => e.event));
+  check(
+    "audit.jsonl records the run's decisions",
+    ["run_started", "tier_frozen", "artifact_superseded", "cells_approved", "question_resolved", "run_ended"].every((e) => auditEvents.has(e)),
+    [...auditEvents].join(",")
+  );
+  const spec = JSON.parse(fs.readFileSync(path.join(r1, "requirement_spec.json"), "utf8"));
+  check("canonical spec is draft 2 (draft 1 in history)", spec.draft === 2 && Boolean(spec.what_changed));
+
+  // ---- phase 7: BRD door -- needs_human, hold+steer, exhaustion grant ------
+  console.log("phase 7: BRD walk -- needs_human, steer to draft 2, repair exhaustion + grant");
+  const five = startCore();
+  const ev7 = five.events;
+  const my7 = (pred) => (e) => e.run_id === "trade_positions-r2" && pred(e);
+  five.connection.sendNotification("command.start_run", {
+    door: "brd",
+    brd_path: "/tmp/Trade_Positions_BRD.docx",
+    brd_name: "Trade_Positions_BRD.docx",
+    attachments: [],
+    rig: { verify_fails: 4, shape_errors: 1, needs_human: true },
+  });
+  const started7 = await waitFor(
+    () => ev7.find((e) => e.type === "run.started" && e.payload?.door === "brd"),
+    10000,
+    "brd run.started"
+  );
+  check("brd run gets the next run dir (r2)", started7.run_id === "trade_positions-r2");
+  const shapeChip = await waitFor(
+    () => ev7.find(my7((e) => e.type === "stage.loop_attempt" && e.payload?.stage === "intake")),
+    15000,
+    "shape-repair loop attempt"
+  );
+  check("shape-repair loop surfaced in intake", /shape repair 1 of 3/.test(shapeChip.payload?.note ?? ""));
+  const nh = await waitFor(() => ev7.find(isQ("needs_human")), 15000, "needs_human question");
+  check("extraction needs_human rides the question channel", nh.payload?.source === "normalize_validate" && nh.payload?.options?.length >= 2);
+  answer(five, nh.payload.question_id, "same");
+
+  // The demo BRD is deliberately incomplete (its section 3 never settles
+  // unmatched trades), so G1/G2 rise here too -- but its tables ARE data,
+  // so the injected G0 must NOT fire on this door.
+  const gaps7 = await waitFor(
+    () => { const g = ev7.filter(isQ("gap")); return g.length >= 2 ? g : null; },
+    20000,
+    "brd gap round"
+  );
+  check("BRD tables count as data: no injected G0", !gaps7.some((e) => e.payload.gap_id === "G0"));
+  for (const g of gaps7) {
+    answer(five, g.payload.question_id, g.payload.gap_id === "G1" ? "keep_blanks" : "trade_id_asc");
+  }
+  const spec7 = await waitFor(isQFind(ev7, "spec_gate", (p) => p.draft === 1), 20000, "brd spec gate draft 1");
+  answer(five, spec7.payload.question_id, "approve");
+
+  await waitFor(
+    () => ev7.find(my7((e) => e.type === "stage.started" && e.payload?.stage === "configure")),
+    20000,
+    "brd configure stage"
+  );
+  five.connection.sendNotification("command.ask", { ask_id: "b1", text: "hold on a moment" });
+  const pc7 = await waitFor(() => ev7.find(isQ("propose_confirm")), 15000, "brd propose-confirm");
+  answer(five, pc7.payload.question_id, "confirm");
+  const hold7 = await waitFor(() => ev7.find(isQ("hold")), 30000, "brd hold at a boundary");
+  answer(five, hold7.payload.question_id, "steer", "Name the output column market_value_usd");
+  const interp7 = await waitFor(
+    () =>
+      ev7.find(
+        my7((e) => e.type === "stage.started" && e.payload?.stage === "interpret" && e.payload?.iteration === 2)
+      ),
+    20000,
+    "steer re-runs the interpreter"
+  );
+  check("hold steer routes to the interpreter (directed)", interp7.payload?.directed === true);
+  const spec7b = await waitFor(isQFind(ev7, "spec_gate", (p) => p.draft === 2), 20000, "brd spec gate draft 2");
+  check("steer produces a draft-2 re-sign-off", Boolean(spec7b.payload.what_changed));
+  answer(five, spec7b.payload.question_id, "approve");
+
+  const code7 = await waitFor(isQFind(ev7, "code_gate", () => true), 40000, "brd code gate");
+  answer(five, code7.payload.question_id, "approve");
+
+  const exhaustion = await waitFor(() => ev7.find(isQ("exhaustion")), 60000, "repair exhaustion question");
+  check(
+    "exhaustion raises grant / stop-to-gate / steer",
+    exhaustion.payload?.loop === "repair" &&
+      exhaustion.payload?.k === 3 &&
+      ["grant", "stop_to_gate", "steer"].every((id) => exhaustion.payload?.options?.some((o) => o.id === id))
+  );
+  answer(five, exhaustion.payload.question_id, "grant");
+  const grantChip = await waitFor(
+    () =>
+      ev7.find(
+        my7((e) => e.type === "stage.loop_attempt" && e.payload?.stage === "verify" && e.payload?.n === 6)
+      ),
+    30000,
+    "post-grant repair attempt (n grew to 6)"
+  );
+  check("grant stretches the budget visibly", grantChip.payload?.k >= 4);
+
+  const human7 = await waitFor(isQFind(ev7, "human_gate", () => true), 60000, "brd human gate");
+  check("brd verdict verified after granted repairs", human7.payload.verdict === "verified" && human7.payload.runs?.k === 5);
+  answer(five, human7.payload.question_id, "approve");
+  const ended7 = await waitFor(
+    () => ev7.find(my7((e) => e.type === "run.ended")),
+    20000,
+    "brd run.ended"
+  );
+  check("brd run ends approved", ended7.payload?.status === "approved");
+
+  const r2 = path.join(workDir, "trade_positions-r2");
+  check("brd bus holds the explode + intake chain", fs.existsSync(path.join(r2, "exploded.json")) && fs.existsSync(path.join(r2, "intake.json")));
+  const audit7 = fs
+    .readFileSync(path.join(r2, "audit.jsonl"), "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+  check(
+    "grant + directed iteration on the audit trail",
+    audit7.some((e) => e.event === "grant") && audit7.some((e) => e.event === "directed_iteration")
+  );
+  five.child.kill("SIGTERM");
+  await five.exited;
+  five.connection.dispose();
+
+  // ---- phase 8: composer stop lands plainly at a boundary ------------------
+  console.log("phase 8: composer stop -- confirmed, armed, plain end");
+  const six = startCore();
+  const ev8 = six.events;
+  const my8 = (pred) => (e) => e.run_id === "trade_positions-r3" && pred(e);
+  six.connection.sendNotification("command.start_run", {
+    door: "typed",
+    text: "Same job again",
+    attachments: ["demo/data/trades.csv", "demo/data/expected_positions.csv"],
+  });
+  const gaps8 = await waitFor(
+    () => { const g = ev8.filter(isQ("gap")); return g.length >= 2 ? g : null; },
+    15000,
+    "phase 8 gap round"
+  );
+  check("attachments at start suppress the injected gap", !gaps8.some((e) => e.payload.gap_id === "G0"));
+  six.connection.sendNotification("command.ask", { ask_id: "s1", text: "please stop the build" });
+  const pc8 = await waitFor(() => ev8.find(isQ("propose_confirm")), 15000, "stop propose-confirm");
+  check("stop intent proposes a stop", pc8.payload?.proposal === "stop");
+  answer(six, pc8.payload.question_id, "confirm");
+  for (const g of gaps8) {
+    answer(six, g.payload.question_id, g.payload.gap_id === "G1" ? "keep_blanks" : "trade_id_asc");
+  }
+  const spec8 = await waitFor(isQFind(ev8, "spec_gate", (p) => p.draft === 1), 20000, "phase 8 spec gate");
+  answer(six, spec8.payload.question_id, "approve");
+  const ended8 = await waitFor(
+    () => ev8.find(my8((e) => e.type === "run.ended")),
+    20000,
+    "stopped run.ended"
+  );
+  check("armed stop lands plainly at the next boundary", ended8.payload?.status === "stopped" && ended8.payload?.by === "you");
+  check("nothing ran past the boundary", !ev8.some(my8((e) => e.type === "stage.started" && e.payload?.stage === "design")));
+  six.child.kill("SIGTERM");
+  const exit6 = await six.exited;
+  check("SIGTERM after the stopped run exits 0", exit6.code === 0);
+  six.connection.dispose();
 
   console.log(`\nsmoke result: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);

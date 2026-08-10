@@ -33,3 +33,22 @@ ticket 15 (leaders, gate footers, overflow menu, hero composer, Build
 language, RecTran): "there are more nitty gritties present throughout...
 wording level and few adjustments... i want to see how it looks and feels
 during live run and then make those changes."
+
+2026-08-10 — From ticket 16 (renderer gaps, beyond wording — small new
+surfaces the wire already carries but the webview cannot show):
+
+- [ ] Question kinds `needs_human`, `exhaustion`, `owner_human` have no
+      card — they raise as real pending questions (journaled, replayed,
+      answerable over the wire; smoke exercises them) but render nothing,
+      so a live run that hits one waits invisibly. Payload shapes are in
+      `core/envelope.py`; the propose-confirm feed card is the nearest
+      pattern to follow.
+- [ ] VerdictCard keys Approve on `verdict === "verified"` — an approvable
+      `smoke_clean` (or build-tier `unverified`) verdict hides its Approve
+      button. Ticket 13's "smoke-clean approvable" is wire-true (the
+      conductor sends the Approve option), pixel-false. A tier chip on the
+      verdict card would price it, per 13.
+
+None fire in the default demo walk; they matter the moment ticket 17's
+real specialists surface extraction questions or a dataless run reaches
+the gate.

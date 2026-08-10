@@ -1,10 +1,24 @@
 """Provider port: the plain-data interface through which the core requests
 model calls (CONTEXT.md: Provider port).
 
-Walking-skeleton surface per ticket 10: send + stream + cancel (the ticket 07
-chat call minus tools), plus list_models. Ticket 07's full surface
-(count_tokens, typed options, capability flags) lands with the implementation
-slices; the event kinds and the exception family below are already 07's.
+Ticket 07's full surface, completed by ticket 16 (the skeleton shipped
+send + stream + cancel only):
+
+- messages carry content items -- text | image (capability-gated) |
+  tool_call | tool_result -- with ``text`` kept as sugar for the plain case;
+- tool declarations ride the request (``tools``); the model answers with
+  ``tool_call`` stream events; the core's tool-use loop runner (core/llm.py)
+  feeds ``tool_result`` items back on follow-up messages;
+- request options are typed only (temperature / max_output_tokens / stop);
+  no open provider-options dict crosses the port;
+- ``label`` names the call for observability: it becomes the UI stream label
+  and is the key the test double resolves fixtures by;
+- ``count_tokens`` is an optional capability (``counts_tokens`` flag on
+  ModelInfo.capabilities); the core must degrade when it returns None.
+
+The event kinds and the neutral exception family are ticket 07's verbatim.
+Adapters classify and raise -- they never retry; the core owns visible
+backoff (health.* events).
 """
 
 from __future__ import annotations
@@ -14,13 +28,77 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 
+# ---- Content items (ticket 07 Q1/Q2) ------------------------------------------
+
+
+@dataclass
+class TextItem:
+    text: str
+    kind: str = "text"
+
+
+@dataclass
+class ImageItem:
+    """Base64 image content; send only when the model's ``image_input``
+    capability flag is true -- adapters degrade, the core gates."""
+
+    media_type: str  # e.g. "image/png"
+    data_base64: str
+    kind: str = "image"
+
+
+@dataclass
+class ToolCallItem:
+    """A model-issued call echoed back on an assistant message so the
+    follow-up round carries the full tool conversation."""
+
+    call_id: str
+    name: str
+    args: Dict[str, Any] = field(default_factory=dict)
+    kind: str = "tool_call"
+
+
+@dataclass
+class ToolResultItem:
+    """The core-computed result of one tool call, riding a user message
+    (adapters map to their provider's convention)."""
+
+    call_id: str
+    name: str
+    content: Any = None  # JSON-serializable
+    kind: str = "tool_result"
+
+
+ContentItem = Any  # TextItem | ImageItem | ToolCallItem | ToolResultItem
+
+
 # ---- Requests ----------------------------------------------------------------
 
 
 @dataclass
 class ChatMessage:
     role: str  # "system" | "user" | "assistant" -- adapters own degradation
-    text: str
+    text: str = ""  # sugar for items=[TextItem(text)]
+    items: List[ContentItem] = field(default_factory=list)
+
+
+@dataclass
+class ToolDecl:
+    """One tool offered to the model for this call."""
+
+    name: str
+    description: str = ""
+    input_schema: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ChatOptions:
+    """Typed request options only (ticket 07 Q8). Provider-specific knobs
+    are adapter config, never port surface."""
+
+    temperature: Optional[float] = None
+    max_output_tokens: Optional[int] = None
+    stop: Optional[List[str]] = None
 
 
 @dataclass
@@ -28,7 +106,9 @@ class ChatRequest:
     messages: List[ChatMessage]
     model_id: Optional[str] = None  # None = adapter default
     stream_id: str = ""  # core-generated; follows the call port to pixel
-    options: Dict[str, Any] = field(default_factory=dict)  # provisional
+    label: str = ""  # call label: UI stream label + the double's fixture key
+    tools: List[ToolDecl] = field(default_factory=list)
+    options: ChatOptions = field(default_factory=ChatOptions)
 
 
 @dataclass
@@ -38,6 +118,7 @@ class ModelInfo:
     family: str
     name: str
     max_input_tokens: int
+    # Known flags: counts_tokens, image_input, thinking (ticket 07 Q12).
     capabilities: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -87,7 +168,7 @@ class UnknownEvent:
     kind: str = "unknown"
 
 
-StreamEvent = Any  # TextDelta | ThinkingDelta | Usage | Done | UnknownEvent
+StreamEvent = Any  # TextDelta | ThinkingDelta | ToolCall | Usage | Done | UnknownEvent
 
 
 # ---- Neutral exception family (ticket 07 Q5; adapters classify, never retry) -
@@ -149,3 +230,8 @@ class ProviderPort(ABC):
         adapters propagate cleanup outward (ticket 07 Q3) and never retry.
         """
         raise NotImplementedError
+
+    async def count_tokens(self, model_id: Optional[str], text: str) -> Optional[int]:
+        """Optional capability (``counts_tokens`` flag). None = unsupported;
+        the core's only use is prompt-budget checks -- it must degrade."""
+        return None

@@ -13,15 +13,31 @@ const LM_ERROR = 1000; // app-range code; taxonomy travels in error.data
 const JUSTIFICATION =
   "ETL Studio: agent-authored RecTran jobs (walking skeleton echo).";
 
+// Serialized-vscode message parts (ticket 07 Q6: the Python adapter owns
+// the semantics -- roles, conventions, degradation; this file only
+// instantiates what arrives, mechanically).
+type WirePart =
+  | { kind: "text"; value: string }
+  | { kind: "toolCall"; callId: string; name: string; input: unknown }
+  | { kind: "toolResult"; callId: string; name?: string; content: unknown };
+
 interface WireChatMessage {
   role: string;
-  text: string;
+  text?: string;
+  parts?: WirePart[];
+}
+
+interface WireToolDecl {
+  name: string;
+  description?: string;
+  inputSchema?: object;
 }
 
 interface ChatParams {
   streamId: string;
   modelId?: string | null;
   messages: WireChatMessage[];
+  tools?: WireToolDecl[];
   options?: { max_output_tokens?: number };
 }
 
@@ -76,6 +92,32 @@ function toWireError(e: unknown): ResponseError<object> {
   });
 }
 
+// Mechanical part instantiation: tagged JSON in, vscode parts out. No
+// convention decisions here -- the Python adapter already serialized them.
+function buildMessage(m: WireChatMessage): vscode.LanguageModelChatMessage {
+  const mk =
+    m.role === "assistant"
+      ? vscode.LanguageModelChatMessage.Assistant
+      : vscode.LanguageModelChatMessage.User;
+  if (!m.parts || m.parts.length === 0) {
+    return mk(m.text ?? "");
+  }
+  const parts = m.parts.map((p) => {
+    if (p.kind === "toolCall") {
+      return new vscode.LanguageModelToolCallPart(p.callId, p.name, (p.input as object) ?? {});
+    }
+    if (p.kind === "toolResult") {
+      const content =
+        typeof p.content === "string" ? p.content : JSON.stringify(p.content ?? null);
+      return new vscode.LanguageModelToolResultPart(p.callId, [
+        new vscode.LanguageModelTextPart(content),
+      ]);
+    }
+    return new vscode.LanguageModelTextPart(String((p as { value?: unknown }).value ?? ""));
+  });
+  return mk(parts as never);
+}
+
 export function registerLmBridge(
   conn: MessageConnection,
   output: vscode.OutputChannel
@@ -96,9 +138,32 @@ export function registerLmBridge(
   });
 
   conn.onRequest(
+    "lm/countTokens",
+    async (params: { modelId?: string | null; text: string }) => {
+      const all = await vscode.lm.selectChatModels();
+      const model = params.modelId
+        ? all.find((m) => m.id === params.modelId)
+        : all.find((m) => m.vendor === "copilot") ?? all[0];
+      if (!model) {
+        throw new ResponseError(LM_ERROR, "no language models available", {
+          code: "NotFound",
+          name: "NoModels",
+          message: "no language models available",
+        });
+      }
+      try {
+        const count = await model.countTokens(params.text ?? "");
+        return { count };
+      } catch (e) {
+        throw toWireError(e);
+      }
+    }
+  );
+
+  conn.onRequest(
     "lm/chat",
     async (params: ChatParams, token: CancellationToken) => {
-      const { streamId, modelId, messages, options } = params;
+      const { streamId, modelId, messages, tools, options } = params;
       const all = await vscode.lm.selectChatModels();
       const model = modelId
         ? all.find((m) => m.id === modelId)
@@ -118,18 +183,20 @@ export function registerLmBridge(
       if (token.isCancellationRequested) {
         cts.cancel();
       }
-      // Mechanical role mapping only; system-role emulation is the Python
-      // adapter's job and the skeleton sends user turns only.
-      const vsMessages = messages.map((m) =>
-        m.role === "assistant"
-          ? vscode.LanguageModelChatMessage.Assistant(m.text)
-          : vscode.LanguageModelChatMessage.User(m.text)
-      );
+      // Mechanical construction only; role/convention semantics arrived
+      // pre-serialized from the Python adapter (ticket 07 Q6).
+      const vsMessages = messages.map(buildMessage);
+      const vsTools = (tools ?? []).map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        inputSchema: t.inputSchema,
+      }));
       try {
         const res = await model.sendRequest(
           vsMessages,
           {
             justification: JUSTIFICATION,
+            ...(vsTools.length ? { tools: vsTools } : {}),
             ...(options?.max_output_tokens
               ? { modelOptions: { max_tokens: options.max_output_tokens } }
               : {}),

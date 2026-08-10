@@ -1,9 +1,11 @@
-"""ETL Studio core app (tickets 10 + 15).
+"""ETL Studio core app (tickets 10 + 15 + 16).
 
 Owns the 08 contract surface: attach/replay, the run/stage/question/stream/
 health families, ``command.start_run`` / ``answer`` / ``command.ask`` /
-``fetch_artifact``, and per-run journals. Runs are scripted (ticket 15's
-demo driver in ``scripted_run.py``) until the conductor lands (ticket 16).
+``fetch_artifact``, and per-run journals. Runs are driven by the real
+conductor (ticket 16) over stub specialists (``stub_stages.py``; ticket 17
+replaces them stage by stage); ``fetch_artifact`` serves full artifacts
+from the run's bus.
 
 The ``skeleton.*`` handlers from ticket 10 stay as dev/smoke affordances --
 ping, LM echo through the live provider resolution, cancel, crash. Their
@@ -23,8 +25,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .conductor import Conductor
 from .envelope import PROTOCOL_VERSION, Envelope, now_ts
 from .journal import UiJournal
+from .models import ModelConfig
 from .port import (
     ChatMessage,
     ChatRequest,
@@ -35,7 +39,7 @@ from .port import (
     RequestCanceled,
 )
 from .rpc import JsonRpcConnection
-from .scripted_run import JOB, ScriptedRun
+from .stub_stages import JOB, build_stub_stages
 
 logger = logging.getLogger(__name__)
 
@@ -64,20 +68,22 @@ class StudioApp:
         fallback: Optional[ProviderPort] = None,
         scripted_port: Optional[ProviderPort] = None,
         pace: float = 1.0,
+        model_config: Optional[ModelConfig] = None,
     ):
         self._conn = conn
         self._work_dir = work_dir
         self._primary = primary
         self._primary_name = primary_name
         self._fallback = fallback
-        # The scripted demo run always plays through the double (ticket 15);
+        # Stub-specialist runs play through the double (tickets 15/16); the
         # live per-stage providers arrive with the real specialists (17/18).
         self._scripted_port = scripted_port or fallback or primary
         self._pace = pace
+        self._model_config = model_config or ModelConfig()
         self._resolved: Optional[Tuple[ProviderPort, str, List[ModelInfo]]] = None
         self._streams: Dict[str, asyncio.Task] = {}
         self._session: Optional[RunSession] = None
-        self._driver: Optional[ScriptedRun] = None
+        self._driver: Optional[Conductor] = None
 
         conn.on_request("attach", self._on_attach)
         conn.on_request("fetch_artifact", self._on_fetch_artifact)
@@ -153,8 +159,9 @@ class StudioApp:
         async def emit(source: str, type_: str, payload: Dict[str, Any]) -> None:
             await self._emit(session, source, type_, payload)
 
-        driver = ScriptedRun(emit, self._scripted_port, run_id, door="brd", request={},
-                             pace=self._pace)
+        # Door and request are recovered inside restore() from the run's own
+        # audit trail (the bus + audit own the run; the journal owns the seq).
+        driver = self._new_conductor(emit, run_id, door="typed", request={})
         driver.restore(events)
         self._driver = driver
         if driver.ended:
@@ -164,6 +171,23 @@ class StudioApp:
                          {"note": "The core restarted; the build continues from the journal."})
         driver.resume()
         logger.info("crash-restored run %s at seq %d", run_id, session.journal.last_seq)
+
+    def _new_conductor(
+        self, emit: Any, run_id: str, door: str, request: Dict[str, Any]
+    ) -> Conductor:
+        return Conductor(
+            emit,
+            self._scripted_port,
+            "double",
+            run_id,
+            JOB,
+            door,
+            request,
+            run_dir=self._work_dir / run_id,
+            stages=build_stub_stages(),
+            model_config=self._model_config,
+            pace=self._pace,
+        )
 
     # ---- attach / replay -----------------------------------------------------
 
@@ -191,7 +215,7 @@ class StudioApp:
         for env in events:
             await self._conn.notify("ui/event", env)
 
-    # ---- scripted run commands (ticket 15) -----------------------------------
+    # ---- run commands (tickets 15/16) ----------------------------------------
 
     async def _on_start_run(self, params: Any) -> None:
         p = dict(params or {})
@@ -216,10 +240,7 @@ class StudioApp:
         async def emit(source: str, type_: str, payload: Dict[str, Any]) -> None:
             await self._emit(session, source, type_, payload)
 
-        self._driver = ScriptedRun(
-            emit, self._scripted_port, session.run_id, door=door,
-            request=p, pace=self._pace,
-        )
+        self._driver = self._new_conductor(emit, session.run_id, door, p)
         self._driver.start()
 
     async def _on_answer(self, params: Any) -> None:

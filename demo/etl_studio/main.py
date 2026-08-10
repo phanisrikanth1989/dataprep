@@ -22,8 +22,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 from core.app import StudioApp
+from core.models import ModelConfig
 from core.rpc import stdio_connection
-from core.scripted_run import build_scripts
+from core.stub_stages import build_scripts
 from adapters.double.adapter import DoubleAdapter
 from adapters.vscode_lm.adapter import VscodeLmAdapter
 
@@ -55,6 +56,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         default="demo",
         help="Stream cadence: demo = watchable, fast = smoke-suite speed",
     )
+    parser.add_argument(
+        "--config",
+        default=str(BASE_DIR / "studio_config.json"),
+        help="Studio config (per-stage model selectors); absent = adapter defaults",
+    )
     return parser.parse_args(argv)
 
 
@@ -79,6 +85,7 @@ async def amain(args: argparse.Namespace) -> None:
         fallback,
         scripted_port=double,
         pace=pace["scale"],
+        model_config=ModelConfig.load(Path(args.config)),
     )
     # Crash-restore before serving: an un-ended run continues from its
     # journal (run.crash_restored lands ahead of any attach replay).

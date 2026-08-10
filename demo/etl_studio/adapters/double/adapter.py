@@ -1,11 +1,13 @@
 """Test double: the adapter that plays back scripted responses instead of
 calling a real model (CONTEXT.md: Test double).
 
-Full fixture format per ticket 07 Q10, grown for ticket 15's scripted demo
-run: keyed scripts with thinking, tool calls, usage and error injection.
+Full fixture format per ticket 07 Q10, grown through tickets 15/16: keyed
+scripts with thinking, tool calls, usage and error injection, resolved by
+``request.label`` (the core-generated call label that also names the UI
+stream -- no request-matching DSL).
 
-``scripts`` maps a script key (read from ``request.options["script"]``) to a
-list of *calls*; each call is a list of part dicts consumed in order:
+``scripts`` maps a label to a list of *calls*; each call is a list of part
+dicts consumed in order:
 
     {"think": str}          -> ThinkingDelta, streamed in small chunks
     {"text": str}           -> TextDelta, streamed word by word
@@ -16,9 +18,11 @@ list of *calls*; each call is a list of part dicts consumed in order:
     {"pause": float}        -> dead air, seconds (scaled by chunk cadence)
     {"error": {"kind", "message", "retry_after"?}} -> raise mid-stream
 
-A key's calls are consumed in order; the last call repeats once exhausted.
-Requests with no/unknown key fall back to the legacy string playlist, else a
-synthesized echo of the prompt.
+A label's calls are consumed in order; the last call repeats once exhausted.
+The core's tool-use loop and backoff re-issue requests under the SAME label,
+so multi-round loops and retry-after-rate-limit are scripted as successive
+calls of one label. Requests with no/unknown label fall back to the legacy
+string playlist, else a synthesized echo of the prompt.
 """
 
 from __future__ import annotations
@@ -70,26 +74,46 @@ class DoubleAdapter(ProviderPort):
                 family="double",
                 name="Scripted Test Double",
                 max_input_tokens=100_000,
+                capabilities={
+                    "counts_tokens": True,
+                    "image_input": True,
+                    "thinking": True,
+                },
             )
         ]
 
+    async def count_tokens(self, model_id: Optional[str], text: str) -> Optional[int]:
+        return max(1, len(text) // 4)
+
     # ---- fixture resolution --------------------------------------------------
 
-    def _next_fixture(self, key: Optional[str]) -> Optional[List[Dict[str, Any]]]:
-        if not key or key not in self._scripts:
+    def _next_fixture(self, label: Optional[str]) -> Optional[List[Dict[str, Any]]]:
+        if not label or label not in self._scripts:
             return None
-        calls = self._scripts[key]
+        calls = self._scripts[label]
         if not calls:
             return None
         # Consumed in order; the last call repeats once exhausted.
         return calls.pop(0) if len(calls) > 1 else calls[0]
 
+    @staticmethod
+    def _last_user_text(request: ChatRequest) -> str:
+        for m in reversed(request.messages):
+            if m.role != "user":
+                continue
+            if m.text:
+                return m.text
+            texts = [i.text for i in m.items if getattr(i, "kind", "") == "text"]
+            if texts:
+                return " ".join(texts)
+        return ""
+
     # ---- chat ----------------------------------------------------------------
 
     async def chat(self, request: ChatRequest) -> AsyncIterator[StreamEvent]:
         self._calls += 1
-        prompt = request.messages[-1].text if request.messages else ""
-        fixture = self._next_fixture(request.options.get("script"))
+        prompt = self._last_user_text(request)
+        fixture = self._next_fixture(request.label)
         if fixture is None:
             async for ev in self._legacy_echo(prompt):
                 yield ev

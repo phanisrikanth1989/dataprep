@@ -1,0 +1,1207 @@
+"""Conductor: the deterministic control layer -- the hub (ticket 05's code
+conductor, built by ticket 16 on the ticket 10/15 skeleton).
+
+The conductor computes every transition: ticket 04's fixed itinerary for
+both doors, the loop counters and 3-caps (shape-repair, main repair with
+uncapped human grants, the elicitation round budget; the configurator's
+inner validate loop is its own counter reported through the stage context),
+the diagnostician's owner-plus-forward rule, tier routing (only ``verified``
+loops; ``smoke`` runs exactly once; ``build`` never runs), gate raising, and
+artifact moves on the bus. It records the human's resolutions untouched --
+no model in the return path -- and cannot improvise: on anything unplanned
+it stops and asks (propose-confirm), never silently acts.
+
+It is code, never a speaker. The orchestrator voice lines it plays through
+``orch.*`` fixture labels are placeholders ticket 18's LLM orchestrator
+replaces at the same call sites; the machine-truth events (run/stage/
+question/health) are conductor-authored forever.
+
+Crash-restore: the bus owns the artifacts, ``audit.jsonl`` owns the
+decisions, and the UI journal owns the event sequence. On boot the
+conductor re-walks its deterministic itinerary with every emission
+journal-guarded (count-based ledgers for artifacts, streams and loop
+attempts; key-based for stages and questions), so a restarted core
+continues mid-run without replaying traffic the webview already saw,
+and seq continuity comes from the journal itself (ticket 08).
+
+Ticket 13 verbs, all conductor-owned: directed iteration (owner interpret =
+spec door, owner configure = code door -- the raising surface fixes the
+door, the conductor never routes by reading text); hold armed at the next
+stage boundary (in-flight artifacts land whole; no mid-stream cancel);
+steer always routes to the interpreter; stop ends the run plainly; every
+human-initiated act is uncapped and burns no loop budget.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from .bus import ArtifactBus
+from .llm import LlmCall, LlmCallError, StreamRunner
+from .models import ModelConfig
+from .port import ModelInfo, ProviderPort
+from .questions import QuestionChannel
+from .stages import RunInfo, StageAdapter, StageContext, StageResult
+from .vendored.surface_code_cells import surface_code_cells
+
+logger = logging.getLogger(__name__)
+
+Emit = Callable[[str, str, Dict[str, Any]], Awaitable[None]]
+
+# The UI itinerary (ticket 04's spine at webview resolution -- the BRD
+# door's explode/normalize chain lives inside "intake", the test-runner/
+# diagnostician repair loop inside "verify").
+ITINERARY: List[Dict[str, str]] = [
+    {"kind": "stage", "key": "intake", "label": "Intake"},
+    {"kind": "stage", "key": "interpret", "label": "Interpret"},
+    {"kind": "gate", "key": "spec", "label": "Spec sign-off"},
+    {"kind": "stage", "key": "design", "label": "Design"},
+    {"kind": "stage", "key": "configure", "label": "Configure"},
+    {"kind": "stage", "key": "assemble", "label": "Assemble"},
+    {"kind": "gate", "key": "code", "label": "Code gate"},
+    {"kind": "stage", "key": "verify", "label": "Verify"},
+    {"kind": "gate", "key": "human", "label": "Human gate"},
+]
+STAGE_LABELS = {e["key"]: e["label"] for e in ITINERARY}
+STAGE_ORDER = [e["key"] for e in ITINERARY if e["kind"] == "stage"]
+
+SHAPE_REPAIR_CAP = 3
+REPAIR_CAP = 3  # total run attempts in the verified loop before exhaustion
+GRANT_SIZE = 3
+ELICITATION_ROUNDS = 3
+
+# feedback.json owner enum (04) -> stage-adapter slot / special routing.
+_OWNER_SLOT = {
+    "configurator": "configure",
+    "flow-designer": "design",
+    "assembler": "assemble",
+}
+
+
+# ---------------------------------------------------------------------------
+# Control-flow signals
+# ---------------------------------------------------------------------------
+
+
+class _Stopped(Exception):
+    def __init__(self, note: str):
+        self.note = note
+
+
+class _StopToGate(Exception):
+    """Exhaustion's 'stop to the gate': dispose of the red verdict at the
+    human gate (distinct from stopping the run)."""
+
+
+class _DirectedIteration(Exception):
+    """One primitive under every human-driven revision (ticket 13):
+    the owner stage re-runs reading the feedback first, then every
+    completed forward stage."""
+
+    def __init__(self, owner: str, feedback: str):
+        self.owner = owner  # "interpret" | "configure"
+        self.feedback = feedback
+
+
+# ---------------------------------------------------------------------------
+# The conductor
+# ---------------------------------------------------------------------------
+
+
+class Conductor:
+    def __init__(
+        self,
+        emit: Emit,
+        port: ProviderPort,
+        provider_name: str,
+        run_id: str,
+        job: str,
+        door: str,
+        request: Dict[str, Any],
+        run_dir: Path,
+        stages: Dict[str, StageAdapter],
+        model_config: Optional[ModelConfig] = None,
+        pace: float = 1.0,
+    ):
+        self._emit = emit
+        self._port = port
+        self._provider = provider_name
+        self.run_id = run_id
+        self._stages_impl = stages
+        self._models = model_config or ModelConfig()
+        self._pace = pace
+
+        rig = dict(request.get("rig") or {})
+        rig.setdefault("verify_fails", 1)
+        self.run = RunInfo(run_id=run_id, job=job, door=door, request=dict(request), rig=rig)
+        self.run.data_present = bool(request.get("attachments"))
+
+        self.bus = ArtifactBus(run_dir)
+        self.questions = QuestionChannel(emit, audit=self.bus.audit)
+        self._runner = StreamRunner(emit, port, provider_name, run_id, pace=pace)
+        self._roster: List[ModelInfo] = []
+        self._model_map: Optional[Dict[str, Optional[ModelInfo]]] = None
+
+        self._task: Optional[asyncio.Task] = None
+        self._side_tasks: List[asyncio.Task] = []
+
+        # Journal-guarded emission ledgers (restore fills the *_journal side;
+        # the deterministic re-walk consumes them count-wise).
+        self._artifact_journal: Dict[str, int] = {}
+        self._artifact_calls: Dict[str, int] = {}
+        self._loop_journal: Dict[str, int] = {}
+        self._loop_calls: Dict[str, int] = {}
+        self._closed_streams: Dict[str, int] = {}
+
+        self._iter: Dict[str, int] = {k: 1 for k in STAGE_ORDER}
+        self._done_stages: set = set()  # (key, iteration)
+        self._started = False
+        self.ended = False
+
+        # Counters and verbs.
+        self._draft = 1
+        self._code_round = 1
+        self._human_round = 1
+        self._pc_count = 0
+        self._hold_count = 0
+        self._nh_count = 0
+        self._oh_count = 0
+        self._x_count = 0
+        self._armed: Optional[str] = None  # "hold" | "stop"
+        self._stretch_active = False
+        self._directed_owner: Optional[str] = None
+        self._pending_gaps: List[Dict[str, Any]] = []
+        self._approved_cells: set = set()  # sha1(component|field|code)
+        self._raised_cells: set = set()  # (component, field) ever gated
+        self._signed_spec_sig: Optional[str] = None
+        self._grants = 0
+        self._verdict: Dict[str, Any] = {}
+
+        # The orchestrator context-rebuild feed (ticket 05; ticket 18
+        # consumes): one compact line per machine event, rebuilt from
+        # bus + audit after a crash.
+        self._orch_feed: List[Dict[str, str]] = []
+
+    # ---- lifecycle -----------------------------------------------------------
+
+    @property
+    def active(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def start(self) -> None:
+        self._task = asyncio.get_running_loop().create_task(self._run())
+
+    def dispose(self) -> None:
+        for t in [self._task, *self._side_tasks]:
+            if t is not None and not t.done():
+                t.cancel()
+
+    def resume(self) -> None:
+        """Continue an un-ended run after crash-restart (run.crash_restored
+        already emitted by the app)."""
+        for qid, q in self.questions.raised.items():
+            if self.questions.is_pending(qid) and q.get("kind") == "propose_confirm":
+                self._spawn_side(self._await_proposal(qid))
+        self._task = asyncio.get_running_loop().create_task(self._run())
+
+    # ---- restore (bus + audit own the state; the journal owns the seq) --------
+
+    def restore(self, events: List[Dict[str, Any]]) -> None:
+        # The audited run_started entry is the request of record: the door
+        # and rig knobs must re-walk exactly as they first ran.
+        for entry in self.bus.audit_entries():
+            if entry.get("event") != "run_started":
+                continue
+            detail = entry.get("detail") or {}
+            if detail.get("door"):
+                self.run.door = str(detail["door"])
+            if isinstance(detail.get("request"), dict):
+                self.run.request = dict(detail["request"])
+                rig = dict(self.run.request.get("rig") or {})
+                rig.setdefault("verify_fails", 1)
+                self.run.rig = rig
+                self.run.data_present = bool(self.run.request.get("attachments"))
+            break
+        for env in events:
+            t, p = env.get("type", ""), env.get("payload", {}) or {}
+            if t == "run.started":
+                self._started = True
+            elif t == "run.ended":
+                self.ended = True
+            elif t == "stage.completed":
+                self._done_stages.add((p.get("stage", ""), int(p.get("iteration", 1))))
+            elif t == "stage.artifact_written":
+                name = str(p.get("name", ""))
+                self._artifact_journal[name] = self._artifact_journal.get(name, 0) + 1
+            elif t == "stage.loop_attempt":
+                stage = str(p.get("stage", ""))
+                self._loop_journal[stage] = self._loop_journal.get(stage, 0) + 1
+            elif t == "question.raised":
+                self.questions.restore_raised(p)
+                kind = p.get("kind")
+                if kind == "spec_gate":
+                    self._draft = max(self._draft, int(p.get("draft", 1)))
+                elif kind == "code_gate":
+                    self._code_round = max(self._code_round, int(p.get("round", 1)))
+                elif kind == "human_gate":
+                    self._human_round = max(self._human_round, int(p.get("round", 1)))
+                elif kind == "propose_confirm":
+                    self._pc_count = max(self._pc_count, int(p.get("n", 0)))
+                elif kind == "hold":
+                    self._hold_count = max(self._hold_count, int(p.get("n", 0)))
+                elif kind == "needs_human":
+                    self._nh_count = max(self._nh_count, int(p.get("n", 0)))
+                elif kind == "owner_human":
+                    self._oh_count = max(self._oh_count, int(p.get("n", 0)))
+                elif kind == "exhaustion":
+                    self._x_count = max(self._x_count, int(p.get("x_n", 0)))
+            elif t == "question.resolved":
+                self.questions.restore_resolved(p)
+            elif t == "stream.close":
+                label = p.get("label")
+                if label and p.get("finish_reason") in ("stop", "unknown", "canceled"):
+                    self._closed_streams[label] = self._closed_streams.get(label, 0) + 1
+        self._runner = StreamRunner(
+            self._emit, self._port, self._provider, self.run_id,
+            pace=self._pace, closed_streams=self._closed_streams,
+        )
+        # A confirmed hold/stop proposal whose hold question never raised re-arms.
+        for qid, res in self.questions.resolved.items():
+            q = self.questions.raised.get(qid, {})
+            if q.get("kind") == "propose_confirm" and res.get("choice") == "confirm":
+                later_hold = any(
+                    k.startswith("q-hold-")
+                    and self.questions.raised[k].get("after_pc") == qid
+                    for k in self.questions.raised
+                )
+                if not later_hold and not self.ended:
+                    self._armed = q.get("proposal", "hold")
+        # Grants are human acts: re-derive from resolutions, never counted twice.
+        self._grants = sum(
+            1 for qid, res in self.questions.resolved.items()
+            if self.questions.raised.get(qid, {}).get("kind") == "exhaustion"
+            and res.get("choice") == "grant"
+        )
+        # Data presence: the request, the intake artifact, or a G0 attach answer.
+        intake = self.bus.read_json("intake.json") or {}
+        if intake.get("attachments") or intake.get("tables"):
+            self.run.data_present = True
+        for qid, res in self.questions.resolved.items():
+            q = self.questions.raised.get(qid, {})
+            if q.get("kind") == "gap" and q.get("gap_id") == "G0" \
+                    and res.get("choice") in ("attach", "other"):
+                self.run.data_present = True
+                paths = [s.strip() for s in str(res.get("free_text") or "").split(",")
+                         if s.strip()]
+                self.run.request.setdefault("attachments", []).extend(paths)
+        # Conductor decisions from the audit trail (05: restore from bus+audit).
+        for entry in self.bus.audit_entries():
+            event = entry.get("event")
+            detail = entry.get("detail") or {}
+            if event == "cells_approved":
+                for h in detail.get("hashes", []):
+                    self._approved_cells.add(str(h))
+            elif event == "cells_raised":
+                for cf in detail.get("cells", []):
+                    if isinstance(cf, list) and len(cf) == 2:
+                        self._raised_cells.add((cf[0], cf[1]))
+            elif event == "tier_frozen":
+                self.run.tier = detail.get("tier")
+            elif event == "spec_signed":
+                self._signed_spec_sig = detail.get("signature")
+        self.bus.restore_index()
+        self._rebuild_orch_feed()
+        # Bump stage iterations past completed directed re-runs so the step
+        # loop's skip logic lands on the first unfinished iteration.
+        for key in STAGE_ORDER:
+            while (key, self._iter[key]) in self._done_stages:
+                nxt = (key, self._iter[key] + 1)
+                started_next = nxt in self._done_stages or self._journal_stage_started(
+                    events, *nxt
+                )
+                if started_next:
+                    self._iter[key] += 1
+                else:
+                    break
+        self.run.draft = self._draft
+        self.run.gap_resolutions = self._gap_resolutions()
+        if self._code_round > 1:
+            self.run.rig["_cell_revised"] = True
+
+    @staticmethod
+    def _journal_stage_started(events: List[Dict[str, Any]], key: str, iteration: int) -> bool:
+        return any(
+            e.get("type") == "stage.started"
+            and (e.get("payload") or {}).get("stage") == key
+            and int((e.get("payload") or {}).get("iteration", 1)) == iteration
+            for e in events
+        )
+
+    def _rebuild_orch_feed(self) -> None:
+        """The orchestrator's context feed rebuilt from audit + bus
+        (ticket 05: after a crash the conductor rebuilds the orchestrator's
+        context; ticket 18 consumes this)."""
+        self._orch_feed = []
+        for entry in self.bus.audit_entries():
+            event = str(entry.get("event", ""))
+            detail = entry.get("detail") or {}
+            if event == "artifact_written":
+                text = f"artifact {detail.get('name')} ({detail.get('kind')})"
+                if detail.get("note"):
+                    text += f" -- {detail['note']}"
+            elif event == "question_raised":
+                text = f"question raised: {detail.get('kind')} {detail.get('question_id')}"
+            elif event == "question_resolved":
+                text = f"human resolved {detail.get('question_id')}: {detail.get('choice')}"
+            elif event in ("run_started", "run_ended", "stage_started", "stage_completed",
+                           "tier_frozen", "grant", "loop_attempt", "hold_armed",
+                           "directed_iteration", "data_attached", "spec_signed"):
+                text = f"{event}: {json.dumps(detail, ensure_ascii=True)}"
+            else:
+                continue
+            self._orch_feed.append({"kind": event, "text": text})
+
+    def orchestrator_context(self) -> List[Dict[str, str]]:
+        return list(self._orch_feed)
+
+    def _feed(self, kind: str, text: str) -> None:
+        self._orch_feed.append({"kind": kind, "text": text})
+
+    # ---- emission helpers (journal-guarded) ------------------------------------
+
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds * self._pace)
+
+    async def _stage_started(self, key: str, **extra: Any) -> None:
+        it = self._iter[key]
+        payload = {"stage": key, "label": STAGE_LABELS[key], "iteration": it, **extra}
+        await self._emit("conductor", "stage.started", payload)
+        self.bus.audit("conductor", "stage_started", {"stage": key}, iteration=it)
+        self._feed("stage_started", f"{STAGE_LABELS[key]} started (iteration {it})")
+
+    async def _stage_completed(self, key: str, note: Optional[str] = None) -> None:
+        it = self._iter[key]
+        payload: Dict[str, Any] = {"stage": key, "label": STAGE_LABELS[key], "iteration": it}
+        if note:
+            payload["note"] = note
+        await self._emit("conductor", "stage.completed", payload)
+        self._done_stages.add((key, it))
+        self.bus.audit("conductor", "stage_completed",
+                       {"stage": key, "note": note}, iteration=it)
+        self._feed("stage_completed",
+                   f"{STAGE_LABELS[key]} completed" + (f" -- {note}" if note else ""))
+
+    def _stage_done(self, key: str) -> bool:
+        return (key, self._iter[key]) in self._done_stages
+
+    async def _emit_artifact(
+        self,
+        name: str,
+        payload: Any,
+        *,
+        kind: str,
+        fields: Optional[Dict[str, Any]] = None,
+        note: Optional[str] = None,
+        text: Optional[str] = None,
+        stage: Optional[str] = None,
+        iteration: int = 1,
+    ) -> None:
+        """Bus write + stage.artifact_written as one journal-guarded unit
+        (count-based: the Nth write of a name this walk matches the Nth
+        journaled event, because the walk is deterministic)."""
+        self._artifact_calls[name] = self._artifact_calls.get(name, 0) + 1
+        if self._artifact_journal.get(name, 0) >= self._artifact_calls[name]:
+            return  # journal already holds this write (crash re-walk)
+        context = {"stage": stage, "iteration": iteration, "draft": self._draft}
+        if text is not None:
+            self.bus.write_text(name, text, kind=kind, stage=stage,
+                                iteration=iteration, note=note, context=context)
+        elif payload is not None:
+            self.bus.write_json(name, payload, kind=kind, stage=stage,
+                                iteration=iteration, note=note, context=context)
+        event: Dict[str, Any] = {"name": name, "kind": kind, "iteration": iteration}
+        if stage:
+            event["stage"] = stage
+        if note:
+            event["note"] = note
+        if fields is not None:
+            event["fields"] = fields
+        await self._emit("conductor", "stage.artifact_written", event)
+        self._feed("artifact", f"{name} written" + (f" -- {note}" if note else ""))
+
+    async def _progress(self, node_id: str, state: str) -> None:
+        await self._emit("conductor", "stage.progress",
+                         {"stage": "configure", "node_id": node_id, "state": state})
+
+    async def _loop_attempt(self, stage: str, k: int, n: int, note: str) -> None:
+        self._loop_calls[stage] = self._loop_calls.get(stage, 0) + 1
+        if self._loop_journal.get(stage, 0) >= self._loop_calls[stage]:
+            return
+        await self._emit("conductor", "stage.loop_attempt",
+                         {"stage": stage, "k": k, "n": n, "note": note})
+        self.bus.audit("conductor", "loop_attempt",
+                       {"stage": stage, "k": k, "n": n, "note": note})
+        self._feed("loop_attempt", f"{stage}: {note}")
+
+    # ---- stage invocation --------------------------------------------------------
+
+    async def _models_for(self, slot: str) -> Optional[ModelInfo]:
+        if self._model_map is None:
+            try:
+                self._roster = await self._port.list_models()
+            except Exception as e:  # noqa: BLE001 -- selection degrades; calls surface errors
+                logger.warning("list_models failed (%s); adapter defaults apply", e)
+                self._roster = []
+            self._model_map = {}
+        if slot not in self._model_map:
+            self._model_map[slot] = self._models.pick(self._roster, slot)
+        return self._model_map[slot]
+
+    async def _run_stage(
+        self, slot: str, ui_stage: str, repair: Optional[Dict[str, Any]] = None
+    ) -> StageResult:
+        adapter = self._stages_impl.get(slot)
+        if adapter is None:
+            raise LlmCallError("MissingStage", f"no adapter for slot {slot}")
+        ctx = StageContext(
+            run=self.run,
+            bus=self.bus,
+            runner=self._runner,
+            stage=ui_stage,
+            iteration=self._iter.get(ui_stage, 1),
+            model=await self._models_for(slot),
+            emit_artifact=self._emit_artifact,
+            emit_progress=self._progress,
+            emit_loop_attempt=self._loop_attempt,
+            sleep=self._sleep,
+            repair=repair,
+        )
+        try:
+            return await adapter.run(ctx)
+        except LlmCallError as e:
+            # 05: anything unplanned -> stop and ask, never silently act.
+            await self._escalate_failure(slot, e)
+            return await adapter.run(ctx)  # human said continue: one more try
+
+    async def _escalate_failure(self, slot: str, e: LlmCallError) -> None:
+        self._pc_count += 1
+        qid = f"q-pc-{self._pc_count}"
+        res = await self.questions.ask(
+            qid, "propose_confirm",
+            {"proposal": "stop", "n": self._pc_count,
+             "voice": (f"The {slot} call failed ({e.taxonomy}: {e.message}). "
+                       f"I can stop the build here, or you dismiss this and I try once more.")},
+            [
+                {"id": "confirm", "kind": "confirm", "label": "Stop the build"},
+                {"id": "dismiss", "kind": "dismiss", "label": "Try again"},
+            ],
+        )
+        if res.get("choice") == "confirm":
+            raise _Stopped(f"Stopped by you — {slot} failed ({e.taxonomy})")
+
+    # ---- orchestrator voice (fixture placeholders ticket 18 replaces) ------------
+
+    async def _orch(self, label: str, prompt: str = "",
+                    in_reply_to: Optional[str] = None) -> str:
+        return await self._runner.run(LlmCall(
+            source="orchestrator", who="Orchestrator", label=label, prompt=prompt,
+            in_reply_to=in_reply_to, model=await self._models_for("orchestrator"),
+        ))
+
+    # ---- gap resolutions view ------------------------------------------------------
+
+    def _gap_resolutions(self) -> List[Dict[str, Any]]:
+        out = []
+        for qid, q in self.questions.raised.items():
+            if q.get("kind") != "gap":
+                continue
+            res = self.questions.resolved.get(qid, {})
+            out.append({"gap_id": q.get("gap_id"), "note": res.get("note", "")})
+        out.sort(key=lambda g: str(g.get("gap_id")))
+        return out
+
+    # ---- wire handlers ---------------------------------------------------------------
+
+    async def handle_answer(self, params: Dict[str, Any]) -> None:
+        await self.questions.resolve(params)
+
+    async def handle_ask(self, params: Dict[str, Any]) -> None:
+        ask_id = str(params.get("ask_id", ""))
+        text = str(params.get("text", "")).strip()
+        if not text:
+            return
+        self._spawn_side(self._answer_ask(ask_id, text))
+
+    def _spawn_side(self, coro: Awaitable[None]) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._side_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._side_tasks.remove(t) if t in self._side_tasks else None)
+
+    @staticmethod
+    def _intent(text: str) -> Optional[str]:
+        low = text.lower()
+        if any(w in low for w in ("stop", "halt", "abort", "kill the run")):
+            return "stop"
+        if any(w in low for w in ("hold", "pause", "wait", "hang on", "slow down")):
+            return "hold"
+        return None
+
+    async def _answer_ask(self, ask_id: str, text: str) -> None:
+        intent = self._intent(text)
+        if intent and self._stretch_active and not self._armed and not self.ended:
+            await self._propose(ask_id, intent)
+            return
+        reply = self._compose_ask_reply(text)
+        await self._orch("orch.ask", prompt=reply, in_reply_to=ask_id)
+
+    def _compose_ask_reply(self, text: str) -> str:
+        if self.ended:
+            return ("This build has ended — everything on the canvas is final. "
+                    "Start a new build from the two doors whenever you’re ready.")
+        done = sum(1 for k in STAGE_ORDER if (k, self._iter[k]) in self._done_stages)
+        pending = self.questions.pending()
+        if pending:
+            kinds = {q.get("kind") for q in pending}
+            if "hold" in kinds:
+                where = "holding at a stage boundary — the build waits on your Resume, Stop or steer"
+            elif "code_gate" in kinds:
+                where = "holding at the code gate — nothing runs until you approve the cell"
+            elif "human_gate" in kinds:
+                where = "at the human gate — the verdict is in and the approval is yours"
+            elif "spec_gate" in kinds:
+                where = "at the spec sign-off — the spec is drafted and waiting for your signature"
+            else:
+                where = "waiting on your answers in the open question round"
+            return (f"We’re {where}. {done} of {len(STAGE_ORDER)} stages are complete "
+                    f"on spec draft {self._draft}. Every card on the canvas is the artifact itself.")
+        label = next(
+            (STAGE_LABELS[k] for k in STAGE_ORDER if (k, self._iter[k]) not in self._done_stages),
+            "wrap-up",
+        )
+        return (f"Right now: {label}, spec draft {self._draft}, {done} of {len(STAGE_ORDER)} stages "
+                f"complete. Ask about any step on the canvas — what you see there is the artifact, "
+                f"not a summary.")
+
+    async def _propose(self, ask_id: str, proposal: str) -> None:
+        self._pc_count += 1
+        qid = f"q-pc-{self._pc_count}"
+        await self._orch("orch.stop" if proposal == "stop" else "orch.hold",
+                         in_reply_to=ask_id)
+        await self._await_proposal(qid, proposal)
+
+    async def _await_proposal(self, qid: str, proposal: Optional[str] = None) -> None:
+        if proposal is None:
+            proposal = self.questions.raised.get(qid, {}).get("proposal", "hold")
+        n = int(qid.rsplit("-", 1)[-1])
+        res = await self.questions.ask(
+            qid, "propose_confirm",
+            {"proposal": proposal, "n": n,
+             "voice": ("Stop this build at the next stage boundary?" if proposal == "stop"
+                       else "Hold the build at the next stage boundary?")},
+            [
+                {"id": "confirm", "kind": "confirm",
+                 "label": "Stop the build" if proposal == "stop" else "Confirm hold"},
+                {"id": "dismiss", "kind": "dismiss", "label": "Dismiss"},
+            ],
+        )
+        if res.get("choice") == "confirm":
+            self._armed = proposal
+            self.bus.audit("human", "hold_armed", {"proposal": proposal})
+
+    # ---- boundaries and holds -----------------------------------------------------
+
+    async def _boundary(self, after_key: str) -> None:
+        if self._armed == "stop":
+            raise _Stopped("Stopped by you — confirmed from the composer")
+        if self._armed != "hold":
+            return
+        self._armed = None
+        self._hold_count += 1
+        qid = f"q-hold-{self._hold_count}"
+        self._stretch_active = False
+        res = await self.questions.ask(
+            qid, "hold",
+            {"after_stage": after_key, "after_label": STAGE_LABELS.get(after_key, after_key),
+             "n": self._hold_count, "after_pc": f"q-pc-{self._pc_count}",
+             "voice": f"Holding after {STAGE_LABELS.get(after_key, after_key)} — the artifact "
+                      f"landed whole. Resume, stop, or steer with a note; nothing times out."},
+            [
+                {"id": "resume", "kind": "resume", "label": "Resume"},
+                {"id": "stop", "kind": "stop", "label": "Stop the build"},
+                {"id": "steer", "kind": "steer", "label": "Steer", "free": "required",
+                 "placeholder": "Tell it what to change — routes to the Interpreter…"},
+            ],
+        )
+        choice = res.get("choice")
+        if choice == "stop":
+            raise _Stopped("Stopped by you — from the hold")
+        if choice in ("steer", "other") or (choice not in ("resume",) and res.get("free_text")):
+            await self._orch("orch.steer")
+            raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
+        await self._orch("orch.resume")
+
+    # ---- artifacts for fetch_artifact ----------------------------------------------
+
+    def get_artifact(self, name: str) -> Optional[Dict[str, Any]]:
+        """Serve the full artifact from the bus (ticket 16 scope)."""
+        meta = self.bus.meta(name)
+        if meta is None and not self.bus.exists(name):
+            return None
+        fields = self.bus.read_json(name) if name.endswith(".json") else None
+        out = dict(meta or {"name": name, "kind": "artifact", "iteration": 1})
+        if fields is not None:
+            out["fields"] = fields
+        return out
+
+    # ---- the run ---------------------------------------------------------------------
+
+    async def _run(self) -> None:
+        try:
+            await self._walk()
+        except _Stopped as s:
+            self.ended = True
+            self.bus.audit("conductor", "run_ended", {"status": "stopped", "note": s.note})
+            await self._emit("conductor", "run.ended",
+                             {"status": "stopped", "by": "you", "note": s.note})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("conductor crashed")
+            self.ended = True
+            self.bus.audit("conductor", "run_ended", {"status": "error"})
+            await self._emit("conductor", "run.ended",
+                             {"status": "error",
+                              "note": "the conductor hit an internal error"})
+
+    async def _walk(self) -> None:
+        steps: List[Callable[[], Awaitable[None]]] = [
+            self._s_open, self._s_intake, self._s_interpret, self._s_gaps,
+            self._s_spec_gate, self._s_golden, self._s_design, self._s_configure,
+            self._s_assemble, self._s_code_gate, self._s_verify, self._s_human_gate,
+        ]
+        rewind = {
+            "interpret": steps.index(self._s_interpret),
+            "configure": steps.index(self._s_configure),
+        }
+        i = 0
+        while i < len(steps):
+            self._stretch_active = True
+            try:
+                await steps[i]()
+            except _DirectedIteration as d:
+                self._begin_directed(d.owner, d.feedback)
+                i = rewind[d.owner]
+                continue
+            i += 1
+        self.ended = True
+        self.bus.audit("conductor", "run_ended", {"status": "approved"})
+        await self._emit("conductor", "run.ended",
+                         {"status": "approved",
+                          "note": "Approved — job, verdict and the signed cell recorded."})
+
+    def _begin_directed(self, owner: str, feedback: str) -> None:
+        """The owner+forward rule (13): bump iterations for the owner stage
+        and every completed forward stage; human acts burn no loop budget."""
+        self.run.feedback = feedback
+        self._directed_owner = owner
+        if owner == "interpret":
+            self._draft += 1
+            self.run.draft = self._draft
+        else:  # configure: the code door
+            self.run.rig["_cell_revised"] = True
+        owner_hit = False
+        for key in STAGE_ORDER:
+            if key == owner:
+                owner_hit = True
+            if owner_hit and (key, self._iter[key]) in self._done_stages:
+                self._iter[key] += 1
+        self.bus.audit("human", "directed_iteration",
+                       {"owner": owner, "feedback": feedback[:200]})
+        self._feed("directed_iteration", f"directed iteration -> {owner}: {feedback[:120]}")
+
+    # ---- steps -------------------------------------------------------------------------
+
+    async def _s_open(self) -> None:
+        if not self._started:
+            self._started = True
+            brd = self.run.request.get("brd_name") if self.run.door == "brd" else None
+            await self._emit("conductor", "run.started",
+                             {"job": self.run.job, "door": self.run.door,
+                              "tier": self.run.tier, "brd": brd,
+                              "request_text": self.run.request.get("text"),
+                              "itinerary": ITINERARY})
+            # The full request rides the audit so a crash-restored conductor
+            # re-walks the same door with the same knobs (05: restore from
+            # bus + audit).
+            self.bus.audit("conductor", "run_started",
+                           {"job": self.run.job, "door": self.run.door,
+                            "request": self.run.request})
+            self._feed("run_started", f"run {self.run.run_id} started ({self.run.door} door)")
+        await self._orch("orch.opening.brd" if self.run.door == "brd"
+                         else "orch.opening.typed")
+
+    async def _s_intake(self) -> None:
+        if self._stage_done("intake"):
+            return
+        await self._stage_started("intake")
+        if self.run.door == "brd":
+            await self._run_stage("explode", "intake")
+            shape_repairs = 0
+            budget = SHAPE_REPAIR_CAP
+            while True:
+                await self._run_stage("doc_normalize", "intake")
+                nv = await self._run_stage("normalize_validate", "intake")
+                if nv.status == "shape_error":
+                    shape_repairs += 1
+                    if shape_repairs > budget:
+                        try:
+                            budget = await self._exhaustion("shape_repair", "intake",
+                                                            shape_repairs - 1, budget)
+                        except _StopToGate:
+                            raise _Stopped(
+                                "Stopped by you — extraction never validated clean")
+                        continue
+                    await self._loop_attempt(
+                        "intake", shape_repairs, budget,
+                        f"shape repair {shape_repairs} of {budget} · "
+                        f"{nv.data.get('note', 'validator fed back — re-normalizing')}")
+                    continue
+                if nv.status == "needs_human":
+                    q = nv.data.get("question") or {}
+                    self._nh_count += 1
+                    await self.questions.ask(
+                        f"q-nh-{self._nh_count}", "needs_human",
+                        {"source": q.get("source", "normalize_validate"),
+                         "prompt": q.get("prompt", ""),
+                         "free_prompt": q.get("free_prompt", "Something else…"),
+                         "n": self._nh_count,
+                         "voice": "Extraction needs one answer before the envelope closes."},
+                        list(q.get("options") or []),
+                    )
+                    continue
+                self.run.data_present = self.run.data_present or bool(
+                    nv.data.get("data_present"))
+                break
+            note = "Doc Normalizer · extract proposed — Normalize · validated clean"
+        else:
+            result = await self._run_stage("intake_build", "intake")
+            self.run.data_present = self.run.data_present or bool(
+                result.data.get("data_present"))
+            note = "Intake builder · envelope validated clean"
+        await self._sleep(0.7)
+        await self._stage_completed("intake", note=note)
+        await self._boundary("intake")
+
+    async def _s_interpret(self) -> None:
+        if self._stage_done("interpret"):
+            return
+        revision = self._iter["interpret"] > 1
+        extra = ({"directed": True, "feedback": self.run.feedback} if revision else {})
+        await self._stage_started("interpret", **extra)
+        self.run.gap_resolutions = self._gap_resolutions()
+        result = await self._run_stage("interpret", "interpret")
+        self._pending_gaps = list(result.data.get("gaps") or [])
+        # Interpret completes at spec-gate entry: elicitation belongs to the
+        # interpreter (04), so the stage stays active through the gap round.
+
+    async def _s_gaps(self) -> None:
+        if self._iter["interpret"] > 1:
+            return  # revisions fold signed answers in; new gaps arrive as a normal round
+        gaps = list(self._pending_gaps)
+        # Standing injection rule (grilled 2026-08-10): code, not the model,
+        # guarantees the missing-data advisory fires every dataless run.
+        if not self.run.data_present:
+            gaps.insert(0, {
+                "id": "G0", "severity": "advisory", "rule": "verification",
+                "prompt": ("No sample or expected data came with this request — "
+                           "verification needs data to grade against. Attach file "
+                           "paths below, or proceed without a verified tier."),
+                "options": [
+                    {"id": "attach", "label": "Attach data (paths below)", "kind": "choice",
+                     "recommended": True, "why": "a verified build grades against your golden"},
+                    {"id": "waive", "label": "Proceed without verification", "kind": "waive"},
+                ],
+                "free_prompt": "Paths to sample / expected files…",
+            })
+        round_k = 0
+        while gaps:
+            round_k += 1
+            round_id = f"r{round_k}" if round_k <= ELICITATION_ROUNDS else "batch"
+            await self._orch("orch.questions")
+            waits = []
+            for g in gaps:
+                qid = f"q-{g['id'].lower()}-{round_id}"
+                payload = {
+                    "gap_id": g["id"], "rule_id": g.get("rule"),
+                    "severity": g["severity"], "prompt": g["prompt"],
+                    "free_prompt": g.get("free_prompt", "Something else…"),
+                    "round_id": round_id,
+                    "round": {"k": min(round_k, ELICITATION_ROUNDS),
+                              "n": ELICITATION_ROUNDS},
+                }
+                if round_id == "batch":
+                    # 02: the soft budget ran out -- everything left lands as
+                    # one answer-or-waive batch, never a silent drop.
+                    payload["batch"] = True
+                waits.append(self.questions.ask(qid, "gap", payload, g["options"]))
+            await asyncio.gather(*waits)
+            self._apply_gap_effects(round_id, gaps)
+            # Dependency-first re-find belongs to the interpreter (ticket 17);
+            # the stub finds everything in round 1, so the loop drains here.
+            gaps = []
+        self.run.gap_resolutions = self._gap_resolutions()
+
+    def _apply_gap_effects(self, round_id: str, gaps: List[Dict[str, Any]]) -> None:
+        for g in gaps:
+            if g["id"] != "G0":
+                continue
+            res = self.questions.resolved.get(f"q-g0-{round_id}") or {}
+            if res.get("choice") in ("attach", "other"):
+                self.run.data_present = True
+                paths = [p.strip() for p in str(res.get("free_text") or "").split(",")
+                         if p.strip()]
+                self.run.request.setdefault("attachments", []).extend(paths)
+                self.bus.audit("human", "data_attached", {"paths": paths})
+
+    @staticmethod
+    def _spec_signature(spec: Dict[str, Any]) -> str:
+        core = {k: v for k, v in (spec or {}).items()
+                if k not in ("draft", "what_changed")}
+        return hashlib.sha1(
+            json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()
+
+    async def _s_spec_gate(self) -> None:
+        while True:
+            if not self._stage_done("interpret"):
+                await self._stage_completed("interpret")
+            spec = self.bus.read_json("requirement_spec.json") or {}
+            sig = self._spec_signature(spec)
+            # Re-raise only when the spec changed (16 scope): an unchanged
+            # directed revision keeps the standing signature.
+            if self._draft > 1 and sig == self._signed_spec_sig:
+                return
+            res = await self.questions.ask(
+                f"q-spec-d{self._draft}", "spec_gate",
+                {"draft": self._draft, "job": self.run.job,
+                 "summary": {"sources": len(spec.get("sources") or []),
+                             "rules": len(spec.get("rules") or [])},
+                 "gap_resolutions": self._gap_resolutions(),
+                 "what_changed": spec.get("what_changed"),
+                 "voice": ("The spec is complete: six rules, your answers recorded. "
+                           "Signing it fixes what the job must do — every later stage "
+                           "stands on it."
+                           if self._draft == 1 else
+                           "The revision is in. Same signed answers, your note folded in — "
+                           "sign draft %d to continue." % self._draft)},
+                [
+                    {"id": "approve", "kind": "approve", "label": "Approve and sign"},
+                    {"id": "request_changes", "kind": "reject", "label": "Request changes",
+                     "free": "required", "placeholder": "What should change in the spec…"},
+                ],
+            )
+            if res.get("choice") == "approve":
+                if sig != self._signed_spec_sig:
+                    self._signed_spec_sig = sig
+                    self.bus.audit("human", "spec_signed",
+                                   {"draft": self._draft, "signature": sig})
+                return
+            self._begin_directed("interpret", str(res.get("free_text") or ""))
+            await self._s_interpret()
+
+    async def _s_golden(self) -> None:
+        await self._orch("orch.signed")
+        result = await self._run_stage("materialize", "interpret")
+        tier = result.data.get("tier") or ("verified" if self.run.data_present else "build")
+        if self.run.tier != tier:
+            self.run.tier = tier
+            self.bus.audit("conductor", "tier_frozen", {"tier": tier})
+            self._feed("tier_frozen", f"tier frozen: {tier}")
+        await self._boundary("interpret")
+
+    async def _s_design(self) -> None:
+        if self._stage_done("design"):
+            return
+        condensed = self._iter["design"] > 1
+        await self._stage_started("design")
+        await self._run_stage("design", "design")
+        await self._stage_completed("design")
+        if not condensed:
+            await self._orch("orch.flow")
+        await self._boundary("design")
+
+    async def _s_configure(self) -> None:
+        if self._stage_done("configure"):
+            return
+        condensed = self._iter["configure"] > 1
+        directed = condensed and self._directed_owner == "configure"
+        await self._stage_started(
+            "configure",
+            **({"directed": True, "feedback": self.run.feedback} if directed else {}))
+        await self._run_stage("configure", "configure")
+        await self._stage_completed(
+            "configure",
+            note=("Configurator · revision applied — validate loop clean" if condensed
+                  else "Configurator · 10/10 configured — validate loop clean on attempt 2"))
+        await self._boundary("configure")
+
+    async def _s_assemble(self) -> None:
+        if self._stage_done("assemble"):
+            return
+        await self._stage_started("assemble")
+        await self._run_stage("assemble", "assemble")
+        await self._stage_completed("assemble")
+        await self._boundary("assemble")
+
+    # ---- the pre-execution code gate ------------------------------------------------
+
+    @staticmethod
+    def _cell_hash(cell: Dict[str, Any]) -> str:
+        raw = f"{cell.get('component')}|{cell.get('field')}|{cell.get('code')}"
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    def _gate_cells(self) -> List[Dict[str, Any]]:
+        """Walk job.json with the vendored surfacer; merge display metadata
+        from the configurator's cell_meta sidecar (config.json)."""
+        job = self.bus.read_json("job.json") or {}
+        meta = (self.bus.read_json("config.json") or {}).get("cell_meta", {})
+        out = []
+        for cell in surface_code_cells(job):
+            m = meta.get(str(cell.get("component"))) or {}
+            key = (str(cell.get("component")), str(cell.get("field")))
+            h = self._cell_hash(cell)
+            out.append({
+                "id": m.get("id") or f"{cell.get('component')}.{cell.get('field')}",
+                "node_id": m.get("node_id") or cell.get("component"),
+                "component": m.get("component") or cell.get("type"),
+                "author": m.get("author", "Configurator"),
+                "code": cell.get("code"),
+                "validator": m.get("validator"),
+                "unsandboxed": cell.get("unsandboxed"),
+                "new": key not in self._raised_cells,
+                "changed": key in self._raised_cells and h not in self._approved_cells,
+                "_hash": h, "_key": key,
+            })
+        return out
+
+    async def _s_code_gate(self) -> None:
+        cells = self._gate_cells()
+        pending = [c for c in cells if c["_hash"] not in self._approved_cells]
+        if not pending:
+            return  # 04's re-pause rule: only new or changed cells re-raise
+        if self._code_round == 1:
+            await self._orch("orch.gate")
+        new_keys = [c["_key"] for c in pending if c["new"]]
+        if new_keys:
+            self.bus.audit("conductor", "cells_raised",
+                           {"cells": [list(k) for k in new_keys]})
+            self._raised_cells.update(new_keys)
+        display = [{k: v for k, v in c.items() if not k.startswith("_")} for c in pending]
+        res = await self.questions.ask(
+            f"q-code-r{self._code_round}", "code_gate",
+            {"round": self._code_round, "cells": display,
+             "note": ("Re-raising changed cells only" if self._code_round > 1 else None),
+             "voice": (("One step writes code — computing market_value. Nothing runs "
+                        "until you approve the exact cell. The cell is on the canvas, "
+                        "spotlit.")
+                       if self._code_round == 1 else
+                       "The cell is rewritten to your note — same one step, new exact "
+                       "code. Approve it to run.")},
+            [
+                {"id": "approve", "kind": "approve", "label": "Approve and run"},
+                {"id": "request_changes", "kind": "reject", "label": "Request changes",
+                 "free": "required", "placeholder": "What should change in this cell…"},
+            ],
+        )
+        if res.get("choice") == "approve":
+            hashes = [c["_hash"] for c in pending]
+            fresh = [h for h in hashes if h not in self._approved_cells]
+            self._approved_cells.update(hashes)
+            if fresh:
+                self.bus.audit("human", "cells_approved", {"hashes": fresh})
+            return
+        self._code_round += 1
+        raise _DirectedIteration("configure", str(res.get("free_text") or ""))
+
+    # ---- verify: tier routing + the main repair loop -----------------------------------
+
+    async def _exhaustion(self, loop: str, stage: str, used: int, budget: int) -> int:
+        """A loop budget ran dry: grant / stop / steer -- never a silent
+        stop (04). Returns the grown budget on grant; raises otherwise."""
+        self._x_count += 1
+        stop_option = (
+            {"id": "stop_to_gate", "kind": "stop", "label": "Stop to the gate"}
+            if loop == "repair" else
+            {"id": "stop", "kind": "stop", "label": "Stop the build"}
+        )
+        res = await self.questions.ask(
+            f"q-x-{self._x_count}", "exhaustion",
+            {"loop": loop, "stage": stage, "k": used, "n": budget,
+             "x_n": self._x_count, "grant_size": GRANT_SIZE,
+             "voice": (f"The {loop.replace('_', ' ')} budget is spent — {used} passes "
+                       f"against a cap of {budget}. Grant {GRANT_SIZE} more, "
+                       + ("stop to the gate with the verdict as it stands, "
+                          if loop == "repair" else "stop the build, ")
+                       + "or steer the spec.")},
+            [
+                {"id": "grant", "kind": "grant",
+                 "label": f"Grant {GRANT_SIZE} more", "recommended": True,
+                 "why": "each grant is an explicit act — spend cannot run away silently"},
+                stop_option,
+                {"id": "steer", "kind": "steer", "label": "Steer", "free": "required",
+                 "placeholder": "What should change — routes to the Interpreter…"},
+            ],
+        )
+        choice = res.get("choice")
+        if choice == "grant":
+            self._grants += 1
+            self.bus.audit("human", "grant",
+                           {"loop": loop, "new_budget": budget + GRANT_SIZE})
+            return budget + GRANT_SIZE
+        if choice == "steer" or (choice == "other" and res.get("free_text")):
+            await self._orch("orch.steer")
+            raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
+        if choice == "stop":
+            raise _Stopped("Stopped by you — from the exhausted "
+                           + loop.replace("_", " ") + " loop")
+        raise _StopToGate()
+
+    async def _s_verify(self) -> None:
+        if self._stage_done("verify"):
+            return
+        await self._stage_started("verify")
+        tier = self.run.tier or "build"
+        first_pass = self._iter["verify"] == 1
+        if tier == "build":
+            self._verdict = {
+                "verdict": "unverified", "matched": "—", "runs": {"k": 0, "n": 0},
+                "diagnosis": "build tier — no data to grade against, nothing ran"}
+            await self._stage_completed("verify")
+            await self._boundary("verify")
+            return
+        # Attempt frame: run 1 plus up to (budget - 1) repair re-runs;
+        # grants stretch the budget, each an explicit human act.
+        budget = REPAIR_CAP + self._grants * GRANT_SIZE
+        runs = 0
+        clean = False
+        stopped_to_gate = False
+        while True:
+            result = await self._run_stage("test_run", "verify")
+            runs += 1
+            if result.data.get("clean"):
+                clean = True
+                break
+            if tier == "smoke":
+                break  # smoke runs exactly once; only verified loops
+            diag = await self._run_stage("diagnose", "verify")
+            feedback = diag.data.get("feedback") or {}
+            owner = str(feedback.get("owner") or "configurator")
+            if owner == "human":
+                self._oh_count += 1
+                res = await self.questions.ask(
+                    f"q-oh-{self._oh_count}", "owner_human",
+                    {"n": self._oh_count,
+                     "prompt": feedback.get("question")
+                     or "The diagnosis lands on your side of the fence.",
+                     "evidence": feedback.get("evidence"),
+                     "voice": "The diagnostician says the fix is yours to make — "
+                              "steer the spec, run again as-is, or stop to the gate."},
+                    [
+                        {"id": "retry", "kind": "choice", "label": "Run again as-is"},
+                        {"id": "stop_to_gate", "kind": "stop", "label": "Stop to the gate"},
+                        {"id": "steer", "kind": "steer", "label": "Steer",
+                         "free": "required",
+                         "placeholder": "What should change — routes to the Interpreter…"},
+                    ],
+                )
+                choice = res.get("choice")
+                if choice == "steer" or (choice == "other" and res.get("free_text")):
+                    await self._orch("orch.steer")
+                    raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
+                if choice == "stop_to_gate":
+                    stopped_to_gate = True
+                    break
+                continue  # run again as-is: a human act, burns no repair budget
+            if owner == "interpreter":
+                # 04's mid-loop rule: a spec-owned failure re-presents the
+                # spec for re-sign-off — the spec door, uncapped.
+                raise _DirectedIteration(
+                    "interpret", str(feedback.get("fix") or feedback.get("why") or ""))
+            if runs + 1 > budget:
+                try:
+                    budget = await self._exhaustion("repair", "verify", runs, budget)
+                except _StopToGate:
+                    stopped_to_gate = True
+                    break
+            slot = _OWNER_SLOT.get(owner, "configure")
+            await self._run_stage(slot, "verify", repair=feedback)
+            await self._run_stage("assemble", "verify", repair=feedback)
+            await self._loop_attempt(
+                "verify", runs + 1, budget,
+                f"repair {runs + 1} of {budget} · {owner.capitalize()} re-ran · "
+                f"{feedback.get('fix') or 'fix applied'}")
+        matched = "4/4" if clean else "2/4"
+        if clean:
+            verdict = "verified" if tier == "verified" else "smoke_clean"
+        else:
+            verdict = "failed" if tier == "verified" else "smoke_failed"
+        self._verdict = {
+            "verdict": verdict, "matched": matched,
+            "runs": {"k": runs, "n": budget if tier == "verified" else 1},
+            "diagnosis": (
+                ("run 1 mis-sorted — Diagnostician: owner Configurator · "
+                 "fix: sort_type = num · 1/1 outputs graded" if runs > 1 else
+                 "clean on the first run · 1/1 outputs graded")
+                if clean and first_pass else
+                "revision re-verified — clean · 1/1 outputs graded" if clean else
+                "repairs stopped at your call — the verdict stands as it is"
+                if stopped_to_gate else
+                "not verified — the last run still mismatched the golden"),
+        }
+        await self._stage_completed("verify")
+        await self._boundary("verify")
+
+    async def _s_human_gate(self) -> None:
+        first = self._human_round == 1
+        await self._orch("orch.verdict" if first else "orch.reverdict")
+        verdict = dict(self._verdict or {})
+        red = verdict.get("verdict") in ("failed", "smoke_failed")
+        options = []
+        if not red:
+            options.append({"id": "approve", "kind": "approve", "label": "Approve job"})
+        options.append({"id": "request_changes", "kind": "reject",
+                        "label": "Request changes", "free": "required",
+                        "placeholder": "What’s wrong with the output…"})
+        options.append({"id": "stop", "kind": "stop", "label": "Stop"})
+        res = await self.questions.ask(
+            f"q-human-r{self._human_round}", "human_gate",
+            {"round": self._human_round, **verdict, "tier": self.run.tier,
+             "table": self._verdict_table(),
+             "voice": ("Job, verdict, and the one signed cell — ready for your approval. "
+                       "Nothing auto-approves." if not red else
+                       "The verdict is red — approve is off the table. Revise the spec "
+                       "or stop the build.")},
+            options,
+        )
+        choice = res.get("choice")
+        if choice == "approve":
+            return
+        if choice == "stop":
+            raise _Stopped("Stopped by you — at the human gate")
+        self._human_round += 1
+        raise _DirectedIteration("interpret", str(res.get("free_text") or ""))
+
+    def _verdict_table(self) -> Dict[str, Any]:
+        golden = self.bus.path("golden/trade_positions.csv")
+        if not golden.is_file():
+            return {"headers": [], "rows": []}
+        lines = [ln for ln in golden.read_text(encoding="utf-8").splitlines() if ln]
+        if not lines:
+            return {"headers": [], "rows": []}
+        return {"headers": lines[0].split(","),
+                "rows": [ln.split(",") for ln in lines[1:]]}
