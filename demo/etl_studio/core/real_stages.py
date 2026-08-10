@@ -194,24 +194,39 @@ class RealNormalizeValidate(StageAdapter):
     key = "normalize_validate"
 
     @staticmethod
-    def _nh_question(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    def _nh_question(extraction: Dict[str, Any],
+                     inventory: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         unaccounted = list(extraction.get("unaccounted") or [])
         unresolved = list(extraction.get("unresolved") or [])
         why = dict(extraction.get("unresolved_why") or {})
+        type_of = {h.get("id"): h.get("type")
+                   for h in (inventory or {}).get("handles", [])}
+        # Unaccounted DATA handles (files/tables) are never boilerplate:
+        # recommending "irrelevant" for them told a live run its own sample
+        # CSVs were noise (first live session) -- data-looking handles get
+        # the directed-guidance recommendation instead.
+        unaccounted_data = [h for h in unaccounted
+                            if type_of.get(h) in ("sibling", "embed", "table")]
+        unaccounted_prose = [h for h in unaccounted if h not in unaccounted_data]
         bits = []
-        if unaccounted:
-            bits.append("no disposition for " + ", ".join(unaccounted))
+        if unaccounted_prose:
+            bits.append("no disposition for " + ", ".join(unaccounted_prose))
+        if unaccounted_data:
+            bits.append(", ".join(unaccounted_data)
+                        + " look like data files with no disposition — say where "
+                          "each belongs (a sample source? the expected output?)")
         for name in unresolved:
             bits.append(f"{name} cannot be resolved ({why.get(name, 'no usable data handle')})")
         detail = "; ".join(bits) or "an unresolvable extraction state"
-        if unresolved:
-            # A source/output the validator cannot resolve is a DATA problem:
-            # the safe act is directed guidance, never waving data away.
+        if unresolved or unaccounted_data:
+            # A data problem: the safe act is directed guidance, never
+            # waving data away.
             options = [
                 {"id": "guide", "label": "Tell the normalizer what to fix",
                  "kind": "choice", "recommended": True, "free": "required",
-                 "why": "the validator's reason above says exactly what does not line up"},
-                {"id": "drop_source", "label": "Treat it as absent", "kind": "choice"},
+                 "why": "the reason above says exactly what does not line up"},
+                {"id": "irrelevant", "label": "Treat them as irrelevant anyway",
+                 "kind": "choice"},
             ]
         else:
             options = [
@@ -243,7 +258,8 @@ class RealNormalizeValidate(StageAdapter):
         if status == "needs_human":
             extraction = payload.get("extraction") or {}
             return StageResult("needs_human", {
-                "question": self._nh_question(extraction), "extraction": extraction})
+                "question": self._nh_question(extraction, inventory),
+                "extraction": extraction})
         # ok: the envelope closes -- extract + intake land on the bus.
         await ctx.write_artifact("extract_doc.json", payload, kind="extract")
         brd = str(inventory.get("brd")

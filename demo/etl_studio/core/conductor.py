@@ -816,9 +816,18 @@ class Conductor:
                     continue
                 if nv.status == "needs_human":
                     q = nv.data.get("question") or {}
-                    self._nh_count += 1
+                    # A crash-restore re-walk re-validates the same proposal;
+                    # re-await the still-pending extraction question instead of
+                    # minting a phantom duplicate (first live session: one
+                    # unresolved source raised three ids across two restarts).
+                    pending_nh = self.questions.pending("needs_human")
+                    if pending_nh:
+                        nh_qid = str(pending_nh[-1]["question_id"])
+                    else:
+                        self._nh_count += 1
+                        nh_qid = f"q-nh-{self._nh_count}"
                     res = await self.questions.ask(
-                        f"q-nh-{self._nh_count}", "needs_human",
+                        nh_qid, "needs_human",
                         {"source": q.get("source", "normalize_validate"),
                          "prompt": q.get("prompt", ""),
                          "free_prompt": q.get("free_prompt", "Something else…"),
