@@ -75,5 +75,8 @@ the vscode.lm adapter surfaced NO usage DataParts on this Mac, so the
 credit readout counts scripted turns only and shows nothing for live model
 calls. Confirm whether the shim drops the part or the local provider never
 emits it, and reconcile (06's rule stands: absent part -> no number, never
-an estimate). Also already done by 17, from this ticket's list: the demo
+an estimate). Likeliest read: the nano-AIU usage part is a Citi-gateway
+behavior (ticket 09 observed it only there); public Copilot on the Mac may
+never emit it on any plan/model -- so verify the credits pipeline on the
+Citi machine, and treat Mac silence as expected, not a shim bug. Also already done by 17, from this ticket's list: the demo
 BRD + CSVs are vendored under demo/etl_studio/examples/.
