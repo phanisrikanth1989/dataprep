@@ -145,3 +145,11 @@ anchors moved to the top-center (exact edge, no height guess) and
 leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
+
+2026-08-10 — F5 pass feedback (user): code-gate footer buttons misaligned —
+three buttons overflow the 440px card, wrapping [Ask about this cell]
+alone onto a ragged second row. Fixed by taking 13's "ask = conversation,
+reject = resolution ... stays distinct" literally: the ask affordance
+left the resolution row and became a dotted-underline link (waive voice)
+beside the gate note; the footer keeps exactly two buttons like every
+other card. Harness-verified.

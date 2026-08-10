@@ -409,6 +409,13 @@ export function CodeGateCard({
         </>
       ) : null}
       <div className="gnote">Re-pauses only if a cell is new or changed on a later iteration.</div>
+      {cell ? (
+        // Ask = conversation, reject = resolution (ticket 13): the ask
+        // affordance stays out of the resolution row, in the waive voice.
+        <button className="asklink" onClick={() => onAskCell(cell)}>
+          Ask about this cell
+        </button>
+      ) : null}
       {rejecting ? (
         <RequestChangesRow
           q={q}
@@ -423,11 +430,6 @@ export function CodeGateCard({
         {!rejecting ? (
           <button className="ghostbtn" disabled={sent} onClick={() => setRejecting(true)}>
             Request changes
-          </button>
-        ) : null}
-        {cell ? (
-          <button className="ghostbtn" onClick={() => onAskCell(cell)}>
-            Ask about this cell
           </button>
         ) : null}
       </div>
