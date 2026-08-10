@@ -146,6 +146,12 @@ leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
 
+2026-08-10 — F5 pass gap (user asked how to start over): no affordance
+existed to start the next run — the doors only rendered with no run at
+all, and panel reopen restores the finished run from its journal. Added a
+New-run HUD chip on run end that returns to the doors (with a back link);
+start_run then begins a fresh journal as designed. Harness-verified.
+
 2026-08-10 — F5 pass feedback (user): code-gate footer buttons misaligned —
 three buttons overflow the 440px card, wrapping [Ask about this cell]
 alone onto a ragged second row. Fixed by taking 13's "ask = conversation,
