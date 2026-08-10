@@ -187,10 +187,20 @@ function Chrome({
       </div>
       <div className="hud">
         {onNewRun ? (
-          <button className="chip chipbtn" onClick={onNewRun}>
-            <span className="pip idle" />
-            New run
-          </button>
+          <>
+            <button className="hudact" onClick={onNewRun}>
+              <span className="plus">+</span>
+              New run
+            </button>
+            <button
+              className="hudact quiet"
+              title="Close ETL Studio — reopening restores this run"
+              onClick={() => sendNotify("shim.close_panel")}
+            >
+              Exit
+            </button>
+            <span className="actsep" />
+          </>
         ) : null}
         {state.run ? (
           <div className="chip">

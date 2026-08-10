@@ -98,6 +98,13 @@ export class StudioPanel {
         this.core.restartFromDead();
         return;
       }
+      if (msg.method === "shim.close_panel") {
+        // Exit from the webview: close the panel (SIGTERMs the core via
+        // dispose); the run journal stays, so reopening restores it.
+        this.output.appendLine("[shim] exit requested from the webview");
+        this.panel.dispose();
+        return;
+      }
       if (msg.method.startsWith("shim.") || msg.method.startsWith("editor.")) {
         this.output.appendLine(`[shim] no handler for ${msg.method} in the skeleton`);
         return;
