@@ -61,7 +61,10 @@ function leadPaths(
     const edgeX =
       side === "right" ? pos.left : Math.max(pos.left + 18, Math.min(a.x, pos.left + cw - 18));
     const edgeY = side === "right" ? pos.top + 64 : pos.top;
-    return `M${a.x},${a.y + 6} C${a.x},${(a.y + edgeY) / 2} ${edgeX - (side === "right" ? 60 : 0)},${edgeY} ${edgeX},${edgeY}`;
+    // Leave the subject on the side facing the card, never back through it.
+    const dir = edgeY >= a.y ? 1 : -1;
+    const sy = a.y + dir * 6;
+    return `M${a.x},${sy} C${a.x},${(sy + edgeY) / 2} ${edgeX - (side === "right" ? 60 : 0)},${edgeY} ${edgeX},${edgeY}`;
   });
 }
 

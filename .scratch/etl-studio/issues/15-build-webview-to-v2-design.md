@@ -135,3 +135,13 @@ is the placeholder ticket 16's conductor replaces behind the same wire —
 the webview should need zero changes then, which is the point of the
 contract. Scripted revisions surface no new gaps (13's minimal re-entry
 honored). Testing posture per the map: smoke + tripwire only.
+
+## Comments
+
+2026-08-10 — F5 pass feedback (user): the scatter leaders sliced through
+their own rule card and overshot its bottom (bottom-center anchor + a
+hardcoded 118px height that exceeded the rendered card). Fixed: rule
+anchors moved to the top-center (exact edge, no height guess) and
+leadPaths() now leaves the subject on the side facing the card.
+Re-verified in the journal harness at 1680x1050 on both the gap-round and
+spec-gate cards.

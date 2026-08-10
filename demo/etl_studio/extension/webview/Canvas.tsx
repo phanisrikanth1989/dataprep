@@ -100,14 +100,20 @@ export function Canvas({ state, scene, vw, vh, setComposer }: CanvasProps): Reac
   const humanQ = latestPending(state, "human_gate");
   const holdQ = latestPending(state, "hold");
 
+  // Leaders pin to the rule's TOP-CENTER: the exact edge is known (no height
+  // guess), and a curve leaving upward can never slice through the rule card
+  // on its way to the card at the top right.
+  const ruleAnchor = (ruleId: string): Anchor | null => {
+    const p = SCATTER.spots[ruleId];
+    return p ? proj(scatterCam, { x: p[0] + 106, y: p[1] }) : null;
+  };
   const gapAnchors: Anchor[] = gaps
-    .map((q) => SCATTER.spots[String(q.payload.rule_id ?? "")])
-    .filter(Boolean)
-    .map(([x, y]) => proj(scatterCam, { x: x + 106, y: y + 118 }));
+    .map((q) => ruleAnchor(String(q.payload.rule_id ?? "")))
+    .filter((a): a is Anchor => a !== null);
   const specAnchors: Anchor[] = (state.spec?.rules ?? [])
-    .filter((rl: any) => rl.gap && SCATTER.spots[rl.id])
-    .map((rl: any) => SCATTER.spots[rl.id])
-    .map(([x, y]: number[]) => proj(scatterCam, { x: x + 106, y: y + 118 }));
+    .filter((rl: any) => rl.gap)
+    .map((rl: any) => ruleAnchor(String(rl.id)))
+    .filter((a: Anchor | null): a is Anchor => a !== null);
 
   const nodeAnchor = (nodeId: string | null): Anchor[] => {
     if (!nodeId || !L || !L.pos[nodeId]) {
