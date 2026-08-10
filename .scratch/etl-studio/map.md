@@ -231,6 +231,17 @@ change to agent code.
   to 20); renderer gaps stay with 21 except the needs_human card, pulled
   forward at the user's direction before live testing.
 
+- [18 - Orchestrator agent](issues/18-orchestrator-agent.md) -- the LLM
+  orchestrator is real on 16's chassis: one serialized voice, non-blocking
+  narration alongside stages, composer answers grounded via bus-read tools,
+  hold/stop as the model's propose_control call (card conductor-authored,
+  confirm arms the hold), escalation prose = the card's voice; conversation
+  turns never journal-skipped; smoke 76 -> 84 green, seam 28 green, webview
+  zero changes; live BRD run on this Mac approved end-to-end with the model
+  reading requirement_spec.json for a threaded answer and proposing a hold
+  live (Mac-provisional, rig-answered; escalation beat double-proven only);
+  usage-parts news for 20: live parts now arrive, token-shaped, no nano-AIU.
+
 ## Not yet specified
 
 - Demo rehearsal / replay story -- deterministic run-through for the day;

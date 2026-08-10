@@ -80,3 +80,14 @@ behavior (ticket 09 observed it only there); public Copilot on the Mac may
 never emit it on any plan/model -- so verify the credits pipeline on the
 Citi machine, and treat Mac silence as expected, not a shim bug. Also already done by 17, from this ticket's list: the demo
 BRD + CSVs are vendored under demo/etl_studio/examples/.
+
+2026-08-10 (ticket 18's live probe) -- usage-parts update, supersedes the
+"NO usage DataParts on this Mac" read above: the live adapter NOW surfaces
+usage parts on every stream (20/20 on the probe run), but in OpenAI token
+shape (prompt_tokens / completion_tokens / copilot_usage.token_details) with
+no nano-AIU field -- so total_nano_aiu stays unnormalized and the readout
+still shows nothing for live turns. The reconcile here is a normalization
+decision (map raw token shapes? still gateway-only nano-AIU?), to be settled
+against the Citi gateway per the note above. Probe cost for one full BRD
+run with the ticket-18 orchestrator: ~89k tokens (80k prompt / 9.4k
+completion).
