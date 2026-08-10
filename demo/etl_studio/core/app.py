@@ -193,15 +193,23 @@ class StudioApp:
     ) -> Optional[Tuple[ProviderPort, str]]:
         """The run's live provider (ticket 17): the primary adapter when it
         answers with models; the announced double fallback otherwise. With
-        --provider double there is no live leg at all."""
+        --provider double there is no live leg at all.
+
+        Hard-bounded: on a cold editor start the lm/listModels round trip can
+        stall while the provider extension is still activating -- an unbounded
+        await here froze the whole wire (attach and start_run both gate on
+        it), which read as dead clicks on a clickable idle screen (first live
+        session). A stall now falls back, announced, and the run proceeds."""
         if self._primary is self._scripted_port:
             return None
         reason: Optional[str] = None
         try:
-            models = await self._primary.list_models()
+            models = await asyncio.wait_for(self._primary.list_models(), timeout=8.0)
             if models:
                 return (self._primary, self._primary_name)
             reason = "provider returned no models"
+        except asyncio.TimeoutError:
+            reason = "live provider did not answer within 8s (still activating?)"
         except ProviderError as e:
             reason = f"{type(e).__name__}: {e}"
         await self._emit(
