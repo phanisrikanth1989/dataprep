@@ -236,20 +236,16 @@ function Chrome({
                   <button className="menuveil" aria-hidden onClick={() => setMenuOpen(false)} />
                   <div className="hudmenu" role="menu">
                     {state.ended ? (
-                      <>
-                        <button
-                          role="menuitem"
-                          className="mitem"
-                          onClick={() => {
-                            setMenuOpen(false);
-                            onNewBuild();
-                          }}
-                        >
-                          <span className="mic">+</span>
-                          New build
-                        </button>
-                        <div className="mdiv" />
-                      </>
+                      <button
+                        role="menuitem"
+                        className="mitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onNewBuild();
+                        }}
+                      >
+                        New build
+                      </button>
                     ) : null}
                     <button
                       role="menuitem"
@@ -257,7 +253,6 @@ function Chrome({
                       title="Close ETL Studio — reopening restores this build"
                       onClick={() => sendNotify("shim.close_panel")}
                     >
-                      <span className="mic">✕</span>
                       Exit
                     </button>
                   </div>
