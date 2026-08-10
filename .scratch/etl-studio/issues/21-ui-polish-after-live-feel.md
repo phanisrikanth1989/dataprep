@@ -37,12 +37,17 @@ during live run and then make those changes."
 2026-08-10 — From ticket 16 (renderer gaps, beyond wording — small new
 surfaces the wire already carries but the webview cannot show):
 
-- [ ] Question kinds `needs_human`, `exhaustion`, `owner_human` have no
-      card — they raise as real pending questions (journaled, replayed,
-      answerable over the wire; smoke exercises them) but render nothing,
-      so a live run that hits one waits invisibly. Payload shapes are in
-      `core/envelope.py`; the propose-confirm feed card is the nearest
-      pattern to follow.
+- [x] ~~`needs_human`~~ pulled forward at the user's direction
+      (2026-08-10, commit 5a590f1b): a feed card in the propose-confirm
+      pattern (validator reason as card text, recommended option primary,
+      free-required options reveal an input), both themes checked via the
+      journal-replay harness. Still open here:
+- [ ] Question kinds `exhaustion` and `owner_human` have no card — they
+      raise as real pending questions (journaled, replayed, answerable over
+      the wire; smoke exercises them) but render nothing, so a live run
+      that hits one waits invisibly. They start firing with ticket 19's
+      real repair loops. Payload shapes are in `core/envelope.py`; the
+      needs_human/propose-confirm feed cards are the pattern to follow.
 - [ ] VerdictCard keys Approve on `verdict === "verified"` — an approvable
       `smoke_clean` (or build-tier `unverified`) verdict hides its Approve
       button. Ticket 13's "smoke-clean approvable" is wire-true (the

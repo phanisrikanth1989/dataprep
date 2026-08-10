@@ -228,7 +228,8 @@ change to agent code.
   one LIVE BRD chain run on this Mac (vscode_lm specialists, live-raised
   gaps, an 11-component live design, approved end -- Mac-provisional,
   rig-answered per the provenance rule); no usage DataParts live (flagged
-  to 20), renderer gaps stay with 21.
+  to 20); renderer gaps stay with 21 except the needs_human card, pulled
+  forward at the user's direction before live testing.
 
 ## Not yet specified
 
