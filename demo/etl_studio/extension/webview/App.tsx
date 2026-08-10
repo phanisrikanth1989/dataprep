@@ -190,11 +190,11 @@ function Chrome({
           <>
             <button className="hudact" onClick={onNewRun}>
               <span className="plus">+</span>
-              New run
+              New build
             </button>
             <button
               className="hudact quiet"
-              title="Close ETL Studio — reopening restores this run"
+              title="Close ETL Studio — reopening restores this build"
               onClick={() => sendNotify("shim.close_panel")}
             >
               Exit
@@ -220,7 +220,7 @@ function Chrome({
           ) : (
             <>
               <span className="pip idle" />
-              <span style={{ color: "var(--mute)" }}>no run</span>
+              <span style={{ color: "var(--mute)" }}>no build</span>
             </>
           )}
         </div>
@@ -261,7 +261,7 @@ function LifecycleBanner({ state }: { state: State }): React.ReactElement | null
       <div className="lifebanner">
         <span className="sp" />
         Agent core {life.state === "crashed" ? "crashed" : "is restarting"} — back in a moment.
-        The run continues from its journal.
+        The build continues from its journal.
       </div>
     );
   }
@@ -350,7 +350,7 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
         </div>
         <div className="portal">
           <h3>Describe the job</h3>
-          <p>Type it. Attach sample and expected data to earn a verified run.</p>
+          <p>Type it. Attach sample and expected data to earn a verified build.</p>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -361,7 +361,7 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
               {attachments.length ? `${attachments.length} attached` : "Attach data"}
             </button>
             <button className="go" onClick={start}>
-              Start run
+              Start build
             </button>
           </div>
         </div>
@@ -369,7 +369,7 @@ function Idle({ onBack }: { onBack?: () => void }): React.ReactElement {
       <div className="fine">Every gate is yours — the spec, the generated code, and the final approval.</div>
       {onBack ? (
         <button className="fine backlink" onClick={onBack}>
-          Back to the finished run
+          Back to the finished build
         </button>
       ) : null}
     </div>

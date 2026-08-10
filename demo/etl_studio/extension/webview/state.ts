@@ -176,7 +176,7 @@ function reduceEnvelope(prev: State, env: Envelope): State {
     case "run.crash_restored":
       return pushFeed(
         { ...state, crashRestored: true },
-        { kind: "sys", seq: env.seq, text: String(p.note ?? "The core restarted; the run continues from the journal.") }
+        { kind: "sys", seq: env.seq, text: String(p.note ?? "The core restarted; the build continues from the journal.") }
       );
     case "run.ended": {
       const status = String(p.status ?? "ended");
@@ -189,7 +189,7 @@ function reduceEnvelope(prev: State, env: Envelope): State {
       return pushFeed(s2, {
         kind: "sys",
         seq: env.seq,
-        text: String(p.note ?? `Run ${status}.`),
+        text: String(p.note ?? `Build ${status}.`),
         tone: status === "approved" ? "jade" : undefined,
       });
     }
@@ -699,7 +699,7 @@ export function deriveFeedSub(state: State): string {
     return `holding after ${hold.payload.after_label ?? hold.payload.after_stage ?? ""}`;
   }
   if (state.ended) {
-    return state.ended.status === "approved" ? "approved — run complete" : `run ${state.ended.status}`;
+    return state.ended.status === "approved" ? "approved — build complete" : `build ${state.ended.status}`;
   }
   if (state.holdArmed) {
     return "hold armed — next boundary";
@@ -713,7 +713,7 @@ export function deriveFeedSub(state: State): string {
   if (state.currentStage && state.stages[state.currentStage]) {
     return `${state.stages[state.currentStage].label} running…`;
   }
-  return "run in progress";
+  return "build in progress";
 }
 
 export const credits = (state: State): number => state.creditsNano / 1e9;

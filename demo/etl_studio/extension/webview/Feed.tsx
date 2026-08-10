@@ -230,7 +230,7 @@ export function Feed({ state, composer, setComposer, onSend }: FeedProps): React
     <div className="feed">
       <div className="feedh">
         <span className={`pip${pipClass}`} />
-        <span className="t">Run feed</span>
+        <span className="t">Build feed</span>
         <span className="sub">{deriveFeedSub(state)}</span>
       </div>
       <div
@@ -245,7 +245,7 @@ export function Feed({ state, composer, setComposer, onSend }: FeedProps): React
       >
         {state.feed.length === 0 && !pendingOf(state, "gap").length ? (
           <div className="empty">
-            <b>The run is starting.</b>
+            <b>The build is starting.</b>
             <br />
             Everything that happens lands here — questions, thinking, gates, the verdict.
           </div>
@@ -266,8 +266,8 @@ export function Feed({ state, composer, setComposer, onSend }: FeedProps): React
                 onSend();
               }
             }}
-            placeholder="Ask about this run…"
-            aria-label="Ask about this run"
+            placeholder="Ask about this build…"
+            aria-label="Ask about this build"
           />
           <button className="send" title="Send" onClick={() => composer.trim() && onSend()}>
             ↑

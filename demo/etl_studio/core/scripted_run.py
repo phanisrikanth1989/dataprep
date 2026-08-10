@@ -145,7 +145,7 @@ VERDICT_TABLE = {
 
 ORCH = {
     "questions": "I’ve read Trade_Positions_BRD.docx — three sources, six rules. Two answers and the spec is complete. They’re pinned to the rules they block, out on the canvas.",
-    "signed": "Spec signed off. Your goldens are in place — this run grades against them.",
+    "signed": "Spec signed off. Your goldens are in place — this build grades against them.",
     "flow": "The flow is designed: a filter, two lookups, one computed column, a date check, a sort. Configuring each step now.",
     "gate": "One step writes code — computing market_value. Nothing runs until you approve the exact cell. The cell is on the canvas, spotlit.",
     "verdict": "Verified. The output matches your golden — all 4 rows, order included. Run 1 mis-sorted; the fix was one setting.",
@@ -229,14 +229,14 @@ def build_scripts() -> Dict[str, List[List[Dict[str, Any]]]]:
         "orch.verdict": [[{"text": ORCH["verdict"]}, u(2.4)]],
         "orch.reverdict": [[{"text": ORCH["reverdict"]}, u(1.8)]],
         "orch.hold": [[
-            {"text": "You’d like me to pause. Confirm and I’ll hold at the next stage boundary — the stage in flight finishes and its artifact lands whole, then the run waits for you."},
+            {"text": "You’d like me to pause. Confirm and I’ll hold at the next stage boundary — the stage in flight finishes and its artifact lands whole, then the build waits for you."},
             u(1.4),
         ]],
         "orch.stop": [[
-            {"text": "You’d like to stop this run. Confirm and I’ll end it plainly at the next boundary — nothing else executes, everything so far stays on the canvas."},
+            {"text": "You’d like to stop this build. Confirm and I’ll end it plainly at the next boundary — nothing else executes, everything so far stays on the canvas."},
             u(1.3),
         ]],
-        "orch.resume": [[{"text": "Resuming — picking the run up exactly where the hold left it."}, u(0.9)]],
+        "orch.resume": [[{"text": "Resuming — picking the build up exactly where the hold left it."}, u(0.9)]],
         "orch.steer": [[
             {"text": "That’s spec-shaped feedback, so it routes to the Interpreter: the spec revises, you re-sign it, and the stages after it re-run."},
             u(1.2),
@@ -584,7 +584,7 @@ class ScriptedRun:
         if kind == "human_gate":
             return {"approve": "Job approved — verdict and the signed cell recorded",
                     "request_changes": "Verdict — changes requested, spec door",
-                    "stop": "Run stopped at the human gate"}.get(choice, label)
+                    "stop": "Build stopped at the human gate"}.get(choice, label)
         if kind == "hold":
             if choice == "resume":
                 return "Hold — resumed"
@@ -596,8 +596,8 @@ class ScriptedRun:
             proposal = q.get("proposal", "hold")
             if choice == "confirm":
                 return ("Hold armed — takes effect at the next stage boundary"
-                        if proposal == "hold" else "Stop confirmed — run ends at the next boundary")
-            return "Dismissed — the run continues"
+                        if proposal == "hold" else "Stop confirmed — the build ends at the next boundary")
+            return "Dismissed — the build continues"
         return label
 
     # ---- composer asks -------------------------------------------------------
@@ -634,14 +634,14 @@ class ScriptedRun:
 
     def _compose_ask_reply(self, text: str) -> str:
         if self.ended:
-            return ("This run has ended — everything on the canvas is final. "
-                    "Start a new run from the two doors whenever you’re ready.")
+            return ("This build has ended — everything on the canvas is final. "
+                    "Start a new build from the two doors whenever you’re ready.")
         done = sum(1 for k in STAGE_ORDER if (k, self._iter[k]) in self._done_stages)
         pending = [q for qid, q in self._questions.items() if qid not in self._resolved]
         if pending:
             kinds = {q.get("kind") for q in pending}
             if "hold" in kinds:
-                where = "holding at a stage boundary — the run waits on your Resume, Stop or steer"
+                where = "holding at a stage boundary — the build waits on your Resume, Stop or steer"
             elif "code_gate" in kinds:
                 where = "holding at the code gate — nothing runs until you approve the cell"
             elif "human_gate" in kinds:
@@ -675,11 +675,11 @@ class ScriptedRun:
         res = await self._question(
             qid, "propose_confirm",
             {"proposal": proposal, "n": n,
-             "voice": ("Stop this run at the next stage boundary?" if proposal == "stop"
-                       else "Hold the run at the next stage boundary?")},
+             "voice": ("Stop this build at the next stage boundary?" if proposal == "stop"
+                       else "Hold the build at the next stage boundary?")},
             [
                 {"id": "confirm", "kind": "confirm",
-                 "label": "Stop the run" if proposal == "stop" else "Confirm hold"},
+                 "label": "Stop the build" if proposal == "stop" else "Confirm hold"},
                 {"id": "dismiss", "kind": "dismiss", "label": "Dismiss"},
             ],
         )
@@ -705,7 +705,7 @@ class ScriptedRun:
                       f"Resume, stop, or steer with a note; nothing times out."},
             [
                 {"id": "resume", "kind": "resume", "label": "Resume"},
-                {"id": "stop", "kind": "stop", "label": "Stop the run"},
+                {"id": "stop", "kind": "stop", "label": "Stop the build"},
                 {"id": "steer", "kind": "steer", "label": "Steer", "free": "required",
                  "placeholder": "Tell it what to change — routes to the Interpreter…"},
             ],
@@ -872,7 +872,7 @@ class ScriptedRun:
                  "summary": {"sources": len(SOURCES), "rules": len(RULES)},
                  "gap_resolutions": gap_res, "what_changed": what_changed,
                  "voice": ("The spec is complete: six rules, your two answers recorded. "
-                           "Signing it fixes what the job must do — every later stage builds on it."
+                           "Signing it fixes what the job must do — every later stage stands on it."
                            if self._draft == 1 else
                            "The revision is in. Same signed answers, your note folded in — "
                            "sign draft %d to continue." % self._draft)},

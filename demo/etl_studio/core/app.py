@@ -161,7 +161,7 @@ class StudioApp:
             logger.info("resumed finished run %s at seq %d", run_id, session.journal.last_seq)
             return
         await self._emit(session, "conductor", "run.crash_restored",
-                         {"note": "The core restarted; the run continues from the journal."})
+                         {"note": "The core restarted; the build continues from the journal."})
         driver.resume()
         logger.info("crash-restored run %s at seq %d", run_id, session.journal.last_seq)
 
@@ -201,7 +201,7 @@ class StudioApp:
                 await self._emit(
                     self._session, "conductor", "health.error",
                     {"taxonomy": "RunActive",
-                     "message": "a run is already active -- one run per panel"},
+                     "message": "a build is already active -- one build per panel"},
                 )
             return
         if self._driver is not None:

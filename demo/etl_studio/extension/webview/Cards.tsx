@@ -566,7 +566,7 @@ export function HoldCard({
           </button>
         ) : (
           <button className="ghostbtn" disabled={sent} onClick={() => (setSent(true), answer(q.id, "stop"))}>
-            Stop the run
+            Stop the build
           </button>
         )}
       </div>

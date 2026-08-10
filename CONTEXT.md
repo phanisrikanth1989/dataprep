@@ -6,6 +6,18 @@ human in the loop through the UI. (Map: `.scratch/etl-studio/map.md`.)
 
 ## Language
 
+**Build**:
+The one agent session from front door to human gate — what a door starts and
+an approval (or stop) ends: agents interpret, design, configure, assemble and
+verify a DataPrep job with the human at the gates. The product's display
+language everywhere ("Start build", "Build feed", "+ New build"). Distinct
+from a *run*, which this vocabulary reserves for its ETL meaning: the harness
+/ Test Runner executing the assembled job during Verify ("run 1 — clean",
+"run 2 of 3"). The wire keeps its historical `run` vocabulary (`run_id`,
+`run.*`, `command.start_run`) — contract, not display; renaming it would buy
+nothing the room can see.
+_Avoid_: run (for the session), session, dev
+
 **Front door**:
 One of the two entry points into the pipeline — the BRD door (uploaded `.docx`
 through the explode/normalize chain) or the typed door (typed English request,
@@ -65,16 +77,16 @@ chooses.
 _Avoid_: response (unqualified), auto-answer
 
 **Hold**:
-The human-initiated pause of a run, always at a stage boundary: the in-flight
-stage finishes and its artifact lands whole, then the conductor raises a hold
-question — Resume, Stop, or steer text. A held run is a pending question, not
-a frozen process; no mid-stream cancel exists. Requested conversationally
+The human-initiated pause of a build, always at a stage boundary: the
+in-flight stage finishes and its artifact lands whole, then the conductor
+raises a hold question — Resume, Stop, or steer text. A held build is a
+pending question, not a frozen process; no mid-stream cancel exists. Requested conversationally
 through the composer (the orchestrator proposes, the human confirms), never a
 button.
 _Avoid_: pause (implies a mid-stream freeze)
 
 **Steer**:
-The human's free text that redirects a run — the option label on hold and
+The human's free text that redirects a build — the option label on hold and
 exhaustion cards. One meaning everywhere it appears: the text becomes an
 interpreter-owned directed iteration (a directed spec revision),
 re-signed-off if the spec changes. Request-changes text at the spec and human
@@ -105,26 +117,28 @@ like too much ceremony.
 
 **Webview**:
 The React UI surface of ETL Studio, running inside the VS Code webview panel.
-Where the human sees the run's real state and answers questions. One of the
+Where the human sees the build's real state and answers questions. One of the
 three layers; holds no agent logic.
 _Avoid_: frontend (unqualified), UI layer
 
 **UI journal**:
-The append-only, per-run record of every event the run has shown the human —
-the webview's single source of truth. A webview joining a run replays the
-journal rather than receiving a summary, so its state reconstructs exactly;
+The append-only, per-build record of every event the build has shown the
+human — the webview's single source of truth. A webview joining a build
+replays the journal rather than receiving a summary, so its state
+reconstructs exactly;
 the event sequence lives in the journal, not the process, so a restarted core
 continues where the file ends.
 _Avoid_: snapshot, event log (unqualified)
 
 **Attach**:
-The webview's act of joining a run — declaring what it last saw and receiving
-everything since, whether it loaded fresh, reloaded mid-run, or returned
-after a crash. Attaching when no run exists yields the idle state: the two
-front doors, offered.
+The webview's act of joining a build — declaring what it last saw and
+receiving everything since, whether it loaded fresh, reloaded mid-build, or
+returned after a crash. Attaching when no build exists yields the idle
+state: the two front doors, offered.
 
 **Feed**:
-The conversational surface of the webview — where the run talks to the human.
+The conversational surface of the webview — where the build talks to the
+human.
 Only the orchestrator speaks here (narration, questions, gate summaries,
 answers); specialist activity appears inline as observed work — thinking
 blocks and tool chips — never as messages. Only the orchestrator gets chat
@@ -132,14 +146,14 @@ bubbles.
 _Avoid_: chat, assistant panel
 
 **Canvas**:
-The state surface of the webview — the pipeline assembling live as the run
+The state surface of the webview — the pipeline assembling live as the build
 progresses; the hero of the demo. Everything on it is artifact content
 rendered verbatim and attributed to the stage that wrote it — provenance
 bylines, never bubbles.
 _Avoid_: diagram, graph view
 
 **Beat**:
-One of the five named moments the webview stages a run through — idle,
+One of the five named moments the webview stages a build through — idle,
 questions, streaming, gate, verdict. In the product they are emergent states
 of the event stream, never modes; the design prototype scrubs them directly
 for review.
@@ -149,15 +163,15 @@ _Avoid_: screen, page, step (unqualified)
 The canvas viewport treated as a choreographed instrument: it fits the whole
 flow, leans into the node being worked, pulls to the held gate cell, and goes
 wide for the verdict. Movement is presentation (free under the real-content
-rule); what it frames is always the run's real state.
+rule); what it frames is always the build's real state.
 
-**Run spine**:
+**Spine**:
 The bottom-center progress pill — stage segments with gate diamonds and the
 current stage word. The conductor's visible face: state, never speech.
-_Avoid_: stepper, progress bar
+_Avoid_: stepper, progress bar, run spine (pre-Build-rename name)
 
 **Thoughts stream**:
-Everything the human watches the run think: the specialists' live activity
+Everything the human watches the build think: the specialists' live activity
 (thinking deltas, tool calls, output) plus the orchestrator's narration and
 answers. No separate narrator model exists — every word shown was authored by
 an agent already doing the work.
@@ -171,10 +185,10 @@ _Avoid_: thinking pill, status spinner
 
 **Real content (vs canned)**:
 The rule every webview string answers to: content shown as reasoning or state
-must be traceable to this run — a stream part, an artifact field, an event —
-while presentation (motion, shimmer, collapse grammar, fixed templates
-framing real values) is free. Canned means invented content wearing the run's
-clothes; polish is not fakery.
+must be traceable to this build — a stream part, an artifact field, an event
+— while presentation (motion, shimmer, collapse grammar, fixed templates
+framing real values) is free. Canned means invented content wearing the
+build's clothes; polish is not fakery.
 
 **Extension shim**:
 The thin TypeScript layer in the VS Code extension host — it exists only

@@ -146,6 +146,17 @@ leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
 
+2026-08-10 — Language decision (user, after pondering the collision): the
+session noun is **Build**; "run" is reserved for its ETL meaning — the
+harness/Test Runner executing the assembled job at Verify. Display sweep
+only: UI labels + core-authored voice strings; the wire keeps run_id /
+run.* / command.start_run (contract, not display). "Approve and run" and
+"run k of n" stay — genuinely executions. Term recorded in root
+CONTEXT.md (Build added; Run spine renamed Spine; session-"run" swept
+from definitions). Also from this pass: HUD actions restyled as their own
+ember cluster with a plus glyph, and Exit added (shim.close_panel — panel
+disposes, journal survives for restore).
+
 2026-08-10 — F5 pass gap (user asked how to start over): no affordance
 existed to start the next run — the doors only rendered with no run at
 all, and panel reopen restores the finished run from its journal. Added a
