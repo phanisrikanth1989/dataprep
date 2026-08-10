@@ -46,6 +46,11 @@ surfaces the wire already carries but the webview cannot show):
       four separate picker round-trips (user, first live session
       2026-08-10). Allow multi-select (`canSelectMany` in the shim's
       editor.pick_file) and/or real drag-and-drop onto the composer.
+- [ ] At the spec sign-off, the card's leader lines anchor only to the
+      gap-answered rules — which reads as "you are signing R1 and R2" when
+      the signature covers the whole spec (user asked exactly this, live
+      session 2). Consider dropping/deemphasizing leaders at sign-off, or
+      an all-rules highlight sweep instead.
 - [ ] "Doc Normalizer · proposal validated clean — 3 sources, tier verified"
       renders twice in the feed (the intake stage-completed note and the
       intake.json artifact note carry the same string) — de-duplicate or
