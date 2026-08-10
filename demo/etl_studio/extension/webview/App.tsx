@@ -142,7 +142,8 @@ export function App(): React.ReactElement {
       ) : null}
       <Chrome
         state={state}
-        onNewRun={state.ended && !showDoors ? () => setDoorsOverride(true) : undefined}
+        idleLook={showDoors}
+        onNewBuild={() => setDoorsOverride(true)}
       />
       {!showDoors ? (
         <Feed state={state} composer={composer} setComposer={setComposer} onSend={onSend} />
@@ -156,12 +157,15 @@ export function App(): React.ReactElement {
 
 function Chrome({
   state,
-  onNewRun,
+  idleLook,
+  onNewBuild,
 }: {
   state: State;
-  onNewRun?: () => void;
+  idleLook: boolean;
+  onNewBuild: () => void;
 }): React.ReactElement {
   const [now, setNow] = useState(Date.now());
+  const [menuOpen, setMenuOpen] = useState(false);
   const running = Boolean(state.run) && !state.ended;
   useEffect(() => {
     if (!running) {
@@ -170,8 +174,24 @@ function Chrome({
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [running]);
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
-  const spine = deriveSpine(state);
+  // The doors screen is a clean slate: no chrome from the finished build.
+  const showRunChrome = !idleLook && Boolean(state.run);
+  const spine = idleLook
+    ? { entries: [], word: "Two ways in", wordTone: "dim" as const }
+    : deriveSpine(state);
   const cr = credits(state);
   const pipClass = state.ended
     ? state.ended.status === "approved"
@@ -186,67 +206,82 @@ function Chrome({
         <span className="s">on DataPrep</span>
       </div>
       <div className="hud">
-        {onNewRun ? (
+        {showRunChrome && state.run ? (
           <>
-            <button className="hudact" onClick={onNewRun}>
-              <span className="plus">+</span>
-              New build
-            </button>
-            <button
-              className="hudact quiet"
-              title="Close ETL Studio — reopening restores this build"
-              onClick={() => sendNotify("shim.close_panel")}
-            >
-              Exit
-            </button>
-            <span className="actsep" />
-          </>
-        ) : null}
-        {state.run ? (
-          <div className="chip">
-            <span className={`pip${pipClass}`} />
-            <b className="mono">{state.run.job}</b>
-          </div>
-        ) : null}
-        <div className="chip">
-          {state.run ? (
-            <>
+            <div className="chip">
+              <span className={`pip${pipClass}`} />
+              <b className="mono">{state.run.job}</b>
+            </div>
+            <div className="chip">
               <b className="mono">{cr.toFixed(1)}</b>
               <span>credits</span>
               <span className="mono" style={{ color: "var(--mute)" }}>
                 {fmtElapsed(state.run.startedTs, state.ended ? state.ended.ts : now)}
               </span>
-            </>
-          ) : (
-            <>
-              <span className="pip idle" />
-              <span style={{ color: "var(--mute)" }}>no build</span>
-            </>
-          )}
-        </div>
+            </div>
+            <div className="menuwrap">
+              <button
+                className={`dotsbtn${menuOpen ? " open" : ""}`}
+                aria-label="Build actions"
+                onClick={() => setMenuOpen((o) => !o)}
+              >
+                ⋯
+              </button>
+              {menuOpen ? (
+                <>
+                  <button className="menuveil" aria-hidden onClick={() => setMenuOpen(false)} />
+                  <div className="hudmenu">
+                    {state.ended ? (
+                      <button
+                        className="mitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onNewBuild();
+                        }}
+                      >
+                        <span className="plus">+</span>
+                        New build
+                      </button>
+                    ) : null}
+                    <button
+                      className="mitem quiet"
+                      title="Close ETL Studio — reopening restores this build"
+                      onClick={() => sendNotify("shim.close_panel")}
+                    >
+                      Exit
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <div className="chip">
+            <span className="pip idle" />
+            <span style={{ color: "var(--mute)" }}>no build</span>
+          </div>
+        )}
       </div>
-      {spine.entries.length || !state.run ? (
-        <div className="spine">
-          {spine.entries.map((e) =>
-            e.kind === "gate" ? (
-              <div
-                key={`g-${e.key}`}
-                className={`gd${e.state === "done" ? " done" : ""}${e.state === "hold" ? " hold" : ""}`}
-                title={e.label}
-              />
-            ) : (
-              <div
-                key={`s-${e.key}`}
-                className={`seg${e.state === "done" ? " done" : ""}${e.state === "active" ? " active" : ""}`}
-                title={e.label}
-              />
-            )
-          )}
-          <span className={`word${spine.wordTone === "ok" ? " ok" : spine.wordTone === "dim" ? " dim" : ""}`}>
-            {spine.word}
-          </span>
-        </div>
-      ) : null}
+      <div className="spine">
+        {spine.entries.map((e) =>
+          e.kind === "gate" ? (
+            <div
+              key={`g-${e.key}`}
+              className={`gd${e.state === "done" ? " done" : ""}${e.state === "hold" ? " hold" : ""}`}
+              title={e.label}
+            />
+          ) : (
+            <div
+              key={`s-${e.key}`}
+              className={`seg${e.state === "done" ? " done" : ""}${e.state === "active" ? " active" : ""}`}
+              title={e.label}
+            />
+          )
+        )}
+        <span className={`word${spine.wordTone === "ok" ? " ok" : spine.wordTone === "dim" ? " dim" : ""}`}>
+          {spine.word}
+        </span>
+      </div>
     </>
   );
 }

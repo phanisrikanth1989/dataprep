@@ -146,6 +146,16 @@ leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
 
+2026-08-10 — F5 pass feedback (user): (1) HUD actions collapse behind a
+"⋯" overflow menu at the extreme right — accidental clicks avoided, HUD
+stays status-only; [+ New build] shows in the menu once the build ends,
+[Exit] always. (2) The doors screen after + New build is a clean slate:
+the finished build's spine ribbon and job/credit chips no longer bleed
+through (chrome renders idle-look, "no build" chip + TWO WAYS IN), with
+the back link as the only trace. Found en route: the menu button's class
+collided with the canvas dot-grid's `.dots` (position:absolute inset
+-60px sent the button off-viewport) — renamed `.dotsbtn`.
+
 2026-08-10 — Language decision (user, after pondering the collision): the
 session noun is **Build**; "run" is reserved for its ETL meaning — the
 harness/Test Runner executing the assembled job at Verify. Display sweep
