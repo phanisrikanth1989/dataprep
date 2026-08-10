@@ -390,7 +390,15 @@ class RealInterpreter(StageAdapter):
             return StageResult(data={"gaps": list(spec.get("gaps") or []),
                                      "what_changed": spec.get("what_changed")})
         gaps = list(parsed.get("gaps") or [])
-        schema = parsed.get("schema") or (extract or {}).get("sources_schema") or {}
+        # BRD door: the source schema is the validator's exact-merged truth --
+        # a deterministic carry-through the model cannot rewrite (the live
+        # probe showed a model collapsing three sources into one output-shaped
+        # schema; same principle as derived_facts/tier below). The typed door
+        # has no extract, so there the model's proposed schema stands.
+        if extract and extract.get("sources_schema"):
+            schema = extract.get("sources_schema") or {}
+        else:
+            schema = parsed.get("schema") or {}
         rules = list(parsed.get("rules") or [])
         spec = {
             "draft": ctx.run.draft,

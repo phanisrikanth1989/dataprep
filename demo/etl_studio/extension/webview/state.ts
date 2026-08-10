@@ -543,10 +543,9 @@ export function deriveScene(state: State): Scene {
       };
     }
     if (spec) {
-      const resolved = (state.spec.rules ?? [])
-        .filter((r: any) => r.gap)
-        .map((r: any) => String(r.id));
-      return { mode: "scatter", spot: true, hotRules: resolved, card: "spec" };
+      // Sign-off reviews the WHOLE spec: the gap-round spotlight lifts so
+      // every rule card reads crisp (answered tags stay on the gap rules).
+      return { mode: "scatter", spot: false, hotRules: [], card: "spec" };
     }
     return { mode: "scatter", spot: false, hotRules: [], card: null };
   }
