@@ -146,6 +146,10 @@ leadPaths() now leaves the subject on the side facing the card.
 Re-verified in the journal harness at 1680x1050 on both the gap-round and
 spec-gate cards.
 
+2026-08-10 — Remaining wording-level nits and small adjustments deferred
+at the user's direction to ticket 21 (UI polish after live feel, blocked
+by 20) — to be judged against a real run, not the scripted double.
+
 2026-08-10 — Design amendment (user direction, superseding the ticket 12
 idle beat): the two-portal opening retires for a hero composer in the
 AI-product pattern — one large glass box, typed text = typed door,
