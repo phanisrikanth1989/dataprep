@@ -5,7 +5,7 @@
 // shape {question_id, choice, free_text?} -- <= 3 affordances per card.
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { answer } from "./bridge";
+import { answer, sendNotify } from "./bridge";
 import type { QuestionView } from "./state";
 import type { CodeCell, QuestionOption } from "./types";
 import { vwNarrow } from "./layout";
@@ -471,6 +471,9 @@ export function VerdictCard({
   const verified = q.payload.verdict === "verified";
   const table = q.payload.table ?? { headers: [], rows: [] };
   const runs = q.payload.runs ?? {};
+  // Ticket 20: the whole files behind the graded sample open in the real
+  // editor, never the feed (06); the core sends real bus paths.
+  const files = (q.payload.files ?? []) as { label: string; path: string }[];
   return (
     <AnchoredCard side="near" anchors={anchors} vw={vw} vh={vh} leadClass="ja" width={460}>
       <div className="eyebrow ja">
@@ -506,6 +509,20 @@ export function VerdictCard({
           </table>
         </div>
       </div>
+      {files.length ? (
+        <div className="vfiles">
+          <span className="vfl">Open in editor</span>
+          {files.map((f) => (
+            <button
+              key={f.path}
+              className="fchip"
+              onClick={() => sendNotify("editor.open_file", { path: f.path })}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {q.payload.voice ? <div className="voice">{q.payload.voice}</div> : null}
       {rejecting ? (
         <RequestChangesRow

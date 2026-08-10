@@ -1361,6 +1361,7 @@ class Conductor:
             f"q-human-r{self._human_round}", "human_gate",
             {"round": self._human_round, **verdict, "tier": self.run.tier,
              "table": self._verdict_table(),
+             "files": self._verdict_files(),
              "voice": ("Job, verdict, and the one signed cell — ready for your approval. "
                        "Nothing auto-approves." if not red else
                        "The verdict is red — approve is off the table. Revise the spec "
@@ -1392,3 +1393,20 @@ class Conductor:
                 continue
             return {"headers": rows[0], "rows": rows[1:]}
         return {"headers": [], "rows": []}
+
+    def _verdict_files(self) -> List[Dict[str, str]]:
+        """Open-in-editor chips for the gate (ticket 20): the whole files
+        behind the graded sample -- each actual output beside its golden --
+        open in the real editor, never the feed (ticket 06). Real bus paths;
+        a missing file simply grows no chip."""
+        files: List[Dict[str, str]] = []
+        manifest = self.bus.read_json("golden/manifest.json") or {}
+        for name, spec in (manifest.get("outputs") or {}).items():
+            if not spec.get("graded"):
+                continue
+            for label, rel in ((f"{name}.csv", f"{name}.csv"),
+                               (f"{name}_expected.csv", f"golden/{name}_expected.csv")):
+                target = self.bus.path(rel)
+                if target.is_file():
+                    files.append({"label": label, "path": str(target)})
+        return files

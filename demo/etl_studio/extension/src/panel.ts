@@ -14,6 +14,7 @@ export class StudioPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly core: CoreProcess;
+  private readonly studioRoot: string;
   private shimSeq = 0;
   private disposables: vscode.Disposable[] = [];
 
@@ -45,9 +46,9 @@ export class StudioPanel {
     );
     this.panel.webview.html = this.renderHtml(distRoot);
 
-    const studioRoot = path.resolve(context.extensionPath, "..");
+    this.studioRoot = path.resolve(context.extensionPath, "..");
     this.core = new CoreProcess({
-      studioRoot,
+      studioRoot: this.studioRoot,
       output,
       onLifecycle: (e) => this.postLifecycle(e),
       onConnection: (conn) => this.wireConnection(conn),
@@ -105,8 +106,27 @@ export class StudioPanel {
         this.panel.dispose();
         return;
       }
+      if (msg.method === "editor.open_file") {
+        // Whole data files open in the real editor, never the feed (tickets
+        // 06/20). The core sends real bus paths; a relative path resolves
+        // against the studio root.
+        const p = (msg.params ?? {}) as { path?: string };
+        if (!p.path) {
+          return;
+        }
+        const abs = path.isAbsolute(p.path) ? p.path : path.join(this.studioRoot, p.path);
+        try {
+          await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(abs), {
+            viewColumn: vscode.ViewColumn.Beside,
+            preview: true,
+          });
+        } catch (e) {
+          this.output.appendLine(`[shim] editor.open_file failed for ${abs}: ${String(e)}`);
+        }
+        return;
+      }
       if (msg.method.startsWith("shim.") || msg.method.startsWith("editor.")) {
-        this.output.appendLine(`[shim] no handler for ${msg.method} in the skeleton`);
+        this.output.appendLine(`[shim] no handler for ${msg.method}`);
         return;
       }
       const conn = this.core.activeConnection;

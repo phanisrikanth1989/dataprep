@@ -1,6 +1,6 @@
 # 20 - Live end-to-end in the dev host
 
-Status: open
+Status: claimed
 Type: task
 Blocked by: 15, 16, 17, 18, 19
 
@@ -91,3 +91,10 @@ decision (map raw token shapes? still gateway-only nano-AIU?), to be settled
 against the Citi gateway per the note above. Probe cost for one full BRD
 run with the ticket-18 orchestrator: ~89k tokens (80k prompt / 9.4k
 completion).
+
+2026-08-10 -- User sequencing for the live pass (recorded ahead of start;
+this ticket starts only on the user's explicit go, not as a default
+frontier pick): run live end to end with a small document first, then a
+bigger, more complicated document; only once both work, fix whatever
+those runs expose -- the fixes belong to this ticket. .vsix packaging
+reconfirmed not needed.
