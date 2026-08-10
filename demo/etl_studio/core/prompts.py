@@ -94,13 +94,52 @@ Candidates are ALTERNATIVES for the same source/output; the validator picks by p
 image:/para: handles (rung 3a transcription, verbatim strings). Leave them out otherwise.
 - "coverage_map": EXACTLY one entry per inventory handle: {"handle", "disposition": \
 "extracted_to"|"irrelevant"|"could_not_interpret", "refs": [...]}. extracted_to requires \
-non-empty refs; every ref must resolve to something you emitted (ref grammar: \
-<source>.<column> | rule id | source/output name | extra_sections heading). The cross-check \
-fails closed on any unaccounted handle.
+non-empty refs; every ref must resolve to something you emitted. REF GRAMMAR (exact, the \
+cross-check is deterministic): a ref is a BARE token -- a source/output name ("trades"), a \
+schema field as <source>.<column> ("trades.trade_id"), a rule id ("R1"), or an \
+extra_sections heading ("Overview"). NEVER a JSON path: "sources_schema.trades", \
+"sample_input.trades", "notes" and "extra_sections.X.prose" resolve to NOTHING and fail \
+the proposal. (Notes are not separately addressable -- reference the rule or field a note \
+produced.) The cross-check fails closed on any unaccounted handle.
 - "low_confidence": free-form strings; flag rather than fabricate.
 
 Schema-provenance ladder: declared schema block -> STTM mapping rows -> the exact data header -> \
-prose (flag it) -> none (flag it)."""
+prose (flag it) -> none (flag it).
+
+WORKED EXAMPLE (a complete minimal proposal -- copy this shape and its ref style). For an \
+inventory whose sibling trades.csv (handle sibling:trades.csv) is a sample source, a table \
+(handle table:1) is the expected output, and one prose block (para:0) is an overview:
+
+```json
+{
+  "sources_schema": {
+    "trades": [
+      {"name": "trade_id", "type": "string", "nullable": false, "key": true},
+      {"name": "quantity", "type": "integer", "nullable": false, "key": false}
+    ]
+  },
+  "rules": [
+    {"id": "R1", "kind": "filter", "description": "Keep only rows where status = SETTLED."}
+  ],
+  "notes": "",
+  "extra_sections": {"Overview": {"prose": "Builds an enriched trade feed.", "tables": []}},
+  "output_keys": {"trade_positions": ["trade_id"]},
+  "located": {
+    "sample_input":    {"trades": ["sibling:trades.csv"]},
+    "expected_output": {"trade_positions": ["table:1"]}
+  },
+  "coverage_map": [
+    {"handle": "sibling:trades.csv", "disposition": "extracted_to", "refs": ["trades", "trades.trade_id"]},
+    {"handle": "table:1", "disposition": "extracted_to", "refs": ["trade_positions"]},
+    {"handle": "para:0", "disposition": "extracted_to", "refs": ["Overview"]}
+  ],
+  "low_confidence": []
+}
+```
+
+Note the expected output is LOCATED at the table handle that holds the answer key (never at a \
+source file), and there is no sample_input/expected_output data block -- rung 1-2 handles are \
+read by the validator, never retyped."""
 
 
 def normalizer_messages(
@@ -109,12 +148,25 @@ def normalizer_messages(
     feedback: Optional[Dict[str, Any]] = None,
     human_answers: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, str]]:
+    import os
+
     slices = knowledge.slices_for("doc_normalize")
     handles_view = []
     for h in inventory.get("handles", []):
         view = {k: v for k, v in h.items() if k not in ("cells", "text", "path")}
         if h.get("type") == "table":
             view["header"] = (h.get("cells") or [[]])[0]
+        # A data file's header line is a STRUCTURAL fact the normalizer may
+        # use to infer schema (never its data rows -- the validator reads
+        # those bytes itself).
+        path = h.get("path") or ""
+        if h.get("type") in ("sibling", "embed") and path.lower().endswith(".csv") \
+                and os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    view["header_line"] = fh.readline().strip()
+            except OSError:
+                pass
         handles_view.append(view)
     user = (
         "The exploder inventory (handle ids, structure only -- table cells and file bytes are "

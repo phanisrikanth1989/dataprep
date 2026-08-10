@@ -502,7 +502,15 @@ class StudioApp:
                 return ("waive" if "waive" in ids else recommended()), None
             return recommended(), None
         if kind == "needs_human":
-            return recommended(), None
+            choice = recommended()
+            if choice == "guide":
+                # The question's prompt carries the validator's exact reason;
+                # the probe's answer points the normalizer straight at it.
+                return choice, ("Do exactly what the validator's reason says: "
+                                "align the declared schema and locations with "
+                                "the actual data (a schema must list every "
+                                "column the file's header has, in its order).")
+            return choice, None
         if kind in ("spec_gate", "code_gate", "human_gate"):
             return ("approve" if "approve" in ids else ids[0]), None
         if kind == "exhaustion":

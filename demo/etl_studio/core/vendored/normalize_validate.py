@@ -382,6 +382,7 @@ def assemble(proposal, inventory, model_id="") -> tuple:
     expected_output: dict = {}
     provenance: dict = {}     # original name -> {"rung", "handle"}
     unresolved_names: list = []
+    unresolved_why: dict = {}  # name -> the actionable reason (studio addition)
 
     # ---- 1. Merge each sample_input source (HARD: unreconcilable -> unresolved) ----
     for source in source_names:
@@ -393,6 +394,7 @@ def assemble(proposal, inventory, model_id="") -> tuple:
         except NeedsHuman as exc:
             logger.warning("[normalize_validate] source %s unresolved: %s", source, exc)
             unresolved_names.append(source)
+            unresolved_why[source] = str(exc)
 
     # ---- 2. Merge each expected_output (SOFT name-space; only a missing data handle is unresolved) ----
     for output in output_names:
@@ -401,6 +403,7 @@ def assemble(proposal, inventory, model_id="") -> tuple:
         except NeedsHuman as exc:
             logger.warning("[normalize_validate] output %s unresolved: %s", output, exc)
             unresolved_names.append(output)
+            unresolved_why[output] = str(exc)
             continue
         proposed_keys = list(output_keys_proposed.get(output, []))
         header = list(rows[0].keys()) if rows else []
@@ -453,7 +456,9 @@ def assemble(proposal, inventory, model_id="") -> tuple:
     status = "needs_human" if (unaccounted or unresolved or missing_prov_graded) else "ok"
     if missing_prov_graded:
         logger.warning("[normalize_validate] graded output(s) lack provenance -> needs_human: %s", missing_prov_graded)
-    extraction = {"status": status, "unaccounted": unaccounted, "unresolved": unresolved, "low_confidence": low_confidence}
+    extraction = {"status": status, "unaccounted": unaccounted, "unresolved": unresolved,
+                  "unresolved_why": {name_map.get(k, k): v for k, v in unresolved_why.items()},
+                  "low_confidence": low_confidence}
 
     extract_dict = {
         "sources_schema": sources_schema_out,

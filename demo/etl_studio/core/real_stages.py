@@ -197,23 +197,35 @@ class RealNormalizeValidate(StageAdapter):
     def _nh_question(extraction: Dict[str, Any]) -> Dict[str, Any]:
         unaccounted = list(extraction.get("unaccounted") or [])
         unresolved = list(extraction.get("unresolved") or [])
+        why = dict(extraction.get("unresolved_why") or {})
         bits = []
         if unaccounted:
             bits.append("no disposition for " + ", ".join(unaccounted))
-        if unresolved:
-            bits.append("no usable data handle for " + ", ".join(unresolved))
+        for name in unresolved:
+            bits.append(f"{name} cannot be resolved ({why.get(name, 'no usable data handle')})")
         detail = "; ".join(bits) or "an unresolvable extraction state"
-        return {
-            "source": "normalize_validate",
-            "prompt": (f"Extraction cannot close the envelope: {detail}. "
-                       "Tell the Doc Normalizer how to treat this."),
-            "options": [
+        if unresolved:
+            # A source/output the validator cannot resolve is a DATA problem:
+            # the safe act is directed guidance, never waving data away.
+            options = [
+                {"id": "guide", "label": "Tell the normalizer what to fix",
+                 "kind": "choice", "recommended": True, "free": "required",
+                 "why": "the validator's reason above says exactly what does not line up"},
+                {"id": "drop_source", "label": "Treat it as absent", "kind": "choice"},
+            ]
+        else:
+            options = [
                 {"id": "irrelevant", "label": "Mark them irrelevant boilerplate",
                  "kind": "choice", "recommended": True,
                  "why": "unaccounted parts are usually headers and prose framing"},
                 {"id": "guide", "label": "Explain what they are", "kind": "choice",
                  "free": "required"},
-            ],
+            ]
+        return {
+            "source": "normalize_validate",
+            "prompt": (f"Extraction cannot close the envelope: {detail}. "
+                       "Tell the Doc Normalizer how to treat this."),
+            "options": options,
             "free_prompt": "What these parts are / where the data lives…",
         }
 
