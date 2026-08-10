@@ -52,12 +52,27 @@ _NON_DELIMITED_OUTPUT_TYPES = {
 }
 
 
-def _output_component_ids(job: dict) -> set:
-    """Ids of every FileOutput-family writer -- the assembler binds each terminal
-    FileOutput's id to its Expected-Output name, so this is the set of valid
-    graded-output ids."""
+def _resolve_output_component(job: dict, name: str):
+    """Component id producing graded output ``name`` (studio change, ticket 20).
+
+    The FILE is the contract: match the FileOutput-family writer whose
+    configured file stem equals the output name. The original Sec 4.4
+    binding (component id == output name) survives as a fallback only --
+    it is a naming convention, not a semantic fact, and a live designer
+    that names its writer descriptively (id 'output_trade_positions',
+    filepath 'trade_positions.csv') burned a whole repair budget on it."""
     writers = _FILE_OUTPUT_TYPES | _NON_DELIMITED_OUTPUT_TYPES
-    return {c.get("id") for c in job.get("components", []) if c.get("type") in writers}
+    for c in job.get("components", []):
+        if c.get("type") not in writers:
+            continue
+        cfg = c.get("config") or {}
+        path = cfg.get("filepath") or cfg.get("file_name") or cfg.get("FILENAME") or ""
+        if path and Path(str(path)).stem == name:
+            return str(c.get("id"))
+    for c in job.get("components", []):
+        if c.get("type") in writers and str(c.get("id")) == name:
+            return name
+    return None
 
 # ---------------------------------------------------------------------------
 # I-1 (SECURITY): fail-closed egress / side-effecting pre-execution gate.
@@ -882,18 +897,20 @@ def main(argv=None) -> int:
             _emit({"passed": False, "error": "manifest declares no outputs to verify"})
             return 2
         expected, output_map, keys = {}, {}, {}
-        fo_ids = _output_component_ids(job)
         for name, spec in outputs_spec.items():
             if not spec.get("graded", True):
                 continue  # ungraded: run the job but do not read an expected CSV or diff
-            if name not in fo_ids:
+            comp_id = _resolve_output_component(job, name)
+            if comp_id is None:
                 _emit({"passed": False,
-                       "error": f"graded output '{name}' has no FileOutput component with id == '{name}' in job.json"})
+                       "error": (f"graded output '{name}' has no FileOutput component "
+                                 f"writing '{name}.<ext>' (nor one with id == '{name}') "
+                                 "in job.json")})
                 return 2
             # Default to ';' -- the repo golden convention and what _read_output uses.
             sep = spec.get("sep", ";")
             expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
-            output_map[name] = name  # the Sec 4.4 contract: FileOutput id == output name
+            output_map[name] = comp_id  # producer resolved by file stem (id as legacy fallback)
             keys[name] = spec.get("keys")
         # Jail job outputs to the JOB FILE's own directory (its sandbox), not the
         # read-only golden dir -- run_job_capture refuses any output escaping it.

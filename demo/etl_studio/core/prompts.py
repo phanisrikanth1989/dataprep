@@ -328,10 +328,7 @@ Emit ONE JSON object:
 REGISTERED engine component name (e.g. PythonDataFrameComponent, never a prose shorthand) -- the \
 engine silently DROPS an unregistered type. Author each type by its CANONICAL name exactly as \
 the config reference lists it (FileInputDelimited, Join, Map, SortRow) -- never a Talend \
-t-prefixed alias (tJoin, tMap): aliases are accepted on input, not names you write. OUTPUT ID \
-CONTRACT: the FileOutput component that writes a graded output takes the output's name as its \
-component id (output "trade_positions" -> id "trade_positions") -- the verification harness maps \
-golden outputs to job components BY ID, so any other id fails the run. "label" is a SHORT \
+t-prefixed alias (tJoin, tMap): aliases are accepted on input, not names you write. "label" is a SHORT \
 (2-3 word) human-friendly name shown while the pipeline builds; keep it a plain structural \
 descriptor. "purpose" says in a fuller sentence what the node does; where a stateful node needs \
 execution_mode pinned, say so in its purpose.
@@ -432,9 +429,13 @@ MATERIALIZED-CSV CONTRACT (both sides): every input CSV is materialized with the
 exploder SNIFFED for that source, recorded under provenance.<source>.delimiter in the extract \
 included below. On every FileInputDelimited set "fieldseparator" to EXACTLY that recorded value \
 (fall back to ";" only for a table/transcribed source with no delimiter), plus "csv_option": \
-true and "text_enclosure": "\\"". Set csv_option + text_enclosure on every terminal \
+true and "text_enclosure": "\\"". Every materialized CSV carries exactly ONE header row -- set \
+"header_rows": 1 on every FileInputDelimited (header_rows 0 reads the header line as data and a \
+die_on_error input kills the run on the first coercion). Set csv_option + text_enclosure on every terminal \
 FileOutputDelimited too. Author each FileInputDelimited "filepath" as exactly \
-"<source-name>.csv" -- a bare relative name the harness anchors to the work dir.
+"<source-name>.csv", and each terminal FileOutputDelimited "filepath" as exactly \
+"<output-name>.csv" (the output's name from the spec: the delivered FILE is how the harness \
+finds and grades the output) -- bare relative names the harness anchors to the work dir.
 
 LANDMINES you must respect (the full filtered list is below): set the die-on-error flag \
 explicitly with the EXACT per-component key name (some read a different key, e.g. ConvertType \
@@ -514,14 +515,17 @@ inputs.main.name and inputs.lookups[].name the Configurator froze -- an invented
 to nothing and the node silently emits empty output.
 - A reject is a data flow: wire it as "type": "reject", never a trigger. Wire only rejects the \
 config declares; never invent one.
-- OUTPUT-NAME CONTRACT (load-bearing): set each terminal FileOutput component's id EQUAL to its \
-expected-output name from the spec's outputs list. The harness maps graded outputs on this id.
-- If any component is a Map/tMap, add the top-level java_config block with enabled true and the \
-standard routines.
+- OUTPUT-FILE CONTRACT (load-bearing): each terminal FileOutput's configured "filepath" must be \
+exactly "<output-name>.csv" for its expected-output name from the spec's outputs list -- the \
+harness finds and grades outputs by the FILE they write, never by component id. The Configurator \
+authors that filepath; if it is wrong, that is a Diagnostician round, not your edit.
+- java_config: add the top-level block with enabled true and the standard routines ONLY when a \
+component is a Map/tMap or a config carries a {{java}} expression. Otherwise emit \
+{"java_config": {"enabled": false}} -- a needless enabled=true forces a JVM the job never uses \
+and hard-fails on machines without the bridge JAR.
 - Make the graph connected and acyclic: every flow from/to references a real component id, every \
 referenced flow name exists in flows, nothing dangles.
-Keep every id, type, and config byte-for-byte as the draft had them -- EXCEPT the terminal \
-FileOutput id rename the output-name contract requires."""
+Keep every id, type, and config byte-for-byte as the draft had them."""
 
 
 def assembler_messages(

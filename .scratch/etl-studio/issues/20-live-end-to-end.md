@@ -158,3 +158,36 @@ door, live adapter), user-driven in the F5 dev host.
   turn made tool calls; thinking deltas never arrive on this Mac (09's
   probe, reasoning_tokens 0), so no-tool turns show an empty body --
   expected here, re-check on the Citi gateway (ticket 22).
+
+2026-08-10 -- Supersedes the OUTPUT ID CONTRACT prompt line above (user
+pushback: "sounds very trivial or low level" -- correct). The id==name
+binding was the old pipeline's Sec 4.4 convention vendored into
+run_and_validate; the assembler prompt even carried an id-rename rule
+that conflicted with its own keep-the-draft-byte-for-byte rule, which is
+why three repair passes went nowhere. Fixed at the source instead: the
+harness now resolves each graded output's producer by the FILE it writes
+(config filepath stem == output name; legacy id==name kept as fallback
+only), the assembler's OUTPUT-NAME CONTRACT became an OUTPUT-FILE
+CONTRACT, and the designer's id line is deleted -- no model needs to
+know a naming convention. Offline regrade of r3's actual failed job then
+peeled three more layers the early-bail had hidden (runs 1-3 never
+executed the engine at all):
+  1. java_config.enabled=true on a job with zero {{java}} and no Map
+     (assembler over-applied; prompt now says enabled only when needed,
+     else {"enabled": false}). Also environmental: engine import needed
+     attrs (now installed in the repo .venv) and the bridge JAR is NOT
+     built on this Mac (maven absent) -- fine while java stays false;
+     RUN-2 PREP: if the bigger document needs tMap/{{java}}, install
+     maven and mvn package the bridge first.
+  2. header_rows: 0 on the delimited inputs -- header line read as data,
+     die_on_error killed the run ("could not convert string to float:
+     'price'"). The configurator's MATERIALIZED-CSV CONTRACT now states
+     header_rows: 1.
+  3. With both cleared, the job runs and fails HONESTLY: the generated
+     derive_market_value code cell has a dtype bug ("Can only string
+     multiply by an integer") -- genuine Diagnostician material, left to
+     the live repair loop by design. Sandbox evidence: scratchpad
+     r3_regrade*.json.
+Steer text simplified accordingly (plain re-walk, no id rename needed).
+smoke 93 + seam green after the harness change (fixtures resolve
+identically under file-stem mapping).
