@@ -13,6 +13,7 @@ import py4j.GatewayServer;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -488,6 +489,219 @@ public class JavaBridge {
      * @return {exprId: Object[resultPerRow]}
      */
     public Map<String, Object[]> executeTMapPreprocessing(
+            byte[] arrowData,
+            Map<String, String> expressions,
+            String mainTableName,
+            List<String> lookupNames,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+        return evaluatePreprocessing(
+                arrowData, expressions, mainTableName, lookupNames, contextVars, globalMapVars);
+    }
+
+    // Tags for the preprocessing Arrow payload. MUST match the _PREPROC_TAG_*
+    // constants and column suffixes in src/v1/java_bridge/bridge.py.
+    static final byte TAG_NULL = 0;
+    static final byte TAG_STRING = 1;   // String, Character
+    static final byte TAG_LONG = 2;     // Integer, Long, Short, Byte
+    static final byte TAG_DOUBLE = 3;   // Double, Float
+    static final byte TAG_BOOLEAN = 4;
+    static final byte TAG_DECIMAL = 5;  // BigDecimal as toPlainString()
+    private static final byte TAG_NOT_SCALAR = -1;
+
+    /**
+     * Result of {@link #executeTMapPreprocessingArrow}: one Arrow IPC payload for
+     * every expression whose results are Py4J-native scalars, plus the raw
+     * {@code Object[]} for expressions that produced any other Java type.
+     */
+    public static final class PreprocessingResult {
+        private final byte[] arrow;
+        private final Map<String, Object[]> fallback;
+
+        PreprocessingResult(byte[] arrow, Map<String, Object[]> fallback) {
+            this.arrow = arrow;
+            this.fallback = fallback;
+        }
+
+        public byte[] getArrow() {
+            return arrow;
+        }
+
+        public Map<String, Object[]> getFallback() {
+            return fallback;
+        }
+    }
+
+    /**
+     * Same evaluation as {@link #executeTMapPreprocessing}, but results return
+     * in ONE Arrow IPC stream instead of {@code Object[]} arrays that Py4J
+     * would read element by element (two socket round trips per row).
+     *
+     * <p>
+     * Per expression id E the stream holds an int8 column {@code E#tag} and one
+     * value column per kind present ({@code E#str}, {@code E#long},
+     * {@code E#dbl}, {@code E#bool}, {@code E#dec}). Values are encoded exactly
+     * as Py4J converts them: Character as String, Short/Byte/Integer as long,
+     * Float via {@code Float.toString}, BigDecimal via {@code toPlainString()}.
+     * An expression producing any other type anywhere (Date, BigInteger,
+     * GString, List...) is returned whole in {@code fallback}, unchanged.
+     */
+    public PreprocessingResult executeTMapPreprocessingArrow(
+            byte[] arrowData,
+            Map<String, String> expressions,
+            String mainTableName,
+            List<String> lookupNames,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+        Map<String, Object[]> raw = evaluatePreprocessing(
+                arrowData, expressions, mainTableName, lookupNames, contextVars, globalMapVars);
+        Map<String, Object[]> fallback = new HashMap<>();
+        byte[] arrow = encodePreprocessingArrow(raw, fallback);
+        logger.fine("[JavaBridge] tMap preprocessing encoded: " + (raw.size() - fallback.size())
+                + " arrow expression(s), " + fallback.size() + " legacy fallback expression(s)");
+        return new PreprocessingResult(arrow, fallback);
+    }
+
+    private static byte preprocessingTag(Object value) {
+        if (value == null) {
+            return TAG_NULL;
+        }
+        if (value instanceof String || value instanceof Character) {
+            return TAG_STRING;
+        }
+        if (value instanceof Integer || value instanceof Long
+                || value instanceof Short || value instanceof Byte) {
+            return TAG_LONG;
+        }
+        if (value instanceof Double || value instanceof Float) {
+            return TAG_DOUBLE;
+        }
+        if (value instanceof Boolean) {
+            return TAG_BOOLEAN;
+        }
+        if (value instanceof java.math.BigDecimal) {
+            return TAG_DECIMAL;
+        }
+        return TAG_NOT_SCALAR;
+    }
+
+    private static double preprocessingDouble(Object value) {
+        // Py4J sends a Float as Float.toString(); Python parses that text.
+        if (value instanceof Float) {
+            return Double.parseDouble(value.toString());
+        }
+        return ((Double) value).doubleValue();
+    }
+
+    private byte[] encodePreprocessingArrow(
+            Map<String, Object[]> raw, Map<String, Object[]> fallback) throws Exception {
+        int rowCount = raw.isEmpty() ? 0 : raw.values().iterator().next().length;
+        List<FieldVector> vectors = new ArrayList<>();
+        try {
+            for (Map.Entry<String, Object[]> entry : raw.entrySet()) {
+                String exprId = entry.getKey();
+                Object[] values = entry.getValue();
+                byte[] tags = new byte[rowCount];
+                boolean[] present = new boolean[TAG_DECIMAL + 1];
+                boolean scalar = true;
+                for (int i = 0; i < rowCount; i++) {
+                    byte tag = preprocessingTag(values[i]);
+                    if (tag == TAG_NOT_SCALAR) {
+                        scalar = false;
+                        break;
+                    }
+                    tags[i] = tag;
+                    present[tag] = true;
+                }
+                if (!scalar) {
+                    fallback.put(exprId, values);
+                    continue;
+                }
+
+                TinyIntVector tagVector = new TinyIntVector(exprId + "#tag", allocator);
+                vectors.add(tagVector);
+                tagVector.allocateNew(rowCount);
+                for (int i = 0; i < rowCount; i++) {
+                    tagVector.set(i, tags[i]);
+                }
+                tagVector.setValueCount(rowCount);
+
+                if (present[TAG_STRING]) {
+                    VarCharVector v = new VarCharVector(exprId + "#str", allocator);
+                    vectors.add(v);
+                    v.allocateNew();
+                    for (int i = 0; i < rowCount; i++) {
+                        if (tags[i] == TAG_STRING) {
+                            v.setSafe(i, String.valueOf(values[i]).getBytes(StandardCharsets.UTF_8));
+                        }
+                    }
+                    v.setValueCount(rowCount);
+                }
+                if (present[TAG_LONG]) {
+                    BigIntVector v = new BigIntVector(exprId + "#long", allocator);
+                    vectors.add(v);
+                    v.allocateNew(rowCount);
+                    for (int i = 0; i < rowCount; i++) {
+                        if (tags[i] == TAG_LONG) {
+                            v.set(i, ((Number) values[i]).longValue());
+                        }
+                    }
+                    v.setValueCount(rowCount);
+                }
+                if (present[TAG_DOUBLE]) {
+                    Float8Vector v = new Float8Vector(exprId + "#dbl", allocator);
+                    vectors.add(v);
+                    v.allocateNew(rowCount);
+                    for (int i = 0; i < rowCount; i++) {
+                        if (tags[i] == TAG_DOUBLE) {
+                            v.set(i, preprocessingDouble(values[i]));
+                        }
+                    }
+                    v.setValueCount(rowCount);
+                }
+                if (present[TAG_BOOLEAN]) {
+                    BitVector v = new BitVector(exprId + "#bool", allocator);
+                    vectors.add(v);
+                    v.allocateNew(rowCount);
+                    for (int i = 0; i < rowCount; i++) {
+                        if (tags[i] == TAG_BOOLEAN) {
+                            v.set(i, ((Boolean) values[i]) ? 1 : 0);
+                        }
+                    }
+                    v.setValueCount(rowCount);
+                }
+                if (present[TAG_DECIMAL]) {
+                    VarCharVector v = new VarCharVector(exprId + "#dec", allocator);
+                    vectors.add(v);
+                    v.allocateNew();
+                    for (int i = 0; i < rowCount; i++) {
+                        if (tags[i] == TAG_DECIMAL) {
+                            String plain = ((java.math.BigDecimal) values[i]).toPlainString();
+                            v.setSafe(i, plain.getBytes(StandardCharsets.UTF_8));
+                        }
+                    }
+                    v.setValueCount(rowCount);
+                }
+            }
+        } catch (Exception | Error e) {
+            for (FieldVector v : vectors) {
+                v.close();
+            }
+            throw e;
+        }
+
+        try (VectorSchemaRoot root = new VectorSchemaRoot(vectors)) {
+            root.setRowCount(rowCount);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            ArrowStreamWriter writer = new ArrowStreamWriter(root, null, outputStream);
+            writer.start();
+            writer.writeBatch();
+            writer.close();
+            return outputStream.toByteArray();
+        }
+    }
+
+    private Map<String, Object[]> evaluatePreprocessing(
             byte[] arrowData,
             Map<String, String> expressions,
             String mainTableName,

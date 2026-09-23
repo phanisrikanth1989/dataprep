@@ -219,18 +219,32 @@ class TestSync:
 
     @patch("py4j.java_collections.ListConverter")
     def test_execute_tmap_preprocessing_syncs(self, mock_list_conv_cls):
+        # The Java side returns one Arrow payload (executeTMapPreprocessingArrow);
+        # build the payload it would send for expr1 == 2 on the single row.
+        table = pa.table({
+            "expr1#tag": pa.array([2], pa.int8()),
+            "expr1#long": pa.array([2], pa.int64()),
+        })
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
+
         bridge, mock_jb = _create_bridge_with_mock()
-        mock_jb.executeTMapPreprocessing.return_value = {}
+        result = MagicMock()
+        result.getArrow.return_value = sink.getvalue().to_pybytes()
+        result.getFallback.return_value = {}
+        mock_jb.executeTMapPreprocessingArrow.return_value = result
         mock_list_conv_cls.return_value.convert.return_value = MagicMock()
 
         df = pd.DataFrame({"col": ["val"]})
 
         with patch.object(bridge, "_sync_from_java", wraps=bridge._sync_from_java) as spy:
-            bridge.execute_tmap_preprocessing(
+            out = bridge.execute_tmap_preprocessing(
                 df, {"expr1": "1+1"}, "row1",
                 schema={"col": "str"},
             )
             spy.assert_called()
+        assert out["expr1"].tolist() == [2]
 
     @patch("py4j.java_collections.ListConverter")
     def test_execute_tmap_compiled_syncs(self, mock_list_conv_cls):

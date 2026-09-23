@@ -5,6 +5,7 @@ synchronization after every Java call. Zero print() statements -- all
 output goes through the logging module.
 """
 
+import base64
 import calendar
 import collections
 import datetime
@@ -24,6 +25,8 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
+import py4j.protocol as _py4j_protocol
+from py4j.compat import strtobyte as _py4j_strtobyte
 from py4j.java_gateway import JavaClass, JavaGateway, GatewayParameters
 from py4j.protocol import register_input_converter
 
@@ -136,6 +139,105 @@ _PYTHON_TO_JAVA_LOG_LEVEL: dict[int, str] = {
     logging.ERROR: "SEVERE",
     logging.CRITICAL: "SEVERE",
 }
+
+
+# ----------------------------------------------------------------------
+# Py4J byte[] decoding (performance)
+# ----------------------------------------------------------------------
+#
+# py4j 0.10.9.x decodes every byte[] Java returns with a Python-level loop,
+# ``bytearray2([bytetoint(b) for b in standard_b64decode(...)])`` -- one
+# interpreter step per byte. Every Arrow payload the bridge receives (tMap
+# output, tJavaRow output, preprocessing results) pays it: on a 1M-row tMap
+# the loop took ~30 of the component's 44 seconds. On Python 3,
+# ``bytearray2`` is ``bytes`` and ``bytetoint`` is the identity, so the whole
+# expression equals the Base64 decode itself. Py4J's BYTES_TYPE output
+# converter looks ``decode_bytearray`` up in the module namespace at call
+# time, so rebinding it takes effect for every gateway in the process.
+
+
+def _fast_decode_bytearray(encoded: str) -> bytes:
+    """C-speed equivalent of ``py4j.protocol.decode_bytearray`` (same type, same bytes).
+
+    Args:
+        encoded: Base64 text received from the Py4J protocol.
+
+    Returns:
+        The decoded payload as ``bytes`` -- exactly what py4j returns on Python 3.
+    """
+    return base64.standard_b64decode(_py4j_strtobyte(encoded))
+
+
+def _install_fast_py4j_bytearray_decoder() -> None:
+    """Rebind Py4J's byte[] decoder to the C-speed equivalent (idempotent)."""
+    _py4j_protocol.decode_bytearray = _fast_decode_bytearray
+
+
+_install_fast_py4j_bytearray_decoder()
+
+
+# ----------------------------------------------------------------------
+# tMap preprocessing results -- Arrow fast path
+# ----------------------------------------------------------------------
+#
+# JavaBridge.executeTMapPreprocessingArrow returns ONE Arrow IPC stream
+# instead of Object[] arrays that Python would read element-by-element over
+# the Py4J socket (two round trips per row). For every expression id E whose
+# results are all Py4J-native scalars the stream holds an int8 column
+# "E#tag" plus one value column per kind that occurs. Expressions producing
+# any other Java type (Date, BigInteger, GString, List, ...) are returned
+# separately as the legacy Object[] so they keep their exact previous
+# behavior. Tag values and suffixes MUST match the TAG_* constants and
+# column naming in JavaBridge.java.
+_PREPROC_TAG_NULL = 0
+_PREPROC_TAG_STRING = 1   # String, Character
+_PREPROC_TAG_LONG = 2     # Integer, Long, Short, Byte
+_PREPROC_TAG_DOUBLE = 3   # Double, Float (Float as Py4J converts it: via Float.toString)
+_PREPROC_TAG_BOOLEAN = 4
+_PREPROC_TAG_DECIMAL = 5  # BigDecimal, carried as toPlainString() exactly like Py4J
+_PREPROC_TAG_SUFFIX = "#tag"
+_PREPROC_VALUE_SUFFIXES: dict[int, str] = {
+    _PREPROC_TAG_STRING: "#str",
+    _PREPROC_TAG_LONG: "#long",
+    _PREPROC_TAG_DOUBLE: "#dbl",
+    _PREPROC_TAG_BOOLEAN: "#bool",
+    _PREPROC_TAG_DECIMAL: "#dec",
+}
+
+
+def _decode_preprocessing_arrow(arrow_bytes: bytes, expr_ids) -> dict[str, list]:
+    """Rebuild per-row preprocessing results exactly as Py4J would convert them.
+
+    Args:
+        arrow_bytes: Arrow IPC stream written by
+            ``JavaBridge.executeTMapPreprocessingArrow``.
+        expr_ids: Expression ids requested. Ids with no ``#tag`` column in the
+            stream (legacy-fallback expressions) are omitted from the result.
+
+    Returns:
+        Mapping of expr_id -> list of per-row Python values (``str``, ``int``,
+        ``float``, ``bool``, ``Decimal`` or ``None``).
+    """
+    table = ipc.open_stream(pa.py_buffer(arrow_bytes)).read_all()
+    names = set(table.column_names)
+    decoded: dict[str, list] = {}
+    for expr_id in expr_ids:
+        tag_name = expr_id + _PREPROC_TAG_SUFFIX
+        if tag_name not in names:
+            continue
+        tags = table.column(tag_name).to_numpy()
+        values = np.full(len(tags), None, dtype=object)
+        for tag, suffix in _PREPROC_VALUE_SUFFIXES.items():
+            column_name = expr_id + suffix
+            if column_name not in names:
+                continue
+            column = table.column(column_name).to_pylist()
+            if tag == _PREPROC_TAG_DECIMAL:
+                column = [None if v is None else Decimal(v) for v in column]
+            mask = tags == tag
+            values[mask] = np.array(column, dtype=object)[mask]
+        decoded[expr_id] = values.tolist()
+    return decoded
 
 
 # ----------------------------------------------------------------------
@@ -779,8 +881,13 @@ class JavaBridge:
 
         Returns:
             Mapping of expr_id -> numpy_array of per-row results.
+
+        Results return as one Arrow payload (see ``_decode_preprocessing_arrow``)
+        instead of Java arrays read element-by-element, so the number of Py4J
+        round trips no longer grows with the row count. Expressions whose
+        results include a non-scalar Java type keep the legacy ``Object[]``
+        conversion, so every expression yields exactly the values it did before.
         """
-        import numpy as np
         from py4j.java_collections import ListConverter
 
         logger.debug(
@@ -796,7 +903,7 @@ class JavaBridge:
         )
 
         def _call():
-            return self.java_bridge.executeTMapPreprocessing(
+            result = self.java_bridge.executeTMapPreprocessingArrow(
                 arrow_bytes,
                 expressions,
                 main_table_name,
@@ -804,14 +911,21 @@ class JavaBridge:
                 self.context,
                 _coerce_global_map_for_java(self.global_map),
             )
+            return result.getArrow(), result.getFallback()
 
-        result_map = self._call_java_with_sync(_call)
+        result_arrow, fallback_map = self._call_java_with_sync(_call)
 
         results: dict[str, Any] = {}
-        for expr_id, java_array in result_map.items():
+        for expr_id, values in _decode_preprocessing_arrow(result_arrow, expressions).items():
+            results[expr_id] = np.array(values)
+        for expr_id, java_array in fallback_map.items():
             python_list = list(java_array) if java_array else []
             results[expr_id] = np.array(python_list)
 
+        logger.debug(
+            "[execute_tmap_preprocessing] arrow_exprs=%d, legacy_fallback_exprs=%d",
+            len(results) - len(fallback_map), len(fallback_map),
+        )
         return results
 
     def execute_tmap_compiled(
