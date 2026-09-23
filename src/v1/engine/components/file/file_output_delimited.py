@@ -772,7 +772,10 @@ class FileOutputDelimited(BaseComponent):
             if include_header:
                 writer.writerow(list(df.columns))
             for row in df.itertuples(index=False, name=None):
-                writer.writerow(row)
+
+
+
+                writer.writerow(self._raw_str(v) for v in row)
 
     def _write_raw_mode(
         self,
