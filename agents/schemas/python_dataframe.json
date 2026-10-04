@@ -1,0 +1,11 @@
+{
+  "type": "PythonDataFrameComponent",
+  "aliases": ["tPythonDataFrame"],
+  "source": "src/v1/engine/components/transform/python_dataframe_component.py",
+  "_validation_note": "Executes user-supplied python_code on the FULL input DataFrame (vectorized, operating in-place on `df`). python_code is REQUIRED (presence checked in _validate_config; emptiness re-checked in _process). The code runs via exec() in a namespace exposing df, pd, np, context (a flat dict), globalMap, routines (and each routine by name) plus common builtins -- this is UNSANDBOXED full-Python (surface_code_cells flags it highest-priority for the human gate). output_columns is an optional list of column NAMES to keep in the output; when omitted or empty ALL columns are kept (names absent from df are skipped with a warning). Prefer explicit .astype(float) on decimal/string columns used in arithmetic. execution_mode selects the engine execution strategy (default 'hybrid' auto-selects batch vs streaming by data size). Empty or None input returns an empty main with no code execution.",
+  "keys": {
+    "python_code": {"type": "str", "required": true},
+    "output_columns": {"type": "list", "default": []},
+    "execution_mode": {"type": "str", "default": "hybrid", "enum": ["batch", "streaming", "hybrid"]}
+  }
+}

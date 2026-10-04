@@ -51,7 +51,7 @@
         "append": false,
         "create_directory": true,
         "split": true,
-        "split_every": 2,
+        "split_every": "2",
         "file_exist_exception": false
       },
       "schema": {

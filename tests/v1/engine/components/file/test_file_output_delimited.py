@@ -972,6 +972,22 @@ class TestCsvOptionQuoteAll:
         content = open(filepath, encoding="ISO-8859-15").read()
         assert '"' not in content
 
+    def test_csv_option_null_written_as_empty_not_nan(self, tmp_path):
+        """csv_option=True: None/NaN render as an empty enclosed field, NOT the literal
+        'nan'/'None' -- same Talend parity as raw mode (_raw_str). A LEFT-join miss must
+        write "" so the golden diff matches, not shift a spurious 'nan' downstream."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"a": "x", "b": float("nan"), "c": None}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        assert '"x";"";""' in content
+        assert "nan" not in content and "None" not in content
+
 
 # ------------------------------------------------------------------
 # TestAdvancedSeparatorDeferred

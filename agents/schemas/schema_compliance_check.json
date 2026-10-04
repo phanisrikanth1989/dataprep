@@ -1,0 +1,36 @@
+{
+  "type": "SchemaComplianceCheck",
+  "aliases": ["tSchemaComplianceCheck"],
+  "source": "src/v1/engine/components/transform/schema_compliance_check.py",
+  "_validation_note": "Validates each row against the declared FLOW schema; any violation routes the row to a reject output (errorCode 8), valid rows pass unchanged on main. 'schema' is the flow column list and is normally supplied by the flow, not hand-authored. Type-coercion checks apply to numeric types {int, float, Decimal} and bool; the date-pattern check applies to 'datetime' columns ONLY when strict_date_check=true AND the column has a date_pattern (Java SimpleDateFormat, e.g. yyyy-MM-dd). Deferred/no-op feature flags (accepted but NOT yet implemented -- logged as WARNING when true): customer, sub_string, fast_date_check, ignore_timezone.",
+  "keys": {
+    "schema": {"type": "list", "required": true, "item_keys": {
+      "name": {"type": "str", "required": true},
+      "type": {"type": "str", "required": true},
+      "nullable": {"type": "bool"},
+      "length": {"type": "int"},
+      "date_pattern": {"type": "str"}
+    }},
+    "check_all": {"type": "bool", "default": true},
+    "check_another": {"type": "bool", "default": false},
+    "checkcols": {"type": "list", "default": [], "item_keys": {
+      "column": {"type": "str"},
+      "selected_type": {"type": "str"},
+      "date_pattern": {"type": "str"},
+      "nullable": {"type": "bool"},
+      "max_length": {"type": "bool"}
+    }},
+    "strict_date_check": {"type": "bool", "default": false},
+    "all_empty_are_null": {"type": "bool", "default": true},
+    "empty_null_table": {"type": "list", "default": [], "item_keys": {
+      "column": {"type": "str"},
+      "empty_is_null": {"type": "bool"}
+    }},
+    "check_string_by_byte_length": {"type": "bool", "default": false},
+    "charset": {"type": "str", "default": ""},
+    "customer": {"type": "bool", "default": false},
+    "sub_string": {"type": "bool", "default": false},
+    "fast_date_check": {"type": "bool", "default": false},
+    "ignore_timezone": {"type": "bool", "default": false}
+  }
+}

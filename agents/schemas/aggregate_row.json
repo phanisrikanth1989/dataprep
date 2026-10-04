@@ -1,0 +1,20 @@
+{
+  "type": "AggregateRow",
+  "aliases": ["tAggregateRow"],
+  "source": "src/v1/engine/components/aggregate/aggregate_row.py",
+  "keys": {
+    "groupbys": {"type": "list", "default": [], "item_keys": {
+      "input_column": {"type": "str", "required": true},
+      "output_column": {"type": "str", "required": true}
+    }},
+    "operations": {"type": "list", "default": [], "item_keys": {
+      "function": {"type": "str", "required": true,
+                   "enum_ref": "src.v1.engine.components.aggregate.aggregate_row:_SUPPORTED_FUNCTIONS"},
+      "input_column": {"type": "str", "required": true},
+      "output_column": {"type": "str"},
+      "ignore_null": {"type": "bool"}
+    }},
+    "list_delimiter": {"type": "str", "default": ","},
+    "use_financial_precision": {"type": "bool", "default": true}
+  }
+}
