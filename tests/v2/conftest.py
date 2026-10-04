@@ -1,9 +1,42 @@
 """
 Test fixtures specific to v2 engine tests.
 """
+import sys
+import tempfile
+
 import pytest
 import polars as pl
 from pathlib import Path
+
+# Five v2 test modules import the engine as top-level ``v2`` (for example
+# ``from v2 import PyETLEngine``). In ETL-AIAgent the root tests/conftest.py put
+# src/ on sys.path; dataprep's root conftest does not, so do it for the v2 tree.
+_SRC_PATH = Path(__file__).resolve().parents[2] / "src"
+if str(_SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(_SRC_PATH))
+
+
+def pytest_collection_modifyitems(config, items):
+    """Keep benchmark tests out of every run that does not ask for them.
+
+    The timing-ratio benchmarks are quarantined: they only run when the marker
+    expression names them (``pytest -m benchmark``). A plain run, or one that
+    passes its own ``-m`` such as the coverage gate's ``-m "not oracle"``,
+    skips them.
+    """
+    if "benchmark" in (config.getoption("markexpr") or ""):
+        return
+    skip_benchmark = pytest.mark.skip(reason="benchmark test: run with -m benchmark")
+    for item in items:
+        if item.get_closest_marker("benchmark") is not None:
+            item.add_marker(skip_benchmark)
+
+
+@pytest.fixture
+def temp_dir():
+    """Create a temporary directory for test files."""
+    with tempfile.TemporaryDirectory() as d:
+        yield Path(d)
 
 
 @pytest.fixture

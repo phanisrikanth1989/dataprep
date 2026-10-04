@@ -20,11 +20,15 @@ xml = ["lxml>=4.9,<7"]
 yaml = ["PyYAML>=6.0,<7"]
 json = ["jsonpath-ng>=1.5,<2"]
 api = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.29,<1", "python-multipart>=0.0.9,<1"]
+# v2 engine (Polars-based, src/v2). Opt-in: deliberately not part of `all`.
+v2 = ["polars>=1.38,<2.0", "pydantic>=2.0,<3", "fastexcel>=0.21,<1"]
 dev = [
     "pytest>=8.0,<10",
     "pytest-cov>=7.0,<8",
     "pytest-xdist>=3.8,<4",
     "testcontainers>=4",
+    # v2 Excel tests build their .xlsx fixtures with it (skipped when absent).
+    "xlsxwriter>=3.2,<4",
 ]
 all = ["dataprep[java,excel,xml,yaml,json,api,oracle]"]
 
@@ -56,6 +60,7 @@ markers = [
     "oracle: Tests requiring an Oracle DB testcontainer (slow, opt-in)",
     "slow: Tests that take >5 seconds",
     "coverage: Documents coverage gate requirements (always skipped; enforced by CI command)",
+    "benchmark: v2 timing-ratio benchmarks (skipped unless run with -m benchmark; see tests/v2/conftest.py)",
 ]
 addopts = "-v --tb=short"
 
@@ -75,6 +80,9 @@ source = [
 ]
 omit = [
     "src/converters/complex_converter/*",
+    # v2 converters stay outside the v1 per-module gate (src/v2 is not in `source` either).
+    "src/converters/talend_to_v2/*",
+    "src/converters/v1_to_v2/*",
     "*/__init__.py",
     "*/tests/*",
     "*/test_*.py",
