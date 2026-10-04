@@ -1,0 +1,38 @@
+{
+  "component": "filter_rows",
+  "polars_version": "1.38.1",
+  "python_version": "3.12.12",
+  "dataset_rows": 1000000,
+  "reject_off": {
+    "v2_median_ns": 1251000,
+    "v2_iqr_ns": 29750,
+    "raw_polars_median_ns": 1178250,
+    "raw_polars_iqr_ns": 30125,
+    "runs": 5
+  },
+  "reject_on": {
+    "v2_median_ns": 2336125,
+    "v2_iqr_ns": 25125,
+    "raw_polars_median_ns": 2467667,
+    "raw_polars_iqr_ns": 44334,
+    "runs": 5
+  },
+  "ratio_reject_off": 1.0617,
+  "ratio_reject_on": 0.9467,
+  "selectivity_sweep": {
+    "10_pct_pass": {
+      "threshold": 9000,
+      "ratio": 1.0128
+    },
+    "50_pct_pass": {
+      "threshold": 5000,
+      "ratio": 1.009
+    },
+    "90_pct_pass": {
+      "threshold": 1000,
+      "ratio": 0.9907
+    }
+  },
+  "timestamp": "2026-04-12T14:33:09+0530",
+  "machine_hash": "34b94d555643"
+}

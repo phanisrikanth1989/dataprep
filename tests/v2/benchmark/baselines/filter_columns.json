@@ -1,0 +1,13 @@
+{
+  "component": "filter_columns",
+  "polars_version": "1.38.1",
+  "python_version": "3.12.12",
+  "raw_polars_median_ns": 8584,
+  "raw_polars_iqr_ns": 167,
+  "v2_median_ns": 8667,
+  "v2_iqr_ns": 166,
+  "n_runs": 5,
+  "ratio": 1.0097,
+  "timestamp": "2026-04-12T10:28:32+0530",
+  "machine_hash": "34b94d555643"
+}
