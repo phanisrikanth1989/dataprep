@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node componentName="tFilterRow" componentVersion="0.102"
+      offsetLabelX="0" offsetLabelY="0" posX="320" posY="160">
+  <elementParameter field="TEXT" name="UNIQUE_NAME" value="tFilterRow_6"/>
+  <elementParameter field="CLOSED_LIST" name="LOGICAL_OP" value="&quot;AND&quot;"/>
+  <elementParameter field="CHECK" name="USE_ADVANCED" value="false"/>
+  <elementParameter field="MEMO_JAVA" name="ADVANCED_COND" value=""/>
+  <elementParameter field="CHECK" name="TSTATCATCHER_STATS" value="false"/>
+  <elementParameter field="TABLE" name="CONDITIONS">
+    <elementValue elementRef="INPUT_COLUMN" value="&quot;category&quot;"/>
+    <elementValue elementRef="FUNCTION" value="&quot;&quot;"/>
+    <elementValue elementRef="OPERATOR" value="&quot;==&quot;"/>
+    <elementValue elementRef="RVALUE" value="&quot;foo bar&quot;"/>
+    <elementValue elementRef="INPUT_COLUMN" value="&quot;name&quot;"/>
+    <elementValue elementRef="FUNCTION" value="&quot;&quot;"/>
+    <elementValue elementRef="OPERATOR" value="&quot;==&quot;"/>
+    <elementValue elementRef="RVALUE" value="null"/>
+  </elementParameter>
+  <metadata connector="FLOW" name="tFilterRow_6">
+    <column name="id" type="id_Integer" nullable="true"/>
+    <column name="category" type="id_String" nullable="true"/>
+    <column name="name" type="id_String" nullable="true"/>
+  </metadata>
+</node>

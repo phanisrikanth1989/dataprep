@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node componentName="tFilterRow" componentVersion="0.102"
+      offsetLabelX="0" offsetLabelY="0" posX="320" posY="160">
+  <elementParameter field="TEXT" name="UNIQUE_NAME" value="tFilterRow_1"/>
+  <elementParameter field="CLOSED_LIST" name="LOGICAL_OP" value="&quot;AND&quot;"/>
+  <elementParameter field="CHECK" name="USE_ADVANCED" value="false"/>
+  <elementParameter field="MEMO_JAVA" name="ADVANCED_COND" value=""/>
+  <elementParameter field="CHECK" name="TSTATCATCHER_STATS" value="false"/>
+  <elementParameter field="TABLE" name="CONDITIONS">
+    <elementValue elementRef="INPUT_COLUMN" value="&quot;amount&quot;"/>
+    <elementValue elementRef="FUNCTION" value="&quot;&quot;"/>
+    <elementValue elementRef="OPERATOR" value="&quot;&gt;&quot;"/>
+    <elementValue elementRef="RVALUE" value="&quot;100&quot;"/>
+  </elementParameter>
+  <metadata connector="FLOW" name="tFilterRow_1">
+    <column name="id" type="id_Integer" nullable="true"/>
+    <column name="amount" type="id_Float" nullable="true"/>
+    <column name="status" type="id_String" nullable="true"/>
+  </metadata>
+</node>

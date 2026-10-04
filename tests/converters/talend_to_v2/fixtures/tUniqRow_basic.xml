@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node componentName="tUniqRow">
+  <elementParameter name="UNIQUE_NAME" value="tUniqRow_1" field="TEXT"/>
+  <elementParameter name="ONLY_ONCE_EACH_DUPLICATED_KEY" value="false" field="CHECK"/>
+  <elementParameter name="IS_VIRTUAL_COMPONENT" value="false" field="CHECK"/>
+  <elementParameter name="CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL" value="false" field="CHECK"/>
+  <elementParameter name="TSTATCATCHER_STATS" value="false" field="CHECK"/>
+  <elementParameter name="LABEL" value="" field="TEXT"/>
+  <elementParameter name="UNIQUE_KEY" field="TABLE">
+    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;id&quot;"/>
+    <elementValue elementRef="KEY_ATTRIBUTE" value="true"/>
+    <elementValue elementRef="CASE_SENSITIVE" value="true"/>
+    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;name&quot;"/>
+    <elementValue elementRef="KEY_ATTRIBUTE" value="true"/>
+    <elementValue elementRef="CASE_SENSITIVE" value="false"/>
+  </elementParameter>
+  <metadata name="tUniqRow_1">
+    <column name="id" type="id_Integer" nullable="false"/>
+    <column name="name" type="id_String" nullable="true"/>
+    <column name="value" type="id_Float" nullable="true"/>
+  </metadata>
+</node>
