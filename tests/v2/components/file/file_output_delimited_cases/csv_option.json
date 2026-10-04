@@ -1,0 +1,14 @@
+{
+  "description": "CSV quoting: quote_style=always wraps all values in double quotes",
+  "config": {
+    "path": "__TMP__/output.csv",
+    "quote_style": "always",
+    "quote_char": "\""
+  },
+  "input_data": {
+    "id": [1, 2],
+    "name": ["Alice", "Bob"],
+    "score": [95.5, 87.0]
+  },
+  "expected_output_contains": ["\"id\",\"name\",\"score\"", "\"1\",\"Alice\",\"95.5\"", "\"2\",\"Bob\",\"87.0\""]
+}

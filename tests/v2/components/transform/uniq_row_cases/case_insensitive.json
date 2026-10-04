@@ -1,0 +1,13 @@
+{
+    "case_id": "case_insensitive",
+    "config": {
+        "key_columns": [{"column": "name", "case_sensitive": false}],
+        "keep": "first"
+    },
+    "inputs": {
+        "main": {"name": ["Alice", "alice", "Bob", "BOB", "Charlie"], "score": [100, 90, 80, 85, 70]}
+    },
+    "expected": {
+        "unique": {"name": ["Alice", "Bob", "Charlie"], "score": [100, 80, 70]}
+    }
+}

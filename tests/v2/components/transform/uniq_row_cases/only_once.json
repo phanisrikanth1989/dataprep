@@ -1,0 +1,16 @@
+{
+    "case_id": "only_once",
+    "config": {
+        "key_columns": [{"column": "id", "case_sensitive": true}],
+        "keep": "first",
+        "duplicate_output": true,
+        "only_once": true
+    },
+    "inputs": {
+        "main": {"id": [1, 1, 1, 2, 2], "val": ["a", "b", "c", "d", "e"]}
+    },
+    "expected": {
+        "unique": {"id": [1, 2], "val": ["a", "d"]},
+        "duplicate": {"id": [1, 2], "val": ["b", "e"]}
+    }
+}

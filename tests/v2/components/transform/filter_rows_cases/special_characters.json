@@ -1,0 +1,16 @@
+{
+    "description": "String filter with spaces in values: category == 'foo bar'",
+    "config": {"condition": "category == 'foo bar'"},
+    "inputs": {
+        "main": {
+            "id": [1, 2, 3, 4],
+            "category": ["foo bar", "baz", "foo bar", "qux"]
+        }
+    },
+    "expected": {
+        "main": {
+            "id": [1, 3],
+            "category": ["foo bar", "foo bar"]
+        }
+    }
+}

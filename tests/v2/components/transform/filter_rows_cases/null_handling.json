@@ -1,0 +1,16 @@
+{
+    "description": "Null values in filter column: Polars NULL comparison returns NULL, treated as false in filter",
+    "config": {"condition": "amount > 100"},
+    "inputs": {
+        "main": {
+            "id": [1, 2, 3],
+            "amount": [150, null, 200]
+        }
+    },
+    "expected": {
+        "main": {
+            "id": [1, 3],
+            "amount": [150, 200]
+        }
+    }
+}

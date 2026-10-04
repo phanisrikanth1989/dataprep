@@ -1,0 +1,13 @@
+{
+  "description": "error_if_exists=true raises FileExistsError on existing file",
+  "config": {
+    "path": "__TMP__/output.csv",
+    "error_if_exists": true
+  },
+  "input_data": {
+    "id": [1],
+    "name": ["Alice"]
+  },
+  "pre_existing_content": "old data",
+  "expect_error": "FileExistsError"
+}

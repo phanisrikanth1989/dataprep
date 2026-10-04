@@ -1,0 +1,12 @@
+{
+  "description": "Basic 3-column write with default config (header, comma delimiter)",
+  "config": {
+    "path": "__TMP__/output.csv"
+  },
+  "input_data": {
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "amount": [100.5, 200.0, 300.75]
+  },
+  "expected_output_contains": ["id,name,amount", "1,Alice,100.5", "2,Bob,200.0", "3,Charlie,300.75"]
+}

@@ -1,0 +1,19 @@
+{
+  "case_id": "nan_to_null",
+  "description": "NaN strings in float column converted to null (default nan_is_null=True)",
+  "csv_content": "id,value\n1,100.0\n2,NaN\n3,nan\n4,200.0\n",
+  "config": {
+    "delimiter": ",",
+    "nan_is_null": true,
+    "schema": [
+      {"name": "id", "type": "integer"},
+      {"name": "value", "type": "float"}
+    ]
+  },
+  "expected": {
+    "main": {
+      "id": [1, 2, 3, 4],
+      "value": [100.0, null, null, 200.0]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+    "config": {"inputs": ["orders", "returns"]},
+    "inputs": {
+        "orders": {"id": [1]},
+        "returns": {"id": [2]},
+        "extra": {"id": [99]}
+    },
+    "expected": {
+        "main": {"id": [1, 2]}
+    }
+}

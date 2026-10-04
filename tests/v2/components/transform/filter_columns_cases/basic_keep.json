@@ -1,0 +1,19 @@
+{
+    "description": "Keep mode: select only listed columns",
+    "config": {
+        "columns": ["id", "name"]
+    },
+    "inputs": {
+        "main": {
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "amount": [100.0, 200.0, 300.0]
+        }
+    },
+    "expected": {
+        "main": {
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"]
+        }
+    }
+}

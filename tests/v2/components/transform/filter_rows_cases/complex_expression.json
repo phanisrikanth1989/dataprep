@@ -1,0 +1,18 @@
+{
+    "description": "Compound condition with AND: amount > 50 AND status is active",
+    "config": {"condition": "amount > 50 && status == 'active'"},
+    "inputs": {
+        "main": {
+            "id": [1, 2, 3, 4],
+            "amount": [100, 30, 200, 10],
+            "status": ["active", "active", "inactive", "active"]
+        }
+    },
+    "expected": {
+        "main": {
+            "id": [1],
+            "amount": [100],
+            "status": ["active"]
+        }
+    }
+}
