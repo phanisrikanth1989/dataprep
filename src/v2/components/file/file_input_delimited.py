@@ -15,7 +15,7 @@ from ...errors import ConfigurationError
 from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import from_text
+from ...types import finish_value, parse_text, unreadable
 from ..base import Source
 from ..registry import REGISTRY
 
@@ -226,19 +226,26 @@ class FileInputDelimited(Source):
         if not typed and not counted:
             return {"main": frame.select(names), "reject": self._no_rejects(names)}
 
-        values, flags = [], []
+        # Each field is parsed once: the parsed column gives the value and tells an unreadable field.
+        frame = frame.with_columns(
+            [parse_text(pl.col(column.name), column).alias(_VALUE + column.name) for column in typed]
+        )
+        flags = []
         for column in typed:
-            value, unreadable = from_text(pl.col(column.name), column)
-            values.append(value.alias(_VALUE + column.name))
-            flags.append(unreadable if column.nullable else unreadable | value.is_null())
+            parsed, text = pl.col(_VALUE + column.name), pl.col(column.name)
+            wrong = unreadable(parsed, text, column)
+            if not column.nullable:
+                wrong = wrong | finish_value(parsed, text, column).is_null()
+            flags.append(wrong)
         if counted:
             flags.append(pl.col(_FIELDS) != len(names))
-        flagged = frame.with_columns(*values, pl.any_horizontal(flags).alias(_BAD))
+        flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
 
-        held = {column.name for column in typed}
-        main = flagged.filter(~pl.col(_BAD)).select(
-            [pl.col(_VALUE + name).alias(name) if name in held else pl.col(name) for name in names]
-        )
+        held = {column.name: column for column in typed}
+        main = flagged.filter(~pl.col(_BAD)).select([
+            finish_value(pl.col(_VALUE + name), pl.col(name), held[name]).alias(name) if name in held else pl.col(name)
+            for name in names
+        ])
         code, message = self._reasons(typed, counted, len(names))
         reject = flagged.filter(pl.col(_BAD)).select(
             *[pl.col(name) for name in names], code.alias("errorCode"), message.alias("errorMessage")
@@ -262,12 +269,13 @@ class FileInputDelimited(Source):
                 pl.format(f"Field count mismatch: expected {width}, got {{}} - Line: {{}}", pl.col(_FIELDS), pl.col(_LINE)),
             ))
         for column in typed:
-            _, unreadable = from_text(pl.col(column.name), column)
-            cases.append((unreadable, "TYPE_CONVERSION", pl.format(_unreadable_text(column), pl.col(column.name))))
+            wrong = unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column)
+            cases.append((wrong, "TYPE_CONVERSION", pl.format(_unreadable_text(column), pl.col(column.name))))
         for column in typed:
             if not column.nullable:
+                value = finish_value(pl.col(_VALUE + column.name), pl.col(column.name), column)
                 cases.append((
-                    pl.col(_VALUE + column.name).is_null(),
+                    value.is_null(),
                     "SCHEMA_VIOLATION",
                     pl.lit(f"Column '{column.name}': non-nullable column has null"),
                 ))

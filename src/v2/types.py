@@ -97,30 +97,23 @@ def from_text(text: pl.Expr, column: Column) -> Tuple[pl.Expr, pl.Expr]:
         Text that is empty or blank gives a missing value and is not
         unreadable; whether a missing value is allowed is the caller's to
         check.
+
+    This parses the text twice, once for each answer. A reader of a large
+    file keeps the parsed column instead: ``parse_text``, then ``unreadable``
+    and ``finish_value`` on the column it made.
     """
+    parsed = parse_text(text, column)
+    return finish_value(parsed, text, column), unreadable(parsed, text, column)
+
+
+def parse_text(text: pl.Expr, column: Column) -> pl.Expr:
+    """Text as the column's type; missing where it is empty or cannot be read."""
     if column.type == "str":
-        return text, pl.lit(False)
+        return text
     stripped = text.str.strip_chars()
-    present = stripped != ""
     if column.type == "bool":
         lower = stripped.str.to_lowercase()
-        value = pl.when(lower.is_in(_TRUE)).then(True).when(lower.is_in(_FALSE)).then(False)
-        unreadable = present & value.is_null()
-        if column.nullable:
-            value = pl.when(present).then(value).otherwise(False)
-        return value, unreadable
-    if column.type in ("datetime", "date"):
-        stripped = pl.when(stripped.is_in(_NOT_A_DATE)).then(pl.lit("")).otherwise(stripped)
-        present = stripped != ""
-    value = _parsed(stripped, column)
-    unreadable = present & value.is_null()
-    if column.type == "float":
-        value = value.fill_nan(None)
-    return _to_places(value, column), unreadable
-
-
-def _parsed(stripped: pl.Expr, column: Column) -> pl.Expr:
-    """Stripped text as the column's type; missing where it cannot be read."""
+        return pl.when(lower.is_in(_TRUE)).then(True).when(lower.is_in(_FALSE)).then(False)
     if column.type == "int":
         as_float = stripped.cast(pl.Float64, strict=False)
         whole = pl.when(as_float.is_finite()).then(as_float).cast(pl.Int64, strict=False)
@@ -135,6 +128,26 @@ def _parsed(stripped: pl.Expr, column: Column) -> pl.Expr:
         stripped.str.strptime(target, chrono_format(pattern, parsing=True), strict=False) for pattern in patterns
     ]
     return attempts[0] if len(attempts) == 1 else pl.coalesce(attempts)
+
+
+def unreadable(parsed: pl.Expr, text: pl.Expr, column: Column) -> pl.Expr:
+    """Whether text was there but could not be read, given what ``parse_text`` made of it."""
+    if column.type == "str":
+        return pl.lit(False)
+    stripped = text.str.strip_chars()
+    wrong = parsed.is_null() & (stripped != "")
+    if column.type in ("datetime", "date"):
+        wrong = wrong & ~stripped.is_in(_NOT_A_DATE)
+    return wrong
+
+
+def finish_value(parsed: pl.Expr, text: pl.Expr, column: Column) -> pl.Expr:
+    """The value a reader hands on, given what ``parse_text`` made of the text."""
+    if column.type == "bool" and column.nullable:
+        return pl.when(text.str.strip_chars() == "").then(False).otherwise(parsed)
+    if column.type == "float":
+        parsed = parsed.fill_nan(None)
+    return _to_places(parsed, column)
 
 
 def _wide_decimal(column: Column) -> pl.DataType:
