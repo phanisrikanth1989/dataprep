@@ -93,6 +93,12 @@ not that they are designed.
 
 <!-- one line per closed ticket -->
 
+- [Usage count of real v1 jobs](issues/01-usage-count-of-real-v1-jobs.md) --
+  no counts (the script cannot run inside Citi); recorded instead the dev's
+  intent and recollection: a 16-component set with no iterate and no
+  database, the Java constructs users will hit, and Python routines allowed
+  as Polars functions only.
+
 - [03 - Polars facts: collection, streaming and Decimal](issues/03-polars-facts-collection-streaming-decimal.md)
   -- two collects re-run a shared upstream, and `collect_all` shares it only
   when the optimizer keeps the cache (main + reject as `filter(c)` /
@@ -142,10 +148,6 @@ not that they are designed.
 - Iterate, if it makes the list: iterate flows, loop bodies and nesting. The
   engine as found loses rows on fan-out inside a loop and double-runs nested
   loops (findings 6 and 7).
-- Routines. v1 has Python routines; v2 as found calls them row by row unless
-  they are marked vectorised, which collides with the no-callback rule.
-  Whether routines exist in v2, and in what form, waits on the expression
-  decisions and on what the usage count shows.
 - The list of deliberate differences from v1: where it lives and what earns a
   place on it. Empty until a ticket puts something there.
 - What a v1 user needs in hand to migrate a job (which Python is allowed, how
