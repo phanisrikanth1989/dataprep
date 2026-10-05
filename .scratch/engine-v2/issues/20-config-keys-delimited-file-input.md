@@ -20,6 +20,16 @@ refused and the defaults policy from
 Also settle v1 behaviours that have no key but that the answer key still
 demands.
 
+And settle, one by one, what v2 does about the Polars reader behaviours that
+give a wrong result without an error: guard against it, refuse the input, or
+accept it. They are listed in the answer to
+[Polars facts: reading and writing delimited files](02-polars-facts-delimited-files.md):
+a line with too few fields padded with nulls; too many fields not raising
+once any column is projected away; blank lines read as all-null rows;
+backslash-escaped quotes mangled; Latin bytes that form valid UTF-8 read as
+if they were UTF-8; a wrong row count after a lone quote; a very small zip or
+bzip2 file read as empty.
+
 v1 keys (`agents/schemas/config-surfaces.md` is the code-verified list, with
 defaults): `filepath`, `fieldseparator`, `row_separator`, `encoding`,
 `header_rows`, `footer_rows`, `limit`, `remove_empty_row`, `csv_option`,

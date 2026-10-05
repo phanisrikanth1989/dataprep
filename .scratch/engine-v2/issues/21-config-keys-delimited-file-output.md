@@ -18,7 +18,12 @@ row by row. Recover the purpose of each v2 rename before judging it. Apply
 refused and the defaults policy from
 [Config-key declaration, aliases and the refusal report](07-config-key-declaration-and-refusal-report.md).
 Also settle v1 behaviours that have no key but that the answer key still
-demands: how numbers, dates, nulls and empty strings are written.
+demands: how numbers, dates, nulls and empty strings are written. What the
+Polars writer can and cannot do is in the answer to
+[Polars facts: reading and writing delimited files](02-polars-facts-delimited-files.md):
+shortest round-trip float text, one date format per file, no thousands
+separator, UTF-8 only, no append parameter, and splitting only through an
+option Polars marks unstable.
 
 v1 keys (`agents/schemas/config-surfaces.md` is the code-verified list, with
 defaults): `filepath`, `csv_option`, `include_header`, `append`,

@@ -113,6 +113,15 @@ not that they are designed.
   zero, `round` with digits and regex dialect do not; `when/then` guards work
   only from polars 1.44.0; v1's PyMap is not plain Python (a missing value
   is `nan`), so "same as Python" and "same as v1" are different targets.
+- [02 - Polars facts: reading and writing delimited files](issues/02-polars-facts-delimited-files.md)
+  -- the lazy reader takes UTF-8 only, and reading ISO-8859-15 means an
+  eager Python decode at about 5 times the time; separator and quote are one
+  byte each and there is no escape character; an empty field is null for
+  every type and `""` is an empty string only for String; no lazy footer
+  skip; too few fields are padded silently and a lone quote gives a wrong
+  row count; floats are written as `30200.0`; no thousands separators; zip
+  is unsupported; row counts on CSV scans were wrong on polars 1.39 and
+  1.40.
 
 ## Not yet specified
 

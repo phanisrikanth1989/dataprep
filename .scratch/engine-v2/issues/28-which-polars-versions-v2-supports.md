@@ -9,10 +9,19 @@ The repo pins `polars>=1.38,<2.0`, and Polars' behaviour changes inside that
 range in ways the answer key can see. Which versions does v2 support and test
 against?
 
-Changes inside the range, from
-[Polars facts: collection, streaming and Decimal](03-polars-facts-collection-streaming-decimal.md)
-and
-[Translating Python expressions to Polars: prior art and mapping](04-python-expressions-to-polars-prior-art.md):
+Changes inside the range, from the three research tickets
+([delimited files](02-polars-facts-delimited-files.md),
+[collection, streaming and Decimal](03-polars-facts-collection-streaming-decimal.md),
+[Python expressions](04-python-expressions-to-polars-prior-art.md)):
+
+- `select(pl.len())` on a CSV scan returned wrong counts: with a filter on
+  1.39.0 to 1.39.3 (fixed in 1.40.0), and with a slice on at least 1.40.1
+  (fixed in 1.41.0).
+- The CSV reader's `missing_utf8_is_empty_string` was renamed
+  `empty_string_is_null`, with inverted meaning, in 1.43.0. The old name
+  warns from then on and the new one does not exist before it.
+- Casting String to Date with `cast` is deprecated from 1.42.0 and removed in
+  2.0.
 
 - Decimal `sum`: the result type widened in 1.40/1.41, and overflow wrapped
   silently before 1.44.0.
@@ -36,5 +45,5 @@ To settle:
 - Which version the answer-key tests and the benchmarks run on.
 - When and how the pin moves, 2.0 in particular.
 
-Surfaced while resolving the research tickets; add any further in-range
-changes they report.
+Surfaced while resolving the research tickets. Each of their notes has a
+table of what changed inside the range.
