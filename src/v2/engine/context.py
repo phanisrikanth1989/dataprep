@@ -19,6 +19,8 @@ class RunContext:
         job_name: The job's name.
         context: Context variables. A component may change them; components
             built later see the change.
+        context_types: The declared type name of each context variable that
+            has one (``int``, ``id_Integer``, ``str``...).
         global_map: Entries set while the job runs, such as row counts.
         routines: Routine modules: name to its functions.
     """
@@ -28,9 +30,11 @@ class RunContext:
         job_name: str,
         context: Mapping[str, Any],
         routines: Optional[Mapping[str, Mapping[str, Callable[..., Any]]]] = None,
+        context_types: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.job_name = job_name
         self.context: Dict[str, Any] = dict(context)
+        self.context_types: Dict[str, str] = dict(context_types or {})
         self.global_map: Dict[str, Any] = {}
         self.routines: Mapping[str, Mapping[str, Callable[..., Any]]] = routines or {}
         self._scratch: List[str] = []

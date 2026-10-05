@@ -55,8 +55,12 @@ JOB_KEYS: Tuple[Key, ...] = (
     Key("triggers", type=list, default=[], doc="The triggers between subjobs."),
     Key("subjobs", kind=Kind.IGNORED, type=object, doc="v1's subjob listing; v2 derives subjobs from the flows."),
     Key("java_config", kind=Kind.IGNORED, type=object, doc="v1's Java bridge settings."),
-    Key("python_config", type=dict, default=None, nullable=True,
-        doc="Routine modules: {enabled, routines_dir, routines}."),
+    Key("python_config", type=dict, default=None, nullable=True, doc="Routine modules usable in expressions.",
+        fields=(
+            Key("enabled", type=bool, default=False, doc="Whether routines are loaded."),
+            Key("routines_dir", default="src/python_routines", doc="The folder holding the routine files."),
+            Key("routines", type=list, default=[], doc="Names of routines that must be there."),
+        )),
     Key("engine_config", kind=Kind.IGNORED, type=object, doc="v1 engine settings for components v2 does not have."),
     Key("oracle_config", kind=Kind.IGNORED, type=object, doc="v1's Oracle settings."),
     Key("mssql_config", kind=Kind.IGNORED, type=object, doc="v1's SQL Server settings."),
@@ -152,7 +156,7 @@ class _Loader:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
         self.report.extend(refusals)
         job = Job(name=top.get("name") or "")
-        job.context = self._context(top)
+        job.context, job.context_types = self._context(top)
         for index, raw_component in enumerate(top.get("components") or []):
             spec = self._component(index, raw_component, job)
             if spec is not None:
@@ -179,7 +183,8 @@ class _Loader:
     # Context
     # ------------------------------------------------------------------
 
-    def _context(self, top: Dict[str, Any]) -> Dict[str, Any]:
+    def _context(self, top: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        """The context values, converted to their declared types, and those types."""
         declared = top.get("context") or {}
         group_name = top.get("default_context")
         grouped = bool(declared) and all(
@@ -209,7 +214,7 @@ class _Loader:
                 values[name] = _typed(values[name], type_name)
             except (ValueError, InvalidOperation):
                 self.report.add("job", f"context.{name}", f"{values[name]!r} is not a valid {type_name}")
-        return values
+        return values, types
 
     # ------------------------------------------------------------------
     # Components
@@ -436,8 +441,8 @@ class _Loader:
 def _typed(value: Any, type_name: str) -> Any:
     """Convert a context value to its declared type."""
     kind = TYPE_NAMES.get(type_name, "str")
-    if value is None:
-        return None
+    if value is None or value == "":
+        return value
     if kind == "int":
         if isinstance(value, bool):
             raise ValueError(value)
@@ -450,8 +455,10 @@ def _typed(value: Any, type_name: str) -> Any:
         if isinstance(value, bool):
             return value
         text = str(value).strip().lower()
-        if text in ("true", "false"):
-            return text == "true"
+        if text in ("true", "1", "yes"):
+            return True
+        if text in ("false", "0", "no"):
+            return False
         raise ValueError(value)
     if kind == "str":
         return str(value)

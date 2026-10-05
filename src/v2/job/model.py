@@ -135,13 +135,18 @@ class Job:
         components: The components by id, in job-config order.
         flows: The flows, in job-config order.
         triggers: The triggers, in job-config order.
+        context_types: The declared type name of each context variable that
+            has one.
         routines: Where routine modules are loaded from: v1's
             ``python_config`` block, or None.
+        routine_modules: The loaded routine modules: name to functions.
     """
 
     name: str
     context: Dict[str, Any] = field(default_factory=dict)
+    context_types: Dict[str, str] = field(default_factory=dict)
     routines: Optional[Dict[str, Any]] = None
+    routine_modules: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     components: Dict[str, ComponentSpec] = field(default_factory=dict)
     flows: List[Flow] = field(default_factory=list)
     triggers: List[Trigger] = field(default_factory=list)

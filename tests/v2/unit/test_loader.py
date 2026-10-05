@@ -319,3 +319,36 @@ def test_report_names_the_job():
     with pytest.raises(JobRefusedError) as caught:
         load(changed(bogus_key=1))
     assert caught.value.report.job_name == "orders"
+
+
+# ------------------------------------------------------------------
+# Context values and their declared types
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "value, type_name, expected",
+    [
+        ("TRUE", "bool", True), ("yes", "bool", True), ("1", "bool", True), ("false", "bool", False),
+        ("0", "bool", False), ("no", "bool", False), (True, "id_Boolean", True),
+        ("100", "id_Integer", 100), ("1.50", "id_Double", 1.5), ("2024-01-31", "datetime", "2024-01-31"),
+        ("", "int", ""), (None, "int", None), ("xyz", "id_String", "xyz"), (9, "str", "9"),
+    ],
+)
+def test_context_value_becomes_its_declared_type_as_in_v1(value, type_name, expected):
+    job = changed(context={"Default": {"v": {"value": value, "type": type_name}}})
+    loaded = load(job).context["v"]
+    assert loaded == expected and type(loaded) is type(expected)
+
+
+def test_declared_context_types_are_kept_for_components_that_set_context():
+    assert load(V1_JOB).context_types == {"in_dir": "str", "max": "int"}
+
+
+def test_routine_settings_are_read():
+    job = changed(python_config={"enabled": True, "routines_dir": "my/routines", "routines": ["Fees"]})
+    assert load(job).routines == {"enabled": True, "routines_dir": "my/routines", "routines": ["Fees"]}
+
+
+def test_unknown_routine_setting_is_refused():
+    found = refusals(changed(python_config={"enabled": True, "folder": "x"}))
+    assert ("job", "python_config.folder") in [(where, key) for where, key, _ in found]

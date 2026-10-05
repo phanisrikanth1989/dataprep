@@ -102,7 +102,7 @@ class Runner:
     ) -> None:
         self.job = job
         self.engine = engine or os.environ.get("V2_ENGINE") or DEFAULT_ENGINE
-        self.run_context = RunContext(job.name, job.context, routines)
+        self.run_context = RunContext(job.name, job.context, routines or job.routine_modules, job.context_types)
         self.rows: Dict[str, int] = {}
         self._wanted = _wanted_stats(job)
 

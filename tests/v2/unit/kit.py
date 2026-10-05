@@ -6,7 +6,8 @@ import polars as pl
 from src.v2.components.base import Eager, Sink, Source, Transform, Write
 from src.v2.components.registry import Registry
 from src.v2.engine import run_job
-from src.v2.job.keys import Key
+from src.v2.expressions import translate
+from src.v2.job.keys import EXPRESSION, Key
 
 
 class Rows(Source):
@@ -181,6 +182,18 @@ class Through(Transform):
         return {"main": frame, "reject": frame.clear()}
 
 
+class Calc(Transform):
+    """Replaces column n by the value of an expression over the row."""
+
+    names = ("calc",)
+    keys = (Key("expression", type=EXPRESSION, required=True),)
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        value = translate(self.config["expression"], self.row_scope(frame.collect_schema(), "row1"))
+        return {"main": frame.with_columns(value.cast(pl.Int64).alias("n"))}
+
+
 class Scratch(Source):
     """Asks the run for a scratch file and reads it back."""
 
@@ -195,7 +208,7 @@ class Scratch(Source):
 
 
 REGISTRY = Registry()
-for _cls in (Rows, FromFile, Add, Split, Stack, Save, Peek, SetContext, Mark, Boom, Guard, Glance, Either, Through, Scratch):
+for _cls in (Rows, FromFile, Add, Split, Stack, Save, Peek, SetContext, Mark, Boom, Guard, Glance, Either, Through, Calc, Scratch):
     REGISTRY.register(_cls)
 
 

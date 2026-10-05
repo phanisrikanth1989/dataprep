@@ -5,10 +5,12 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
 from ..components.registry import REGISTRY, Registry
-from ..errors import JobRefusedError
+from ..errors import ConfigurationError, JobRefusedError
 from ..job.loader import load_job as read_job
 from ..job.model import Job
+from ..job.refusal import RefusalReport
 from .check import check_job
+from .routines import load_routines
 from .runner import JobResult, Runner
 
 __all__ = ["JobResult", "Runner", "check_job", "load_job", "run_job"]
@@ -39,7 +41,13 @@ def load_job(
             with. Its report lists every problem found. Nothing has run.
     """
     job = read_job(source, context=context, registry=registry)
-    report = check_job(job, routines=routines)
+    report = RefusalReport(job_name=job.name)
+    try:
+        job.routine_modules = dict(routines) if routines is not None else load_routines(job.routines)
+    except ConfigurationError as exc:
+        report.add("job", "python_config", str(exc))
+    else:
+        report = check_job(job)
     if report:
         raise JobRefusedError(report)
     return job
