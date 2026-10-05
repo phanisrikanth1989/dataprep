@@ -355,7 +355,22 @@ def test_unknown_routine_setting_is_refused():
 
 
 def test_component_fed_by_a_refused_component_is_not_reported_as_short_of_inputs():
-    job = copy.deepcopy(V1_JOB)
-    job["components"][0]["type"] = "tNoSuchReader"
-    found = refusals(job)
-    assert [(where, key) for where, key, _ in found] == [("component in_1 (tNoSuchReader)", "type")]
+    class NeedsInput(Component):
+        names = ("needs_input",)
+        min_inputs = 1
+
+    registry = Registry()
+    for cls in (Reader, NeedsInput):
+        registry.register(cls)
+    job = {
+        "job_name": "j",
+        "components": [{"id": "a", "type": "tNoSuchReader"}, {"id": "b", "type": "needs_input"},
+                       {"id": "c", "type": "needs_input"}],
+        "flows": [{"name": "r1", "from": "a", "to": "b", "type": "flow"}],
+    }
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(job, registry=registry)
+    assert [(refusal.where, refusal.key) for refusal in caught.value.report] == [
+        ("component a (tNoSuchReader)", "type"),
+        ("component c (needs_input)", "inputs"),
+    ]
