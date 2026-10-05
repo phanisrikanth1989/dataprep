@@ -23,5 +23,5 @@ issue file. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context — a root `CONTEXT.md` plus `docs/adr/`, both created lazily.
-See `docs/agents/domain.md`.
+Multi-context — the root `CONTEXT-MAP.md` lists each context and its glossary;
+decisions live in `docs/adr/`. See `docs/agents/domain.md`.
