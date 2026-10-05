@@ -547,3 +547,11 @@ def test_rows_written_are_counted_when_a_field_holds_a_line_break(tmp_path):
 def test_no_rows_written_is_counted_as_zero(tmp_path):
     result, _ = v2(tmp_path, b"", "id:int, name:str")
     assert result.rows == {"out": 0}
+
+
+def test_data_column_named_like_the_reject_reason_gives_its_place_to_it(tmp_path):
+    run = same(tmp_path, b"1;mine\nx;theirs\n", "id:int, errorCode:str", reject_schema=True)
+    assert run.files["rej.csv"] == (
+        b"id;errorCode;errorMessage\nx;TYPE_CONVERSION;Column 'id': could not convert string to float: 'x'\n"
+    )
+    assert run.files["out.csv"] == b"id;errorCode_user\n1;mine\n"

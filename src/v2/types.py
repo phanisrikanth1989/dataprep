@@ -7,6 +7,7 @@ gives every value the same answer.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -24,6 +25,7 @@ _WIDE_SCALE = 18
 _TRUE = ("true", "1", "yes")
 _FALSE = ("false", "0", "no")
 _NOT_A_DATE = ("NaN", "nan", "NaT")
+_ERROR_COLUMNS = ("errorCode", "errorMessage")
 _DEFAULT_DATE_PATTERNS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y")
 _JAVA_DATE_TOKENS = (
     ("yyyy", "%Y"), ("yy", "%y"), ("MM", "%m"), ("dd", "%d"), ("HH", "%H"), ("hh", "%I"),
@@ -246,6 +248,12 @@ def conform(
         frame.
     """
     have = frame.collect_schema()
+    # An error column renamed by an earlier component stands in for the name a schema still declares.
+    renamed = {
+        name: f"{name}_user" for name in _ERROR_COLUMNS
+        if rename_errors and name not in have and f"{name}_user" in have
+    }
+    columns = [dataclasses.replace(column, name=renamed.get(column.name, column.name)) for column in columns]
     exprs: List[pl.Expr] = []
     broken: List[pl.Expr] = []
     for column in columns:
@@ -269,7 +277,7 @@ def conform(
     selected = exprs + [pl.col(name) for name in extras] + ([pl.col(VIOLATION)] if broken else [])
     frame = frame.select(selected)
     if rename_errors:
-        renames = {name: f"{name}_user" for name in ("errorCode", "errorMessage") if name in declared + extras}
+        renames = {name: f"{name}_user" for name in _ERROR_COLUMNS if name in declared + extras}
         if renames:
             frame = frame.rename(renames)
     return frame, violation

@@ -15,7 +15,7 @@ from ...errors import ConfigurationError
 from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import finish_value, parse_text, unreadable
+from ...types import finish_value, parse_text, polars_schema, unreadable
 from ..base import Source
 from ..registry import REGISTRY
 
@@ -247,8 +247,11 @@ class FileInputDelimited(Source):
             for name in names
         ])
         code, message = self._reasons(typed, counted, len(names))
+        reason = {"errorCode": code.alias("errorCode"), "errorMessage": message.alias("errorMessage")}
+        # A data column with one of the two names gives its place to the reason, as in v1.
         reject = flagged.filter(pl.col(_BAD)).select(
-            *[pl.col(name) for name in names], code.alias("errorCode"), message.alias("errorMessage")
+            *[reason.get(name, pl.col(name)) for name in names],
+            *[expr for name, expr in reason.items() if name not in names],
         )
         if self.config["die_on_error"]:
             self.check(reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why")), _fatal)
@@ -257,6 +260,10 @@ class FileInputDelimited(Source):
     @staticmethod
     def _no_rejects(names: List[str]) -> pl.LazyFrame:
         return pl.LazyFrame(schema={name: pl.String for name in names + ["errorCode", "errorMessage"]})
+
+    def declared_outputs(self) -> Dict[str, pl.LazyFrame]:
+        names = [column.name for column in self.schema]
+        return {"main": pl.LazyFrame(schema=polars_schema(self.schema)), "reject": self._no_rejects(names)}
 
     @staticmethod
     def _reasons(typed: List[Column], counted: bool, width: int) -> Tuple[pl.Expr, pl.Expr]:
