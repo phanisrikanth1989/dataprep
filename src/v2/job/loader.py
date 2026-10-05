@@ -151,6 +151,8 @@ class _Loader:
         self.overrides = overrides
         self.registry = registry
         self.report = RefusalReport(job_name=str(raw.get("job_name") or raw.get("name") or ""))
+        # Components that lost an incoming flow to a refusal elsewhere; their input count proves nothing.
+        self._starved: set = set()
 
     def load(self) -> Job:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
@@ -334,6 +336,8 @@ class _Loader:
                 if not _was_refused(self.report, fields[end]):
                     self.report.add("job", prefix + spelling, f"there is no component '{fields[end]}'")
                 ok = False
+        if not ok:
+            self._starved.add(fields["target"])
         if any(flow.name == fields["name"] for flow in job.flows):
             self.report.add("job", prefix + "name", f"the flow name '{fields['name']}' is used more than once")
             ok = False
@@ -341,6 +345,7 @@ class _Loader:
             self.report.add("job", prefix + "type", "iterate flows are not supported in v2")
             ok = False
         if not ok:
+            self._starved.add(fields["target"])
             return None
 
         source = job.components[fields["source"]]
@@ -351,6 +356,7 @@ class _Loader:
                 self.report.add(
                     "job", prefix + "type", f"a {source.type} has no '{fields['type']}' output"
                 )
+                self._starved.add(fields["target"])
                 return None
         return Flow(name=fields["name"], source=fields["source"], target=fields["target"], kind=fields["type"], port=port)
 
@@ -430,7 +436,7 @@ class _Loader:
             if limit is not None and arriving > limit:
                 takes = "takes no input" if limit == 0 else f"takes at most {limit} input(s)"
                 self.report.add(spec.where, "inputs", f"{takes}, but {flows}")
-            elif arriving < spec.cls.min_inputs:
+            elif arriving < spec.cls.min_inputs and spec.id not in self._starved:
                 self.report.add(spec.where, "inputs", f"needs {spec.cls.min_inputs} input(s), but {flows}")
 
 

@@ -352,3 +352,10 @@ def test_routine_settings_are_read():
 def test_unknown_routine_setting_is_refused():
     found = refusals(changed(python_config={"enabled": True, "folder": "x"}))
     assert ("job", "python_config.folder") in [(where, key) for where, key, _ in found]
+
+
+def test_component_fed_by_a_refused_component_is_not_reported_as_short_of_inputs():
+    job = copy.deepcopy(V1_JOB)
+    job["components"][0]["type"] = "tNoSuchReader"
+    found = refusals(job)
+    assert [(where, key) for where, key, _ in found] == [("component in_1 (tNoSuchReader)", "type")]
