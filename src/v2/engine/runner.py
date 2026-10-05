@@ -187,6 +187,8 @@ class Runner:
     def _run_subjob(self, component_ids: List[str]) -> Optional[_Failed]:
         """Build and run one subjob. Returns the failure, or None when it finished."""
         state = _Subjob()
+        started = time.perf_counter()
+        logger.info(f"[{self.job.name}] subjob starting: {', '.join(component_ids)}")
         try:
             self._build(component_ids, state)
             self._collect([], state)
@@ -195,6 +197,7 @@ class Runner:
             for _, _, temp, _ in state.written:
                 _remove(temp)
             return failure
+        logger.info(f"[{self.job.name}] subjob finished in {time.perf_counter() - started:.2f}s")
         return None
 
     def _build(self, component_ids: List[str], state: _Subjob) -> None:
@@ -374,6 +377,7 @@ class Runner:
                         )
                 if write.finish is not None:
                     write.finish(rows)
+                logger.info(f"[{component_id}] wrote {'?' if rows is None else rows} row(s) to {write.path}")
             except Exception as exc:  # noqa: BLE001
                 _remove(temp)
                 raise _Failed(component_id, _reason(exc)) from exc
