@@ -2,9 +2,11 @@
 import datetime
 from decimal import Decimal
 
+import polars as pl
 import pytest
 
 from src.v2.errors import ExpressionError
+from src.v2.expressions import Scope, translate
 
 from .test_expressions_functions import WHEN, ev
 
@@ -163,3 +165,90 @@ def test_error_carries_the_expression_and_the_reason():
         ev("row1.n + open('f')", {"n": [1]})
     assert caught.value.expression == "row1.n + open('f')"
     assert "open" in caught.value.reason
+
+
+# ------------------------------------------------------------------
+# Division and squares give Python's digits
+# ------------------------------------------------------------------
+
+def _python_and_polars(text, engine, names=("x", "n")):
+    import random
+
+    rng = random.Random(11)
+    floats = [35.0, 1.0, 7.0, 0.1, 123456.789, None] + [rng.uniform(-1e6, 1e6) for _ in range(20000)]
+    wholes = [35, 1, 7, 10, 123456, None] + [rng.randint(-10**6, 10**6) for _ in range(20000)]
+    frame = pl.DataFrame({"x": floats, "n": wholes})
+    scope = Scope.for_rows({"row1": {"x": pl.Float64, "n": pl.Int64}}, bare="row1", context={"hundred": 100, "rate": 0.07})
+    got = frame.lazy().select(translate(text, scope).alias("r")).collect(engine=engine)["r"].to_list()
+    context = type("Context", (), {"hundred": 100, "rate": 0.07})
+    wanted = []
+    for x, n in zip(floats, wholes):
+        if (x is None and "x" in text) or (n is None and "n" in text.replace("context", "")):
+            wanted.append(None)
+        else:
+            wanted.append(eval(text, {"x": x, "n": n, "context": context}))
+    return wanted, got
+
+
+@pytest.mark.parametrize("engine", ["streaming", "in-memory"])
+@pytest.mark.parametrize(
+    "text",
+    ["x / 100", "x / 3", "x / 7", "x / 0.1", "n / 100", "n / 3", "x / context.hundred", "(x + 1) / 3",
+     "x / (100 * 2)", "x / (1 + context.rate)", "35 / 100", "x * (35 / 100)", "100 / x", "n ** 2",
+     "x * 1.1", "x - 0.1", "x % 7", "x // 7"],
+)
+def test_arithmetic_gives_the_digits_python_gives(text, engine):
+    # A power of a float is left out: Python's and Polars' differ in the last digit for about one value
+    # in a thousand, and Python's own answer depends on the platform's maths library.
+    wanted, got = _python_and_polars(text, engine)
+    wrong = [(want, have) for want, have in zip(wanted, got) if want != have]
+    assert wrong == []
+
+
+# ------------------------------------------------------------------
+# numpy, as v1's PyMap expressions use it
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "text, data, want",
+    [
+        ("np.round(row1.f, 2)", {"f": [1.234, 2.675, None]}, [1.23, 2.68, None]),
+        ("np.round(row1.f)", {"f": [2.5, 3.5, -0.4]}, [2.0, 4.0, -0.0]),
+        ("np.round(row1.n, 1)", {"n": [3]}, [3]),
+        ("np.abs(row1.n)", {"n": [-3, 4]}, [3, 4]),
+        ("np.absolute(row1.f)", {"f": [-1.5]}, [1.5]),
+        ("np.floor(row1.f)", {"f": [2.7, -2.7]}, [2.0, -3.0]),
+        ("np.ceil(row1.f)", {"f": [2.1, -2.1]}, [3.0, -2.0]),
+        ("np.sqrt(row1.n)", {"n": [9]}, [3.0]),
+        ("np.log10(row1.f)", {"f": [100.0]}, [2.0]),
+        ("np.isnan(row1.f)", {"f": [float("nan"), 1.0]}, [True, False]),
+        ("np.where(row1.n > 1, 'big', 'small')", {"n": [1, 2, None]}, ["small", "big", "small"]),
+        ("np.where(row1.n > 1, row1.n * 2, 0)", {"n": [1, 2]}, [0, 4]),
+        ("np.maximum(row1.n, 2)", {"n": [1, 5]}, [2, 5]),
+        ("np.minimum(row1.n, 2)", {"n": [1, 5]}, [1, 2]),
+    ],
+)
+def test_numpy_functions(text, data, want):
+    assert ev(text, data) == want
+
+
+def test_numpy_nan_is_a_float_that_is_not_a_number():
+    (value,) = ev("np.nan", {"n": [1]})
+    assert value != value
+
+
+@pytest.mark.parametrize("text", ["np.where(row1.n > 1)", "np.array([1, 2])", "np.round(row1.s)"])
+def test_numpy_that_has_no_column_form_is_refused(text):
+    with pytest.raises(ExpressionError):
+        ev(text, {"n": [1], "s": ["a"]})
+
+
+def test_numpy_round_gives_what_numpy_gives():
+    import random
+
+    import numpy as np
+
+    rng = random.Random(5)
+    values = [2.675, 1.005, 0.125, 2.5, -2.5] + [round(rng.uniform(-1000, 1000), 4) for _ in range(5000)]
+    for digits in (0, 1, 2, 3):
+        assert ev(f"np.round(row1.f, {digits})", {"f": values}) == [float(np.round(value, digits)) for value in values]

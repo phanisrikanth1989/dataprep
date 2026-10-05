@@ -416,6 +416,10 @@ CONSTANTS: Dict[str, Any] = {
     "math.tau": _math.tau,
     "math.inf": _math.inf,
     "math.nan": _math.nan,
+    "np.nan": _math.nan,
+    "np.inf": _math.inf,
+    "np.pi": _math.pi,
+    "np.e": _math.e,
 }
 
 
@@ -677,6 +681,25 @@ def _timedelta(tr: "Translator", node: ast.Call) -> pl.Expr:
 # Missing-value tests, pandas style
 # ------------------------------------------------------------------
 
+def _np_round(tr: "Translator", node: ast.Call) -> pl.Expr:
+    """numpy's round: a float stays a float, halves go to the even neighbour."""
+    args = tr.args(node, 1, 2)
+    value = tr.value(args[0])
+    dtype = tr.dtype(value, args[0])
+    if not dtype.is_numeric():
+        tr.fail(node, f"np.round() needs a number; this value is {dtype}")
+    digits = _const_int(tr, args[1], "the number of digits") if len(args) == 2 else 0
+    if digits < 0:
+        tr.fail(node, "rounding to tens or hundreds is not supported")
+    return value if dtype.is_integer() else value.round(digits)
+
+
+def _np_where(tr: "Translator", node: ast.Call) -> pl.Expr:
+    """numpy's three-argument where: one value where the condition holds, another where it does not."""
+    test, then, otherwise = tr.args(node, 3, 3)
+    return tr.value(ast.copy_location(ast.IfExp(test=test, body=then, orelse=otherwise), node))
+
+
 def _is_missing(negate: bool) -> Handler:
     def handler(tr: "Translator", node: ast.Call) -> pl.Expr:
         (arg,) = tr.args(node, 1, 1)
@@ -717,6 +740,21 @@ FUNCTIONS: Dict[str, Handler] = {
     "datetime.timedelta": _timedelta,
     "timedelta": _timedelta,
     "decimal.Decimal": _decimal,
+    "np.round": _np_round,
+    "np.around": _np_round,
+    "np.abs": _abs,
+    "np.absolute": _abs,
+    "np.fabs": _math_one(lambda x: x.abs().cast(pl.Float64)),
+    "np.floor": _math_one(lambda x: x.cast(pl.Float64).floor()),
+    "np.ceil": _math_one(lambda x: x.cast(pl.Float64).ceil()),
+    "np.sqrt": _math_one(lambda x: x.cast(pl.Float64).sqrt()),
+    "np.exp": _math_one(lambda x: x.cast(pl.Float64).exp()),
+    "np.log": _math_one(lambda x: x.cast(pl.Float64).log()),
+    "np.log10": _math_one(lambda x: x.cast(pl.Float64).log10()),
+    "np.isnan": _math_one(lambda x: x.is_nan()),
+    "np.where": _np_where,
+    "np.maximum": BUILTINS["max"],
+    "np.minimum": BUILTINS["min"],
     "pd.isna": _is_missing(False),
     "pd.isnull": _is_missing(False),
     "pd.notna": _is_missing(True),

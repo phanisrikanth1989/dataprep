@@ -333,7 +333,7 @@ class Translator:
         if isinstance(node.op, ast.Mult):
             return self._checked(left * right, node)
         if isinstance(node.op, ast.Div):
-            return self._checked(left / right, node)
+            return self._checked(self._divided(left, left_type, right), node)
         if isinstance(node.op, ast.FloorDiv):
             return self._checked(left // right, node)
         if isinstance(node.op, ast.Mod):
@@ -341,6 +341,21 @@ class Translator:
         if isinstance(node.op, ast.Pow):
             return self._checked(left.pow(right), node)
         self.fail(node, "this operator is not supported")
+
+    @staticmethod
+    def _divided(left: pl.Expr, left_type: pl.DataType, right: pl.Expr) -> pl.Expr:
+        """Python's ``/`` on floats and whole numbers.
+
+        Polars divides by a value that is the same for every row by
+        multiplying with its reciprocal, which differs from a true division
+        in the last digit for many values (35 / 100 comes out as
+        0.35000000000000003). A divisor that is a column is divided by
+        exactly, so a constant divisor is spread over the rows first.
+        """
+        per_row = bool(right.meta.root_names())
+        if per_row or not left.meta.root_names() or not (left_type.is_integer() or left_type.is_float()):
+            return left / right
+        return left / (left.is_null().cast(pl.Float64) * 0 + right)
 
     def _checked(self, expr: pl.Expr, node: ast.AST) -> pl.Expr:
         self.dtype(expr, node)
