@@ -276,6 +276,25 @@ def test_field_separators(tmp_path, separator, data):
     same(tmp_path, data, "a:int, b:str, c:str", read=config, write=config)
 
 
+@pytest.mark.parametrize(
+    "config",
+    [{"header_rows": 1, "footer_rows": 1}, {"header_rows": 1, "limit": 2}, {"footer_rows": 2, "limit": 5},
+     {"header_rows": 9}, {"footer_rows": 9}],
+)
+def test_header_footer_and_limit_with_a_separator_of_several_characters(tmp_path, config):
+    data = b"h||h||h\n1||x||a\n2||y||b\n3||z||c\nf||f||f\n"
+    read = dict(config, fieldseparator="||")
+    same(tmp_path, data, "a:str, b:str, c:str", read=read, write={"fieldseparator": "||"})
+
+
+def test_plain_ascii_in_the_default_encoding_is_read_and_written_in_place(tmp_path):
+    made = copy("a:int, b:str")
+    del made["components"][0]["config"]["encoding"]
+    del made["components"][1]["config"]["encoding"]
+    run = assert_matches_v1(made, {"in.csv": b"1;plain\n2;ascii\n"}, tmp_path)
+    assert run.files["out.csv"] == b"a;b\n1;plain\n2;ascii\n"
+
+
 def test_quotes_are_data_unless_csv_is_asked_for(tmp_path):
     same(tmp_path, b'1;"x";z\n2;say "hi";q\n3;"";""\n', "a:int, b:str, c:str")
 
@@ -435,8 +454,17 @@ def refused(component_index, **config):
         (0, {"row_separator": "@@"}, "row_separator"),
         (0, {"limit": "abc"}, "limit"),
         (0, {"bogus": 1}, "bogus"),
+        (0, {"encoding": "NOPE-1"}, "unknown encoding: NOPE-1"),
+        (0, {"fieldseparator": ""}, "must not be empty"),
+        (0, {"csv_option": True, "text_enclosure": "''"}, "text_enclosure: must be one character"),
+        (0, {"csv_option": True, "escape_char": "\\"}, "escape_char"),
+        (0, {"csv_option": True, "check_fields_num": True}, "check_fields_num"),
+        (0, {"fieldseparator": "||", "row_separator": "\\r"}, "row_separator"),
         (1, {"split": True}, "split"),
         (1, {"bogus": 1}, "bogus"),
+        (1, {"encoding": "NOPE-1"}, "unknown encoding: NOPE-1"),
+        (1, {"csv_option": True, "text_enclosure": ""}, "text_enclosure: must be one character"),
+        (1, {"csv_option": True, "escape_char": "\\"}, "escape_char"),
     ],
 )
 def test_refused_config(index, config, said):
