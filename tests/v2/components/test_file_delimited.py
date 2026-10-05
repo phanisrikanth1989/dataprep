@@ -511,3 +511,39 @@ def test_path_can_come_from_the_context(tmp_path):
     made["context"] = {"Default": {"dir": {"value": ".", "type": "str"}, "name": {"value": "in.csv", "type": "str"}}}
     made["components"][0]["config"]["filepath"] = "${context.dir}/context.name"
     assert_matches_v1(made, {"in.csv": b"1;a\n"}, tmp_path)
+
+
+# ------------------------------------------------------------------
+# Rows written, as the job reports them
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        {},
+        {"include_header": False},
+        {"os_line_separator": False, "row_separator": "\\r\\n"},
+        {"os_line_separator": False, "row_separator": "\\r"},
+        {"os_line_separator": False, "row_separator": "@@"},
+        {"fieldseparator": "||"},
+        {"csv_option": True},
+        {"csv_option": True, "os_line_separator": False, "csvrowseparator": "CRLF"},
+        {"csv_option": True, "os_line_separator": False, "csvrowseparator": "@@", "include_header": False},
+    ],
+)
+def test_rows_written_are_counted(tmp_path, write):
+    result, _ = v2(tmp_path, b"1;a\n2;b\n3;c\n", "id:int, name:str", write=write)
+    assert result.status == "success"
+    assert result.rows == {"out": 3} and result.global_map["out_NB_LINE"] == 3
+
+
+def test_rows_written_are_counted_when_a_field_holds_a_line_break(tmp_path):
+    data = b'1;"l1\nl2"\n2;"x"\n'
+    result, folder = v2(tmp_path, data, "id:int, name:str", read={"csv_option": True}, write={"csv_option": True})
+    assert result.rows == {"out": 2}
+    assert (folder / "out.csv").read_bytes() == b'"id";"name"\n"1";"l1\nl2"\n"2";"x"\n'
+
+
+def test_no_rows_written_is_counted_as_zero(tmp_path):
+    result, _ = v2(tmp_path, b"", "id:int, name:str")
+    assert result.rows == {"out": 0}

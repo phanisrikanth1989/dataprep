@@ -85,6 +85,19 @@ def put_text_in_place(written: str, path: str, encoding: str, append: bool) -> N
         _remove(written)
 
 
+def count_occurrences(path: str, text: bytes) -> int:
+    """How many times a run of bytes occurs in a file."""
+    found, tail = 0, b""
+    with open(path, "rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            # The end of the last chunk is looked at again, so a match cut in two by a chunk boundary is seen.
+            window = tail + chunk
+            found += window.count(text)
+            keep = len(text) - 1
+            tail = window[-keep:] if keep else b""
+    return found
+
+
 def _convert(source_path: str, target_path: str, name: str) -> None:
     decoder = codecs.getincrementaldecoder("utf-8")()
     encoder = codecs.getincrementalencoder(name)()

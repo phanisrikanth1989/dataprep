@@ -248,6 +248,10 @@ class Write:
         path: The file the job writes.
         sink: Given a path, returns the lazy sink that writes there.
         rows: A lazy frame whose one value is the number of rows written.
+        count: Given the written temporary file, returns the number of rows
+            in it. Used instead of ``rows`` when given: counting from the
+            file costs nothing in the pass, while a second frame over the
+            same rows can make Polars read the source twice.
         append: Whether to add to an existing file instead of replacing it.
         place: Puts the written temporary file in place, given its path and
             the row count; it must leave no temporary file behind. Without
@@ -258,6 +262,7 @@ class Write:
     path: str
     sink: Callable[[str], pl.LazyFrame]
     rows: Optional[pl.LazyFrame] = None
+    count: Optional[Callable[[str], int]] = None
     append: bool = False
     place: Optional[Callable[[str, Optional[int]], None]] = None
     finish: Optional[Callable[[Optional[int]], None]] = None

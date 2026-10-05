@@ -404,3 +404,15 @@ def test_failing_component_is_not_searched_for_after_a_long_pass(tmp_path, monke
     result = edge(made)
     assert result.status == "failed" and result.failed_component is None
     assert result.error and list(result.failures) == ["job"]
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 5, 1 << 20])
+def test_occurrences_are_counted_across_chunk_boundaries(tmp_path, monkeypatch, chunk):
+    from src.v2 import files
+
+    monkeypatch.setattr(files, "_CHUNK", chunk)
+    path = tmp_path / "f.txt"
+    path.write_bytes(b"ab\r\ncd\r\n\r\nef\r\n")
+    assert files.count_occurrences(str(path), b"\r\n") == 4
+    assert files.count_occurrences(str(path), b"\n") == 4
+    assert files.count_occurrences(str(path), b"zz") == 0

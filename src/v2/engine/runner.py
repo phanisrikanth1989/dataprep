@@ -316,7 +316,10 @@ class Runner:
         if not wanted and not writes and not taps:
             return []
         temps = [_temp_path(write.path) for _, write in writes]
-        counted = [(component_id, write.rows) for component_id, write in writes if write.rows is not None]
+        counted = [
+            (component_id, write.rows) for component_id, write in writes
+            if write.rows is not None and write.count is None
+        ]
         started = time.perf_counter()
         try:
             plans = [write.sink(temp) for (_, write), temp in zip(writes, temps)]
@@ -336,9 +339,14 @@ class Runner:
             component_id: int(frame.item())
             for (component_id, _), frame in zip(counted, results[first_count:first_tap])
         }
-        state.written += [
-            (component_id, write, temp, counts.get(component_id)) for (component_id, write), temp in zip(writes, temps)
-        ]
+        for (component_id, write), temp in zip(writes, temps):
+            try:
+                rows = write.count(temp) if write.count is not None else counts.get(component_id)
+            except Exception as exc:  # noqa: BLE001
+                for written in temps:
+                    _remove(written)
+                raise _Failed(component_id, _reason(exc)) from exc
+            state.written.append((component_id, write, temp, rows))
         for (component_id, tap), frame in zip(taps, results[first_tap:first_wanted]):
             try:
                 tap.receive(frame)

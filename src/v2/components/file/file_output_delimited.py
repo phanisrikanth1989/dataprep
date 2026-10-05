@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import polars as pl
 
 from ...errors import ConfigurationError
-from ...files import put_text_in_place
+from ...files import count_occurrences, put_text_in_place
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import to_text
@@ -131,6 +131,18 @@ class FileOutputDelimited(Sink):
                 lazy=True,
             )
 
+        def count(written: str) -> int:
+            """Rows in the written file, not counting the header line."""
+            if csv and terminator in ("\n", "\r\n", "\r"):
+                # Fields may hold line breaks inside their enclosures: let Polars tell rows apart.
+                lines = pl.scan_csv(
+                    written, separator=delimiter, has_header=False, quote_char=config["text_enclosure"],
+                    eol_char="\r" if terminator == "\r" else "\n", infer_schema=False, raise_if_empty=False,
+                ).select(pl.len()).collect().item()
+            else:
+                lines = count_occurrences(written, terminator.encode("utf-8")) if terminator else 0
+            return max(lines - (1 if header else 0), 0)
+
         def place(written: str, rows: Optional[int]) -> None:
             if not rows and (config["append"] or config["delete_empty_file"]):
                 os.remove(written)
@@ -139,7 +151,7 @@ class FileOutputDelimited(Sink):
                 return
             put_text_in_place(written, path, config["encoding"], config["append"])
 
-        return Write(path=path, sink=sink, rows=frame.select(pl.len()), append=config["append"], place=place)
+        return Write(path=path, sink=sink, count=count, append=config["append"], place=place)
 
 
 def _as_written(name: str, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:
