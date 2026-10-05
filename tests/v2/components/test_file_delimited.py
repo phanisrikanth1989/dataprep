@@ -582,3 +582,13 @@ def test_flow_with_no_columns_writes_an_empty_file(tmp_path):
     result = run_job(made, registry=registry)
     assert result.status == "success" and result.rows == {"out": 0}
     assert os.path.getsize(tmp_path / "out.csv") == 0
+
+
+def test_two_outputs_of_one_subjob_can_append_to_the_same_file(tmp_path):
+    made = copy("id:int, name:str", write={"append": True, "include_header": False}, reject_schema=True)
+    made["components"][2]["config"].update({"filepath": "out.csv", "append": True, "include_header": False})
+    run = assert_matches_v1(made, {"in.csv": b"1;a\nx;b\n2;c\n"}, tmp_path)
+    assert run.succeeded
+    assert run.files["out.csv"] == (
+        b"1;a\n2;c\nx;b;TYPE_CONVERSION;Column 'id': could not convert string to float: 'x'\n"
+    )

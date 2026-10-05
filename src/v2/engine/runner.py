@@ -314,7 +314,7 @@ class Runner:
         state.writes, state.taps = [], []
         if not wanted and not writes and not taps:
             return []
-        temps = [_temp_path(write.path) for _, write in writes]
+        temps = [_temp_path(write.path, component_id) for component_id, write in writes]
         counted = [
             (component_id, write.rows) for component_id, write in writes
             if write.rows is not None and write.count is None
@@ -437,9 +437,15 @@ def _null_problem(found: pl.DataFrame) -> Optional[str]:
     return f"Column '{named.group(1) if named else '?'}' has NULL values but is not nullable"
 
 
-def _temp_path(path: str) -> str:
+def _temp_path(path: str, component_id: str) -> str:
+    """Where a component's file is written before it is put in place: beside its target.
+
+    The component's id is part of the name, so two components writing to one
+    file in the same subjob do not write over each other.
+    """
     folder, name = os.path.split(path)
-    return os.path.join(folder, f".{name}.v2tmp{os.getpid()}")
+    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in component_id)
+    return os.path.join(folder, f".{name}.{safe}.v2tmp{os.getpid()}")
 
 
 def _remove(path: str) -> None:
