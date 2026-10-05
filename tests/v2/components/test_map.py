@@ -1561,3 +1561,14 @@ def test_row_counts_are_taken_over_the_outputs_as_in_v1(tmp_path, kind, counts, 
     made["triggers"] = [{"type": "RunIf", "from": "map", "to": "again", "condition": condition}]
     run = same(tmp_path, made, {"row1.csv": b"id\n1\n2\n3\n4\n5\n"})
     assert ("marker.csv" in run.files) is fires
+
+
+def test_java_left_in_a_filter_that_is_off_does_not_refuse_the_job():
+    cols = [("id", "row1.id", "int")]
+    outputs = [out("o", cols, filter="{{java}}row1.id > 3", activate_filter=False)]
+    made = mapping(config(outputs, main_filter=None), {"row1": "id:int"}, {"o": "id:int"})
+    made["components"][1]["config"]["inputs"]["main"]["filter"] = "{{java}}row1.id != null"
+    load_job(made)
+
+    made["components"][1]["config"]["outputs"][0]["activate_filter"] = True
+    assert "outputs[0].filter: Java expressions are not run by v2" in refused(made)

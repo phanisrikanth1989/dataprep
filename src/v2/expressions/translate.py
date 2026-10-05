@@ -116,6 +116,20 @@ def translate(text: str, scope: Scope) -> pl.Expr:
     return Translator(text, scope).run()
 
 
+def translate_condition(text: str, scope: Scope) -> pl.Expr:
+    """Translate a Python expression used as a condition.
+
+    The result is true or false by Python's rules of truth (zero, empty text
+    and a missing value are false) and is never missing, so it can filter
+    rows as it is.
+
+    Raises:
+        ExpressionError: As ``translate``.
+    """
+    translator = Translator(text, scope)
+    return translator.truth(translator.parse())
+
+
 class Translator:
     """Walks one expression's syntax tree. See ``translate``."""
 
@@ -126,17 +140,20 @@ class Translator:
 
     def run(self) -> pl.Expr:
         """Parse the text and translate it."""
+        return self.value(self.parse())
+
+    def parse(self) -> ast.AST:
+        """The expression's syntax tree, or a refusal saying why the text is not a Python expression."""
         if self.source.startswith("{{java}}"):
             raise ExpressionError(self.source, "Java expressions are not run by v2; rewrite it in Python")
         try:
-            tree = ast.parse(self.source, mode="eval")
+            return ast.parse(self.source, mode="eval").body
         except SyntaxError as exc:
             hints = [hint for token, hint in _JAVA_HINTS if token in self.source.replace("!=", "")]
             reason = f"not a valid Python expression ({exc.msg})"
             if hints:
                 reason += "; " + "; ".join(hints)
             raise ExpressionError(self.source, reason) from None
-        return self.value(tree.body)
 
     # ------------------------------------------------------------------
     # Helpers used by the function tables

@@ -244,11 +244,13 @@ class _Loader:
             schema_value = raw_config.pop("schema")
         schemas = self._schema(schema_value, where)
 
+        cls = self.registry.get(type_name)
+        # Java left under a key the component does not read (a filter that is switched off) is harmless.
+        unread = set(cls.unread_paths(raw_config)) if cls is not None else set()
         java = _java_paths(raw_config)
         for path in java:
-            self.report.add(where, path, JAVA_REASON)
-
-        cls = self.registry.get(type_name)
+            if path not in unread:
+                self.report.add(where, path, JAVA_REASON)
         if cls is None:
             self.report.add(where, "type", f"component type '{type_name}' is not supported in v2")
             return None

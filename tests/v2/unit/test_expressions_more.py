@@ -252,3 +252,33 @@ def test_numpy_round_gives_what_numpy_gives():
     values = [2.675, 1.005, 0.125, 2.5, -2.5] + [round(rng.uniform(-1000, 1000), 4) for _ in range(5000)]
     for digits in (0, 1, 2, 3):
         assert ev(f"np.round(row1.f, {digits})", {"f": values}) == [float(np.round(value, digits)) for value in values]
+
+
+# ------------------------------------------------------------------
+# An expression used as a condition
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "text, data, want",
+    [
+        ("row1.n > 1", {"n": [1, 2, None]}, [False, True, False]),
+        ("row1.n", {"n": [0, 3, None]}, [False, True, False]),
+        ("row1.s", {"s": ["", "x", None]}, [False, True, False]),
+        ("row1.s and row1.n", {"s": ["x", "x", ""], "n": [1, 0, 1]}, [True, False, False]),
+        ("not row1.s", {"s": ["", "x", None]}, [True, False, True]),
+        ("None", {"n": [1]}, [False]),
+    ],
+)
+def test_condition_is_true_or_false_by_pythons_rules_and_never_missing(text, data, want):
+    from src.v2.expressions import translate_condition
+
+    frame = pl.DataFrame(data)
+    scope = Scope.for_rows({"row1": dict(frame.schema)}, bare="row1")
+    assert frame.select(translate_condition(text, scope).alias("r"))["r"].to_list() == want
+
+
+def test_condition_that_is_not_python_says_so():
+    from src.v2.expressions import translate_condition
+
+    with pytest.raises(ExpressionError, match="not a valid Python expression"):
+        translate_condition("row1.n >", Scope.for_rows({"row1": {"n": pl.Int64}}, bare="row1"))

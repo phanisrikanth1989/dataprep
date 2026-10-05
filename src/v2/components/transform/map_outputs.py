@@ -5,14 +5,12 @@ every output is a filter of the same plan and the inputs are read once.
 """
 from __future__ import annotations
 
-import ast
 from typing import Any, Callable, Dict, List, Optional
 
 import polars as pl
 
 from ...errors import ExpressionError
-from ...expressions import Scope, translate
-from ...expressions.translate import Translator
+from ...expressions import Scope, translate, translate_condition
 from ...job.model import TYPE_NAMES, Column
 from ...types import conform, from_text, polars_type
 from .map_joins import MISSED
@@ -36,10 +34,8 @@ def translated(text: str, scope: Scope, where: str) -> pl.Expr:
 
 def condition(text: str, scope: Scope, where: str) -> pl.Expr:
     """A filter as a true-or-false value that is never missing, by Python's rules of truth."""
-    translator = Translator(text, scope)
     try:
-        value = translator.run()
-        return translator.truthy(value, ast.parse(translator.source, mode="eval").body)
+        return translate_condition(text, scope)
     except ExpressionError as exc:
         raise ExpressionError(exc.expression, f"{where}: {exc.reason}") from None
 

@@ -37,6 +37,11 @@ COMMON_KEYS: Tuple[Key, ...] = (
 )
 
 
+def is_on(value: Any) -> bool:
+    """Whether a switch in a config as written is on: true, or the text "true"."""
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
 class Component:
     """One step of a job.
 
@@ -212,6 +217,17 @@ class Component:
             if flow_type in flow_types:
                 return port
         return None
+
+    @classmethod
+    def unread_paths(cls, raw_config: Dict[str, Any]) -> List[str]:
+        """Paths of config values the component does not read with the config as written.
+
+        A filter that is switched off, for example. The converter leaves
+        Talend's Java there; a Java expression under one of these paths does
+        not refuse the job. Paths are written as the refusal report writes
+        them: ``advanced_cond``, ``outputs[0].filter``.
+        """
+        return []
 
     @classmethod
     def no_port_reason(cls, flow_type: str, flow_name: str, config: Dict[str, Any]) -> str:

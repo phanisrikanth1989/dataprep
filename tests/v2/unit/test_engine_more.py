@@ -299,3 +299,44 @@ def test_every_component_accepts_v1s_component_type_label(tmp_path):
                 ("out", "save", {"path": str(tmp_path / "o.csv"), "component_type": "Save"})],
                [("r1", "in", "out", "flow")])
     assert run(made).status == "success"
+
+
+# ------------------------------------------------------------------
+# Values that only exist once the job runs
+# ------------------------------------------------------------------
+
+def test_expression_reading_a_row_count_is_not_refused_at_load(tmp_path):
+    out = tmp_path / "out.csv"
+    made = with_schema(job(
+        [("a", "rows", {"data": {"n": [1, 2, 3]}}), ("first", "save", {"path": str(tmp_path / "first.csv")}),
+         ("b", "rows", {"data": {"n": [10]}}),
+         ("calc", "calc", {"expression": 'n + globalMap.get("first_NB_LINE")'}), ("out", "save", {"path": str(out)})],
+        [("r1", "a", "first", "flow"), ("r2", "b", "calc", "flow"), ("r3", "calc", "out", "flow")],
+    ), {"b": schema_of(("n", "int"))})
+    result = run(made)
+    assert result.status == "success"
+    assert lines(out) == ["n", "13"]
+
+
+def test_expression_reading_a_context_value_set_while_the_job_runs_is_not_refused_at_load(tmp_path):
+    out = tmp_path / "out.csv"
+    made = with_schema(job(
+        [("vars", "rows", {"data": {"bonus": [5]}}), ("set", "set_context", {}),
+         ("b", "rows", {"data": {"n": [10]}}), ("calc", "calc", {"expression": "n + context.bonus"}),
+         ("out", "save", {"path": str(out)})],
+        [("r0", "vars", "set", "flow"), ("r2", "b", "calc", "flow"), ("r3", "calc", "out", "flow")],
+    ), {"b": schema_of(("n", "int"))})
+    result = run(made)
+    assert result.status == "success"
+    assert lines(out) == ["n", "15"]
+
+
+def test_expression_reading_a_context_value_nothing_sets_is_refused_at_load(tmp_path):
+    made = with_schema(job(
+        [("b", "rows", {"data": {"n": [10]}}), ("calc", "calc", {"expression": "n + context.bonus"}),
+         ("out", "save", {"path": str(tmp_path / "o.csv")})],
+        [("r2", "b", "calc", "flow"), ("r3", "calc", "out", "flow")],
+    ), {"b": schema_of(("n", "int"))})
+    with pytest.raises(JobRefusedError) as caught:
+        run(made)
+    assert "context has no variable 'bonus'" in caught.value.report.format()

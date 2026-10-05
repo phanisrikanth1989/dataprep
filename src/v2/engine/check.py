@@ -57,7 +57,13 @@ def check_job(
                 for frame in outputs.values():
                     frame.collect_schema()
             except ExpressionError as exc:
-                report.add(spec.where, "expression", str(exc))
+                # A globalMap entry is set while the job runs, and so is a context variable when the
+                # job loads context: neither can be judged before the run.
+                later = "globalMap has no entry" in exc.reason or (
+                    late_context and "context has no variable" in exc.reason
+                )
+                if not later:
+                    report.add(spec.where, "expression", str(exc))
                 continue
             except Exception as exc:  # noqa: BLE001 -- whatever stops a build is worth reporting
                 reason = _reason(exc)

@@ -15,7 +15,7 @@ from ...errors import ConfigurationError
 from ...expressions import Scope
 from ...job.keys import EXPRESSION, Key, Kind
 from ...job.model import TYPE_NAMES
-from ..base import Transform
+from ..base import Transform, is_on
 from ..registry import REGISTRY
 from .map_joins import joined_with
 from .map_outputs import condition, projected, routed, translated, type_of
@@ -29,6 +29,10 @@ def _not_empty(value: str) -> str:
     if not value.strip():
         raise ValueError("must not be empty")
     return value
+
+
+def _listed(value: Any) -> List[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _load_once(value: str) -> str:
@@ -158,6 +162,18 @@ class Map(Transform):
         declared = config.get("outputs")
         names = [output.get("name") for output in declared if isinstance(output, dict)] if declared else []
         return flow_name if flow_name in names else None
+
+    @classmethod
+    def unread_paths(cls, raw_config: Dict[str, Any]) -> List[str]:
+        """A filter is not read while its ``activate_filter`` is off."""
+        inputs = raw_config.get("inputs") if isinstance(raw_config.get("inputs"), dict) else {}
+        places = [("inputs.main", inputs.get("main"))]
+        places += [(f"inputs.lookups[{index}]", lookup) for index, lookup in enumerate(_listed(inputs.get("lookups")))]
+        places += [(f"outputs[{index}]", output) for index, output in enumerate(_listed(raw_config.get("outputs")))]
+        return [
+            f"{where}.filter" for where, holder in places
+            if isinstance(holder, dict) and not is_on(holder.get("activate_filter"))
+        ]
 
     @classmethod
     def no_port_reason(cls, flow_type: str, flow_name: str, config: Dict[str, Any]) -> str:
