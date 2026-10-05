@@ -85,18 +85,26 @@ class Component:
         """Whether this component must be handed real rows instead of a lazy frame."""
         return False
 
-    def counted_as_lines(
+    def line_counts(
         self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
-    ) -> List[pl.LazyFrame]:
-        """The frames whose rows add up to this component's ``<id>_NB_LINE``.
+    ) -> Dict[str, List[pl.LazyFrame]]:
+        """The frames whose rows add up to each of the component's row counts.
 
-        v1 counts the rows of every input, and for a component with no input
-        the rows of its main and reject outputs. A component whose v1
-        counterpart counts differently says so here.
+        The counts are ``NB_LINE``, ``NB_LINE_OK`` and ``NB_LINE_REJECT``
+        (``<id>_NB_LINE``... in globalMap). v1's rule is the default:
+        NB_LINE is the rows of every input, or of the main and reject
+        outputs for a component with no input; OK is the main output and
+        REJECT the reject output. A component whose v1 counterpart counts
+        differently says so here. Counting happens only when something in
+        the job reads the count.
         """
-        if inputs:
-            return list(inputs.values())
-        return [outputs[port] for port in ("main", "reject") if port in outputs]
+        accepted = [outputs[port] for port in ("main",) if port in outputs]
+        rejected = [outputs[port] for port in ("reject",) if port in outputs]
+        return {
+            "NB_LINE": list(inputs.values()) or accepted + rejected,
+            "NB_LINE_OK": accepted,
+            "NB_LINE_REJECT": rejected,
+        }
 
     def problems(self) -> List[str]:
         """What is wrong with this component's config that no data is needed to see.
@@ -204,6 +212,11 @@ class Component:
             if flow_type in flow_types:
                 return port
         return None
+
+    @classmethod
+    def no_port_reason(cls, flow_type: str, flow_name: str, config: Dict[str, Any]) -> str:
+        """What to say of a flow no output port takes: the words after "a <type> "."""
+        return f"has no '{flow_type}' output"
 
 
 @dataclass

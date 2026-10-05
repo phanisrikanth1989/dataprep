@@ -276,8 +276,10 @@ def test_component_says_which_frames_its_line_count_covers(tmp_path):
         def build(self, inputs):
             return {"main": next(iter(inputs.values()))}
 
-        def counted_as_lines(self, inputs, outputs):
-            return [next(iter(inputs.values()))]
+        def line_counts(self, inputs, outputs):
+            counts = super().line_counts(inputs, outputs)
+            counts["NB_LINE"] = [next(iter(inputs.values()))]
+            return counts
 
     registry = Registry()
     for cls in list(KIT.classes()) + [FirstOnly]:

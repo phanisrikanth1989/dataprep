@@ -416,3 +416,12 @@ def test_occurrences_are_counted_across_chunk_boundaries(tmp_path, monkeypatch, 
     assert files.count_occurrences(str(path), b"\r\n") == 4
     assert files.count_occurrences(str(path), b"\n") == 4
     assert files.count_occurrences(str(path), b"zz") == 0
+
+
+def test_failure_reason_is_plain_ascii(tmp_path):
+    # Polars writes the unit of a timestamp with a Greek letter; logs on the servers must stay ASCII.
+    from src.v2.engine.runner import _reason
+
+    reason = _reason(RuntimeError("cannot cast datetime[\u03bcs] to i64 \u2014 really"))
+    assert reason == "cannot cast datetime[us] to i64 ? really"
+    assert reason.isascii()

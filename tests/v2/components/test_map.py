@@ -1249,7 +1249,7 @@ def test_flow_must_leave_by_a_declared_output():
     made = orders_job()
     made["flows"][-1]["name"] = "other"
     made["components"][-1]["inputs"] = ["other"]
-    assert "flows[2].type: a PyMap has no 'flow' output" in refused(made)
+    assert "flows[2].type: a PyMap has no output named 'other'; its outputs are: o" in refused(made)
 
 
 def test_flow_of_another_name_can_say_which_output_it_carries(tmp_path):
@@ -1539,3 +1539,25 @@ def test_main_order_and_matches_hold_on_larger_inputs(tmp_path, engine, mode):
         else:
             expected["rej.csv"].append(str(n))
     assert {name: data.decode().splitlines() for name, data in files.items()} == expected
+
+
+# ------------------------------------------------------------------
+# Row counts
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("kind", ["PyMap"])
+@pytest.mark.parametrize("counts, fires", [((5, 2, 3), True), ((5, 5, 0), False), ((7, 0, 0), False)])
+def test_row_counts_are_taken_over_the_outputs_as_in_v1(tmp_path, kind, counts, fires):
+    """NB_LINE is every row that left by any output, OK the ordinary outputs, REJECT the reject outputs."""
+    cols = [("id", "row1.id", "int")]
+    outputs = [out("o", cols, filter="row1.id > 3", activate_filter=True), out("low", cols, is_reject=True)]
+    made = mapping(config(outputs), {"row1": "id:int"}, {"o": "id:int", "low": "id:int"}, kind=kind)
+    made["components"] += [reader("id:int", component_id="again", path="row1.csv", outputs=("row9",), header_rows=1),
+                           writer("id:int", component_id="marker", path="marker.csv", inputs=("row9",))]
+    made["flows"].append(flow("row9", "again", "marker"))
+    lines, ok, reject = counts
+    condition = (f'((Integer)globalMap.get("map_NB_LINE")) == {lines} && ((Integer)globalMap.get("map_NB_LINE_OK")) == {ok}'
+                 f' && ((Integer)globalMap.get("map_NB_LINE_REJECT")) == {reject}')
+    made["triggers"] = [{"type": "RunIf", "from": "map", "to": "again", "condition": condition}]
+    run = same(tmp_path, made, {"row1.csv": b"id\n1\n2\n3\n4\n5\n"})
+    assert ("marker.csv" in run.files) is fires

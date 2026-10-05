@@ -68,9 +68,13 @@ class Join(Transform):
             return ["join_key: at least one pair of key columns is needed"]
         return []
 
-    def counted_as_lines(self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]) -> List[pl.LazyFrame]:
+    def line_counts(
+        self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
+    ) -> Dict[str, List[pl.LazyFrame]]:
         """v1's join counts the rows of its main input only."""
-        return [_sides(inputs)[0]]
+        counts = super().line_counts(inputs, outputs)
+        counts["NB_LINE"] = [_sides(inputs)[0]]
+        return counts
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         main, lookup = _sides(inputs)

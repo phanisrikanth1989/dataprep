@@ -159,6 +159,12 @@ class Map(Transform):
         names = [output.get("name") for output in declared if isinstance(output, dict)] if declared else []
         return flow_name if flow_name in names else None
 
+    @classmethod
+    def no_port_reason(cls, flow_type: str, flow_name: str, config: Dict[str, Any]) -> str:
+        declared = config.get("outputs") or []
+        names = [str(output.get("name")) for output in declared if isinstance(output, dict)]
+        return f"has no output named '{flow_name}'; its outputs are: {', '.join(names) or 'none'}"
+
     def problems(self) -> List[str]:
         config, found = self.config, []
         names = [config["inputs"]["main"]["name"]]
@@ -216,6 +222,19 @@ class Map(Transform):
         return {
             output["name"]: projected(taken[index], output, scope, f"outputs[{index}]", check)
             for index, output in enumerate(outputs)
+        }
+
+    def line_counts(
+        self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
+    ) -> Dict[str, List[pl.LazyFrame]]:
+        """v1's map counts the rows that leave: by any output, by the ordinary ones, by the reject ones."""
+        rejecting = {
+            output["name"] for output in self.config["outputs"] if output["is_reject"] or output["inner_join_reject"]
+        }
+        return {
+            "NB_LINE": list(outputs.values()),
+            "NB_LINE_OK": [frame for name, frame in outputs.items() if name not in rejecting],
+            "NB_LINE_REJECT": [frame for name, frame in outputs.items() if name in rejecting],
         }
 
     def _input(self, inputs: Dict[str, pl.LazyFrame], name: str, key: str) -> pl.LazyFrame:

@@ -353,9 +353,8 @@ class _Loader:
         if port is None:
             port = source.cls.port_for(fields["type"], fields["name"], source.config)
             if port is None:
-                self.report.add(
-                    "job", prefix + "type", f"a {source.type} has no '{fields['type']}' output"
-                )
+                reason = source.cls.no_port_reason(fields["type"], fields["name"], source.config)
+                self.report.add("job", prefix + "type", f"a {source.type} {reason}")
                 self._starved.add(fields["target"])
                 return None
         return Flow(name=fields["name"], source=fields["source"], target=fields["target"], kind=fields["type"], port=port)

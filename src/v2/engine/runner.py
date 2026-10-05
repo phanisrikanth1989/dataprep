@@ -296,16 +296,12 @@ class Runner:
         wanted = self._wanted.get(component.id)
         if not wanted or isinstance(component, Sink):
             return
-        counted: Dict[str, List[pl.LazyFrame]] = {
-            "NB_LINE_OK": [outputs[port] for port in ("main",) if port in outputs],
-            "NB_LINE_REJECT": [outputs[port] for port in ("reject",) if port in outputs],
-        }
-        counted["NB_LINE"] = component.counted_as_lines(inputs, outputs)
+        counted = component.line_counts(inputs, outputs)
         global_map = self.run_context.global_map
         for stat in wanted:
             key = f"{component.id}_{stat}"
             global_map[key] = 0
-            for frame in counted[stat]:
+            for frame in counted.get(stat, []):
                 component.tap(frame.select(pl.len()), lambda rows, key=key: _add(global_map, key, rows.item()))
 
     # ------------------------------------------------------------------
@@ -463,8 +459,11 @@ def _put_in_place(temp: str, write: Write) -> None:
 
 
 def _reason(error: BaseException) -> str:
-    """One line saying what went wrong."""
+    """One line of plain ASCII saying what went wrong."""
     text = " ".join(str(error).split())
     for marker in (" Resolved plan until failure", " You might want to try:"):
         text = text.split(marker)[0]
+    # Polars spells microseconds with a Greek letter; logs must stay ASCII.
+    text = text.replace("\u03bc", "u").replace("\u00b5", "u")
+    text = text.encode("ascii", "replace").decode("ascii")
     return text or type(error).__name__
