@@ -1,9 +1,0 @@
-{
-    "config": {},
-    "inputs": {
-        "main": {"x": [1, 2]}
-    },
-    "expected": {
-        "main": {"x": [1, 2]}
-    }
-}

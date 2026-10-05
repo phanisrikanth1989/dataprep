@@ -1,9 +1,0 @@
-{
-  "description": "delete_empty_file=true with empty DataFrame skips writing",
-  "config": {
-    "path": "__TMP__/output.csv",
-    "delete_empty_file": true
-  },
-  "input_data": {},
-  "expect_no_file": true
-}

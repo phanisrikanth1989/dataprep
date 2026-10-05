@@ -1,3 +1,0 @@
-# Benchmark baselines are committed JSON files.
-# Each component has a <component>.json baseline.
-# Re-baseline with: python scripts/rebaseline.py <component>
