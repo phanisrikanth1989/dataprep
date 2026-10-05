@@ -48,8 +48,8 @@ two delimited-file key tickets
 Resolved 2026-10-05 by a research agent. The full note, every claim cited or
 labelled as an observation:
 [Polars facts: reading and writing delimited files](../research/2026-10-05-polars-delimited-files.md)
-(also on the throwaway branch `research/polars-delimited-files`, commit
-`d637620a`). Facts are read at both ends of the pin, tags `py-1.38.0` and
+(written on a throwaway research branch, since deleted; this copy is the
+record). Facts are read at both ends of the pin, tags `py-1.38.0` and
 `py-1.44.2`. Only 1.44.2 was run, and the timings are from one Mac with a
 warm cache: provisional for the target servers.
 

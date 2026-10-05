@@ -40,8 +40,8 @@ Feeds [Expression translator spike](15-expression-translator-spike.md) and
 Resolved 2026-10-05 by a research agent. The full note, every claim cited or
 labelled as an observation:
 [Translating Python expressions to Polars: prior art and mapping](../research/2026-10-05-python-expressions-to-polars.md)
-(also on the throwaway branch `research/python-expressions-to-polars`, commit
-`46d1b9c3`). Its section 3 is 328 Python/Polars pairs run both ways on polars
+(written on a throwaway research branch, since deleted; this copy is the
+record). Its section 3 is 328 Python/Polars pairs run both ways on polars
 1.44.2 and Python 3.14.6 on one Mac: provisional for the target servers, and
 nothing was run on polars 1.38 to 1.43.
 

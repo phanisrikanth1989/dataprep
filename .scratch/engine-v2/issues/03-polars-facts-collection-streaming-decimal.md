@@ -42,9 +42,9 @@ Feeds [Barriers, collection and row counts](09-barriers-collection-and-row-count
 
 Resolved 2026-10-05 by a research agent. The full note, every claim cited:
 [Polars facts: collection, streaming, sinks, row counts, Decimal, errors, order](../research/2026-10-05-polars-collection-streaming-decimal.md)
-(also on the throwaway branch `research/polars-collection-streaming-decimal`,
-commit `61d57a5a`). Facts are read at both ends of the pin, tags `py-1.38.0`
-and `py-1.44.2`. Only 1.44.2 was run, on one Mac, so everything the note marks
+(written on a throwaway research branch, since deleted; this copy is the
+record). Facts are read at both ends of the pin, tags `py-1.38.0` and
+`py-1.44.2`. Only 1.44.2 was run, on one Mac, so everything the note marks
 Observed is provisional for the target servers.
 
 The gist, by sub-question:
