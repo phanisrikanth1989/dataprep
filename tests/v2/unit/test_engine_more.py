@@ -254,3 +254,46 @@ def test_inputs_follow_the_components_own_list_when_it_gives_one_as_in_v1(tmp_pa
     made["components"][3]["inputs"] = ["fc", "fa"]
     run(made)
     assert lines(out) == ["n,via", "3,fc", "1,fa", "2,fb"]
+
+
+# ------------------------------------------------------------------
+# Which rows a component's NB_LINE counts
+# ------------------------------------------------------------------
+
+def test_component_says_which_frames_its_line_count_covers(tmp_path):
+    from src.v2.components.base import Transform
+    from src.v2.components.registry import Registry
+    from src.v2.engine import run_job
+
+    from .kit import REGISTRY as KIT
+
+    class FirstOnly(Transform):
+        """Takes two inputs, passes the first on, and counts only that one as v1's join does."""
+
+        names = ("first_only",)
+        max_inputs = 2
+
+        def build(self, inputs):
+            return {"main": next(iter(inputs.values()))}
+
+        def counted_as_lines(self, inputs, outputs):
+            return [next(iter(inputs.values()))]
+
+    registry = Registry()
+    for cls in list(KIT.classes()) + [FirstOnly]:
+        registry.register(cls)
+    made = job(
+        [("a", "rows", {"data": {"n": [1, 2, 3]}}), ("b", "rows", {"data": {"n": [7, 8]}}), ("it", "first_only", {}),
+         ("out", "save", {"path": str(tmp_path / "o.csv")}), ("next", "mark", {"name": "next"})],
+        [("fa", "a", "it", "flow"), ("fb", "b", "it", "flow"), ("r", "it", "out", "flow")],
+        triggers=[{"type": "RunIf", "from": "out", "to": "next", "condition": '((Integer)globalMap.get("it_NB_LINE")) == 3'}],
+    )
+    result = run_job(made, registry=registry)
+    assert result.global_map["it_NB_LINE"] == 3
+
+
+def test_every_component_accepts_v1s_component_type_label(tmp_path):
+    made = job([("in", "rows", {"data": {"n": [1]}, "component_type": "Rows"}),
+                ("out", "save", {"path": str(tmp_path / "o.csv"), "component_type": "Save"})],
+               [("r1", "in", "out", "flow")])
+    assert run(made).status == "success"

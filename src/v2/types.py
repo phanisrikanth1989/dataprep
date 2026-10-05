@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import polars as pl
 
+from .errors import ConfigurationError
 from .job.model import Column
 
 # Places a Decimal column holds when its schema declares none.
@@ -310,6 +311,10 @@ def _coerced(value: pl.Expr, dtype: pl.DataType, column: Column) -> pl.Expr:
     kind = column.type
     if kind == "str":
         return value
+    if dtype.is_temporal() != (kind in ("datetime", "date")) and dtype != pl.String:
+        raise ConfigurationError(
+            f"column '{column.name}' is declared {kind} but holds {dtype}; one cannot be turned into the other"
+        )
     if dtype == pl.String:
         return from_text(value.fill_null(""), column)[0] if kind != "bool" else _bool_from_text(value)
     if kind == "int":

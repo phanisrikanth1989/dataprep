@@ -300,7 +300,7 @@ class Runner:
             "NB_LINE_OK": [outputs[port] for port in ("main",) if port in outputs],
             "NB_LINE_REJECT": [outputs[port] for port in ("reject",) if port in outputs],
         }
-        counted["NB_LINE"] = list(inputs.values()) or counted["NB_LINE_OK"] + counted["NB_LINE_REJECT"]
+        counted["NB_LINE"] = component.counted_as_lines(inputs, outputs)
         global_map = self.run_context.global_map
         for stat in wanted:
             key = f"{component.id}_{stat}"

@@ -322,3 +322,18 @@ def test_polars_type_of_each_declared_type():
     assert polars_type(Column("v", "date")) == pl.Date
     assert polars_type(Column("v", "Decimal", precision=2)) == pl.Decimal(38, 2)
     assert polars_type(Column("v", "Decimal")) == pl.Decimal(38, 10)
+
+
+@pytest.mark.parametrize(
+    "dtype, declared",
+    [
+        (pl.Decimal(38, 2), Column("v", "datetime")), (pl.Int64, Column("v", "datetime")), (pl.Float64, Column("v", "date")),
+        (pl.Boolean, Column("v", "datetime")), (pl.Datetime("us"), Column("v", "int")), (pl.Date, Column("v", "float")),
+        (pl.Datetime("us"), Column("v", "Decimal", precision=2)), (pl.Date, Column("v", "bool")),
+    ],
+)
+def test_declared_type_the_values_cannot_become_is_an_error_when_the_plan_is_built(dtype, declared):
+    from src.v2.errors import ConfigurationError
+
+    with pytest.raises(ConfigurationError, match="column 'v' is declared"):
+        conform(pl.LazyFrame(schema={"v": dtype}), [declared])

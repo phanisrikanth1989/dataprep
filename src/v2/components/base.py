@@ -33,6 +33,7 @@ COMMON_KEYS: Tuple[Key, ...] = (
     Key("tstatcatcher_stats", kind=Kind.IGNORED, type=object, doc="Talend statistics flag."),
     Key("execution_mode", kind=Kind.IGNORED, type=object, doc="v1 batch/streaming switch; v2 decides itself."),
     Key("chunk_size", kind=Kind.IGNORED, type=object, doc="v1 streaming chunk size."),
+    Key("component_type", kind=Kind.IGNORED, type=object, doc="v1's name for the component type; a label."),
 )
 
 
@@ -83,6 +84,19 @@ class Component:
     def needs_rows(self) -> bool:
         """Whether this component must be handed real rows instead of a lazy frame."""
         return False
+
+    def counted_as_lines(
+        self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
+    ) -> List[pl.LazyFrame]:
+        """The frames whose rows add up to this component's ``<id>_NB_LINE``.
+
+        v1 counts the rows of every input, and for a component with no input
+        the rows of its main and reject outputs. A component whose v1
+        counterpart counts differently says so here.
+        """
+        if inputs:
+            return list(inputs.values())
+        return [outputs[port] for port in ("main", "reject") if port in outputs]
 
     def problems(self) -> List[str]:
         """What is wrong with this component's config that no data is needed to see.
