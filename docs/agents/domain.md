@@ -5,7 +5,9 @@ the codebase.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root — the glossary / ubiquitous language.
+- **`CONTEXT-MAP.md`** at the repo root — lists the contexts. Read the `CONTEXT.md` of
+  the one you're working in: ETL Studio's is the root `CONTEXT.md`, the v2 engine's is
+  `src/v2/CONTEXT.md`.
 - **`docs/adr/`** — read the ADRs that touch the area you're about to work in.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't
@@ -15,20 +17,20 @@ get resolved. Neither exists in this repo yet — that is expected.
 
 ## File structure
 
-This is a **single-context** repo:
+This is a **multi-context** repo:
 
 ```
 /
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-py4j-arrow-java-bridge.md
-│   └── 0002-converter-json-format-frozen.md
+├── CONTEXT-MAP.md        ← lists the contexts and how they relate
+├── CONTEXT.md            ← ETL Studio
+├── docs/adr/             ← system-wide decisions
 └── src/
+    └── v2/
+        └── CONTEXT.md    ← v2 engine
 ```
 
-If the repo ever splits into genuinely separate contexts, add a root `CONTEXT-MAP.md`
-pointing at one `CONTEXT.md` per context (plus optional `src/<context>/docs/adr/` for
-context-scoped decisions) and update this file.
+To add a context, give it its own `CONTEXT.md` and a line in `CONTEXT-MAP.md`.
+Context-scoped decisions may live in `src/<context>/docs/adr/`.
 
 ## Use the glossary's vocabulary
 
