@@ -78,7 +78,7 @@ def run_v2(job: Job) -> None:
     """Run a job on v2, in process. Raises when the job does not finish."""
     from src.v2 import run_job as v2_run_job
 
-    v2_run_job(job)
+    v2_run_job(job).raise_for_status()
 
 
 # ------------------------------------------------------------------

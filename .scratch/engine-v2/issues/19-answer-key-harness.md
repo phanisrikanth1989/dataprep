@@ -1,6 +1,6 @@
 # 19 - Answer-key harness
 
-Status: open
+Status: claimed
 Type: task
 
 ## Question
