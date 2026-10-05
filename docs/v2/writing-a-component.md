@@ -26,10 +26,16 @@ for the words used here (config key, alias, refusal report, answer key).
    (`strict=False`, flag columns). A row that cannot be processed goes to the
    `reject` output when `die_on_error` is false; when it is true, count the
    bad rows with `self.check(...)` and fail with v1's message.
-6. **Nothing undeclared.** Every config key the converter emits for the
+6. **Never call `.cache()`.** Polars finds frames that several outputs
+   share by itself. An explicit `.cache()` looks like the way to make sure a
+   file is read once, and on Polars 1.44 it writes wrong columns: a `select`
+   or `drop` that sits between a cached frame and a frame with two readers
+   is lost (reproduction in
+   `.scratch/engine-v2/research/probes/probe_polars_cache_loses_projection.py`).
+7. **Nothing undeclared.** Every config key the converter emits for the
    component, and every key v1's engine component reads, is declared:
    supported, ignored, or refused. An undeclared key refuses the job.
-7. **ASCII only** in log messages and source. Log with
+8. **ASCII only** in log messages and source. Log with
    `logger.info(f"[{self.id}] ...")`.
 
 ## Skeleton
