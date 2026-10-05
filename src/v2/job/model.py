@@ -77,12 +77,15 @@ class Trigger:
         source: Id of the component the trigger leaves from.
         target: Id of the component it starts.
         condition: The expression a ``RunIf`` trigger fires on.
+        order: Where the trigger comes among those of its subjob; lower
+            first, job-config order among equals. v1's ``output_id``.
     """
 
     kind: str
     source: str
     target: str
     condition: Optional[str] = None
+    order: int = 0
 
 
 @dataclass
@@ -98,6 +101,9 @@ class ComponentSpec:
             that name context variables are still unresolved here.
         schema: Its declared output columns.
         input_schema: Its declared input columns.
+        reject_schema: The declared columns of its reject output.
+        input_schemas: Declared input columns per incoming flow name, for
+            components that take several inputs.
     """
 
     id: str
@@ -107,6 +113,8 @@ class ComponentSpec:
     config: Dict[str, Any]
     schema: List[Column] = field(default_factory=list)
     input_schema: List[Column] = field(default_factory=list)
+    reject_schema: List[Column] = field(default_factory=list)
+    input_schemas: Dict[str, List[Column]] = field(default_factory=dict)
 
     @property
     def where(self) -> str:
@@ -124,10 +132,13 @@ class Job:
         components: The components by id, in job-config order.
         flows: The flows, in job-config order.
         triggers: The triggers, in job-config order.
+        routines: Where routine modules are loaded from: v1's
+            ``python_config`` block, or None.
     """
 
     name: str
     context: Dict[str, Any] = field(default_factory=dict)
+    routines: Optional[Dict[str, Any]] = None
     components: Dict[str, ComponentSpec] = field(default_factory=dict)
     flows: List[Flow] = field(default_factory=list)
     triggers: List[Trigger] = field(default_factory=list)

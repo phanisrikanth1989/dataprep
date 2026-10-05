@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from ..components.registry import REGISTRY, Registry
-from .graph import loop
+from .graph import loop, subjobs
 from .keys import EXPRESSION, Key, Kind, normalize_config
 from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Trigger
 from .refusal import Refusal, RefusalReport
@@ -55,6 +55,11 @@ JOB_KEYS: Tuple[Key, ...] = (
     Key("triggers", type=list, default=[], doc="The triggers between subjobs."),
     Key("subjobs", kind=Kind.IGNORED, type=object, doc="v1's subjob listing; v2 derives subjobs from the flows."),
     Key("java_config", kind=Kind.IGNORED, type=object, doc="v1's Java bridge settings."),
+    Key("python_config", type=dict, default=None, nullable=True,
+        doc="Routine modules: {enabled, routines_dir, routines}."),
+    Key("engine_config", kind=Kind.IGNORED, type=object, doc="v1 engine settings for components v2 does not have."),
+    Key("oracle_config", kind=Kind.IGNORED, type=object, doc="v1's Oracle settings."),
+    Key("mssql_config", kind=Kind.IGNORED, type=object, doc="v1's SQL Server settings."),
     Key("job_type", kind=Kind.IGNORED, type=object, doc="Talend job type."),
     Key("version", kind=Kind.IGNORED, type=object, doc="Free-form version label."),
     Key("description", kind=Kind.IGNORED, type=object, doc="Free-form description."),
@@ -69,6 +74,8 @@ COMPONENT_KEYS: Tuple[Key, ...] = (
     Key("outputs", kind=Kind.IGNORED, type=object, doc="v1's list of outgoing flow names; the flows decide."),
     Key("original_type", kind=Kind.IGNORED, type=object, doc="The Talend type the component was converted from."),
     Key("position", kind=Kind.IGNORED, type=object, doc="Canvas position."),
+    Key("subjob_id", kind=Kind.IGNORED, type=object, doc="v1's subjob label; v2 derives subjobs from the flows."),
+    Key("is_subjob_start", kind=Kind.IGNORED, type=object, doc="v1's subjob start marker."),
 )
 
 FLOW_KEYS: Tuple[Key, ...] = (
@@ -82,9 +89,12 @@ FLOW_KEYS: Tuple[Key, ...] = (
 
 TRIGGER_KEYS: Tuple[Key, ...] = (
     Key("type", required=True, choices=tuple(_TRIGGER_KINDS), doc="When the trigger fires."),
-    Key("source", required=True, aliases=("from",), doc="Id of the component the trigger leaves from."),
-    Key("target", required=True, aliases=("to",), doc="Id of the component it starts."),
-    Key("condition", type=EXPRESSION, doc="The expression a RunIf trigger fires on."),
+    Key("source", required=True, aliases=("from", "from_component"),
+        doc="Id of the component the trigger leaves from."),
+    Key("target", required=True, aliases=("to", "to_component"), doc="Id of the component it starts."),
+    Key("condition", type=EXPRESSION, doc="The condition a RunIf trigger fires on."),
+    Key("order", type=int, default=0, aliases=("output_id",),
+        doc="Where the trigger comes among those leaving the same subjob; lower first."),
 )
 
 COLUMN_KEYS: Tuple[Key, ...] = (
@@ -154,10 +164,13 @@ class _Loader:
             trigger = self._trigger(index, raw_trigger, job)
             if trigger is not None:
                 job.triggers.append(trigger)
+        job.routines = top.get("python_config")
         self._check_input_counts(job)
         stuck = loop(job)
         if stuck:
             self.report.add("job", "flows", f"the flows form a loop through: {', '.join(stuck)}")
+        else:
+            self._check_triggers(job)
         self.report.raise_if_refused()
         return job
 
@@ -221,7 +234,7 @@ class _Loader:
         schema_value = fields.get("schema")
         if schema_value is None and "schema" in raw_config:
             schema_value = raw_config.pop("schema")
-        output_columns, input_columns = self._schema(schema_value, where)
+        schemas = self._schema(schema_value, where)
 
         java = _java_paths(raw_config)
         for path in java:
@@ -239,25 +252,34 @@ class _Loader:
             cls=cls,
             raw_config=raw_config,
             config=config,
-            schema=output_columns,
-            input_schema=input_columns,
+            schema=schemas["output"],
+            input_schema=schemas["input"],
+            reject_schema=schemas["reject"],
+            input_schemas=schemas["inputs"],
         )
 
-    def _schema(self, value: Any, where: str) -> Tuple[List[Column], List[Column]]:
+    def _schema(self, value: Any, where: str) -> Dict[str, Any]:
+        """The schema blocks of a component: output, input, reject and per-flow inputs."""
+        schemas: Dict[str, Any] = {"output": [], "input": [], "reject": [], "inputs": {}}
         if value is None:
-            return [], []
+            return schemas
         if isinstance(value, list):
-            return self._columns(value, where, "schema"), []
-        if isinstance(value, dict):
-            unknown = sorted(set(value) - {"input", "output"})
-            for name in unknown:
-                self.report.add(where, f"schema.{name}", "unknown config key")
-            return (
-                self._columns(value.get("output") or [], where, "schema.output"),
-                self._columns(value.get("input") or [], where, "schema.input"),
-            )
-        self.report.add(where, "schema", "expected a list of columns, or {input: [...], output: [...]}")
-        return [], []
+            schemas["output"] = self._columns(value, where, "schema")
+            return schemas
+        if not isinstance(value, dict):
+            self.report.add(where, "schema", "expected a list of columns, or {input: [...], output: [...]}")
+            return schemas
+        for name in sorted(set(value) - set(schemas) - {"outputs"}):
+            self.report.add(where, f"schema.{name}", "unknown config key")
+        for name in ("output", "input", "reject"):
+            schemas[name] = self._columns(value.get(name) or [], where, f"schema.{name}")
+        per_flow = value.get("inputs") or {}
+        if not isinstance(per_flow, dict):
+            self.report.add(where, "schema.inputs", "expected an object of flow name to columns")
+            return schemas
+        for flow_name, columns in per_flow.items():
+            schemas["inputs"][flow_name] = self._columns(columns or [], where, f"schema.inputs.{flow_name}")
+        return schemas
 
     def _columns(self, raw_columns: Any, where: str, path: str) -> List[Column]:
         if not isinstance(raw_columns, list):
@@ -352,7 +374,46 @@ class _Loader:
                 ok = False
         if not ok:
             return None
-        return Trigger(kind=kind, source=fields["source"], target=fields["target"], condition=condition or None)
+        return Trigger(
+            kind=kind,
+            source=fields["source"],
+            target=fields["target"],
+            condition=condition or None,
+            order=fields["order"],
+        )
+
+    def _check_triggers(self, job: Job) -> None:
+        """Refuse triggers that stay inside one subjob and triggers that go round in a loop."""
+        subjob_of = {
+            component_id: index for index, members in enumerate(subjobs(job)) for component_id in members
+        }
+        after: Dict[int, List[int]] = {}
+        for index, trigger in enumerate(job.triggers):
+            source, target = subjob_of[trigger.source], subjob_of[trigger.target]
+            if source == target:
+                self.report.add(
+                    "job",
+                    f"triggers[{index}]",
+                    f"'{trigger.source}' and '{trigger.target}' are in the same subjob; "
+                    "a trigger starts another subjob",
+                )
+            else:
+                after.setdefault(source, []).append(target)
+
+        state: Dict[int, int] = {}
+
+        def loops(node: int) -> bool:
+            if state.get(node) == 1:
+                return True
+            if state.get(node) == 2:
+                return False
+            state[node] = 1
+            found = any(loops(following) for following in after.get(node, []))
+            state[node] = 2
+            return found
+
+        if any(loops(node) for node in list(after)):
+            self.report.add("job", "triggers", "the triggers form a loop")
 
     def _check_input_counts(self, job: Job) -> None:
         for spec in job.components.values():

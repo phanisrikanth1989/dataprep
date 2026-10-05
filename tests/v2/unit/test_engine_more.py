@@ -1,0 +1,239 @@
+"""The engine: checks, taps, when files appear, counts, context and schemas."""
+import datetime as dt
+import os
+
+import polars as pl
+import pytest
+
+from src.v2.errors import JobRefusedError
+
+from .kit import Either, Glance, Scratch, job, lines, run, schema_of
+
+
+def with_schema(components, schemas):
+    """Attach schema blocks to components of a job made by ``job``."""
+    for component in components["components"]:
+        if component["id"] in schemas:
+            component["schema"] = schemas[component["id"]]
+    return components
+
+
+# ------------------------------------------------------------------
+# Checks and taps
+# ------------------------------------------------------------------
+
+def test_failed_check_fails_the_component_and_no_file_appears(tmp_path):
+    out = tmp_path / "out.csv"
+    result = run(job(
+        [("in", "rows", {"data": {"n": [1, -2, -3]}}), ("guard", "guard", {}), ("out", "save", {"path": str(out)})],
+        [("r1", "in", "guard", "flow"), ("r2", "guard", "out", "flow")],
+    ))
+    assert result.status == "failed"
+    assert result.failed_component == "guard"
+    assert result.error == "2 negative value(s)"
+    assert not out.exists()
+    assert os.listdir(tmp_path) == []
+
+
+def test_passing_check_changes_nothing(tmp_path):
+    out = tmp_path / "out.csv"
+    result = run(job(
+        [("in", "rows", {"data": {"n": [1, 2]}}), ("guard", "guard", {}), ("out", "save", {"path": str(out)})],
+        [("r1", "in", "guard", "flow"), ("r2", "guard", "out", "flow")],
+    ))
+    assert result.status == "success"
+    assert lines(out) == ["n", "1", "2"]
+
+
+def test_tap_is_handed_its_rows_once_the_pass_has_run(tmp_path):
+    Glance.seen.clear()
+    out = tmp_path / "out.csv"
+    run(job(
+        [("in", "rows", {"data": {"n": [5, 6, 7]}}), ("glance", "glance", {}), ("out", "save", {"path": str(out)})],
+        [("r1", "in", "glance", "flow"), ("r2", "glance", "out", "flow")],
+    ))
+    assert [frame["n"].to_list() for frame in Glance.seen] == [[5, 6]]
+    assert lines(out) == ["n", "5", "6", "7"]
+
+
+def test_component_chooses_per_run_whether_it_needs_rows_in_hand(tmp_path):
+    for rows_in_hand, expected in ((False, "LazyFrame"), (True, "DataFrame")):
+        Either.handed.clear()
+        run(job(
+            [("in", "rows", {"data": {"n": [1]}}), ("either", "either", {"rows_in_hand": rows_in_hand}),
+             ("out", "save", {"path": str(tmp_path / f"{expected}.csv")})],
+            [("r1", "in", "either", "flow"), ("r2", "either", "out", "flow")],
+        ))
+        assert Either.handed == [expected]
+
+
+# ------------------------------------------------------------------
+# When files appear
+# ------------------------------------------------------------------
+
+def test_no_file_of_a_subjob_appears_when_a_later_part_of_it_fails(tmp_path):
+    early, late = tmp_path / "early.csv", tmp_path / "late.csv"
+    result = run(job(
+        [("in", "rows", {"data": {"n": [1]}}), ("early", "save", {"path": str(early)}), ("peek", "peek", {}),
+         ("add", "add", {"column": "missing"}), ("late", "save", {"path": str(late)})],
+        [("r1", "in", "early", "flow"), ("r2", "in", "peek", "flow"), ("r3", "peek", "add", "flow"),
+         ("r4", "add", "late", "flow")],
+    ))
+    assert result.status == "failed"
+    assert os.listdir(tmp_path) == []
+
+
+def test_scratch_files_a_component_asked_for_are_removed_when_the_job_ends(tmp_path):
+    Scratch.made.clear()
+    out = tmp_path / "out.csv"
+    result = run(job([("in", "scratch", {}), ("out", "save", {"path": str(out)})], [("r1", "in", "out", "flow")]))
+    assert result.status == "success"
+    assert lines(out) == ["n", "7"]
+    assert Scratch.made and not any(os.path.exists(path) for path in Scratch.made)
+
+
+# ------------------------------------------------------------------
+# Row counts
+# ------------------------------------------------------------------
+
+def counted(tmp_path, condition=None, **extra_config):
+    triggers = []
+    components = [("in", "rows", {"data": {"n": [5, 1, 9, 2]}}), ("split", "split", {"limit": 4}),
+                  ("kept", "save", {"path": str(tmp_path / "k.csv")})]
+    if condition:
+        components.append(("next", "mark", {"name": "next"}))
+        triggers.append({"type": "RunIf", "from": "kept", "to": "next", "condition": condition})
+    return run(job(components, [("r1", "in", "split", "flow"), ("ok", "split", "kept", "filter")], triggers=triggers))
+
+
+def test_rows_written_are_always_counted(tmp_path):
+    assert counted(tmp_path).global_map == {"kept_NB_LINE": 2}
+
+
+def test_counts_of_other_components_are_taken_only_when_something_reads_them(tmp_path):
+    condition = ('((Integer)globalMap.get("split_NB_LINE")) == 4 && ((Integer)globalMap.get("split_NB_LINE_OK")) == 2'
+                 ' && ((Integer)globalMap.get("split_NB_LINE_REJECT")) == 2 && ((Integer)globalMap.get("in_NB_LINE")) == 4')
+    result = counted(tmp_path, condition)
+    assert result.global_map == {
+        "kept_NB_LINE": 2, "split_NB_LINE": 4, "split_NB_LINE_OK": 2, "split_NB_LINE_REJECT": 2, "in_NB_LINE": 4,
+    }
+
+
+# ------------------------------------------------------------------
+# Context in config values
+# ------------------------------------------------------------------
+
+def saved_to(tmp_path, path_text, context):
+    result = run(job(
+        [("in", "rows", {"data": {"n": [1]}}), ("out", "save", {"path": path_text})],
+        [("r1", "in", "out", "flow")],
+        context=context,
+    ))
+    return result
+
+
+def test_bare_context_reference_inside_a_value_is_replaced_as_in_v1(tmp_path):
+    result = saved_to(tmp_path, "context.dir/out.csv", {"dir": str(tmp_path)})
+    assert result.status == "success"
+    assert (tmp_path / "out.csv").exists()
+
+
+def test_bare_reference_to_an_unknown_variable_is_left_as_written(tmp_path):
+    os.chdir(tmp_path)
+    result = saved_to(tmp_path, "context.csv", {})
+    assert result.status == "success"
+    assert (tmp_path / "context.csv").exists()
+
+
+def test_template_reference_is_replaced_as_text(tmp_path):
+    result = saved_to(tmp_path, "${context.dir}/out_${context.n}.csv", {"dir": str(tmp_path), "n": 7})
+    assert result.status == "success"
+    assert (tmp_path / "out_7.csv").exists()
+
+
+def test_value_that_is_one_reference_keeps_the_variables_type(tmp_path):
+    out = tmp_path / "out.csv"
+    run(job(
+        [("in", "rows", {"data": {"n": [1]}}), ("add", "add", {"amount": "context.by"}),
+         ("out", "save", {"path": str(out)})],
+        [("r1", "in", "add", "flow"), ("r2", "add", "out", "flow")],
+        context={"by": {"value": "41", "type": "int"}},
+    ))
+    assert lines(out) == ["n", "42"]
+
+
+# ------------------------------------------------------------------
+# Declared schemas
+# ------------------------------------------------------------------
+
+def shaped(tmp_path, data, schema, die_on_error=None, reject=False):
+    out, rejected = tmp_path / "out.csv", tmp_path / "rej.csv"
+    config = {} if die_on_error is None else {"die_on_error": die_on_error}
+    components = [("in", "rows", {"data": data}), ("pass", "through", config), ("out", "save", {"path": str(out)})]
+    flows = [("r1", "in", "pass", "flow"), ("r2", "pass", "out", "flow")]
+    if reject:
+        components.append(("rej", "save", {"path": str(rejected)}))
+        flows.append(("r3", "pass", "rej", "reject"))
+    made = with_schema(job(components, flows), {"pass": schema})
+    return run(made), out, rejected
+
+
+def test_output_is_put_in_the_declared_shape(tmp_path):
+    result, out, _ = shaped(tmp_path, {"b": ["2"], "extra": ["x"], "a": ["1"]},
+                            schema_of(("a", "int"), ("b", "int"), ("c", "str")))
+    assert result.status == "success"
+    assert lines(out) == ["a,b,c,extra", "1,2,,x"]
+
+
+def test_missing_value_where_none_is_allowed_fails_the_component(tmp_path):
+    result, out, _ = shaped(tmp_path, {"a": [1, None]}, schema_of(("a", "int", False)))
+    assert result.status == "failed"
+    assert result.failed_component == "pass"
+    assert result.error == "Column 'a' has NULL values but is not nullable"
+    assert not out.exists()
+
+
+def test_missing_value_goes_to_reject_when_errors_are_not_fatal(tmp_path):
+    result, out, rejected = shaped(tmp_path, {"a": [1, None, 3], "b": ["x", "y", "z"]},
+                                   schema_of(("a", "int", False), ("b", "str")), die_on_error=False, reject=True)
+    assert result.status == "success"
+    assert lines(out) == ["a,b", "1,x", "3,z"]
+    assert lines(rejected) == ["a,b,errorCode,errorMessage", ",y,SCHEMA_VIOLATION,Column 'a': non-nullable column has null"]
+
+
+def test_error_columns_arriving_on_the_main_output_are_renamed(tmp_path):
+    result, out, _ = shaped(tmp_path, {"id": [1], "errorCode": ["E"], "errorMessage": ["m"]}, schema_of(("id", "int")))
+    assert lines(out) == ["id,errorCode_user,errorMessage_user", "1,E,m"]
+
+
+def test_source_schema_types_are_not_second_guessed(tmp_path):
+    out = tmp_path / "out.csv"
+    made = with_schema(
+        job([("in", "rows", {"data": {"d": [dt.datetime(2024, 1, 31)]}}), ("out", "save", {"path": str(out)})],
+            [("r1", "in", "out", "flow")]),
+        {"in": schema_of(("d", "datetime"))},
+    )
+    assert run(made).status == "success"
+
+
+# ------------------------------------------------------------------
+# What a job config may say about schemas and subjobs
+# ------------------------------------------------------------------
+
+def test_v1_schema_blocks_and_subjob_markers_are_accepted(tmp_path):
+    made = job([("in", "rows", {"data": {"n": [1]}}), ("out", "save", {"path": str(tmp_path / "o.csv")})],
+               [("r1", "in", "out", "flow")])
+    made["components"][0].update({"subjob_id": "subjob_1", "is_subjob_start": True})
+    made["components"][0]["schema"] = {
+        "input": [], "output": [{"name": "n", "type": "int"}],
+        "reject": [{"name": "n", "type": "int"}], "inputs": {"row1": [{"name": "n", "type": "int"}]},
+    }
+    assert run(made).status == "success"
+
+
+def test_unknown_schema_block_is_refused(tmp_path):
+    made = job([("in", "rows", {"data": {"n": [1]}})], [])
+    made["components"][0]["schema"] = {"output": [], "sideways": []}
+    with pytest.raises(JobRefusedError) as caught:
+        run(made)
+    assert "schema.sideways" in caught.value.report.format()

@@ -277,14 +277,16 @@ def test_flow_into_a_component_that_takes_no_input_is_refused():
 
 def test_triggers_are_read_with_their_condition():
     job = copy.deepcopy(V1_JOB)
+    job["components"] += [{"id": "next_1", "type": "Reader", "config": {"filepath": "n1.csv"}},
+                          {"id": "next_2", "type": "Reader", "config": {"filepath": "n2.csv"}}]
     job["triggers"] = [
-        {"type": "OnSubjobOk", "from": "in_1", "to": "out_2"},
-        {"type": "RunIf", "from": "in_1", "to": "out_1", "condition": "context.max > 1"},
+        {"type": "OnSubjobOk", "from": "in_1", "to": "next_1", "output_id": 2},
+        {"type": "RunIf", "from": "in_1", "to": "next_2", "condition": "context.max > 1"},
     ]
     loaded = load(job)
-    assert [(t.kind, t.source, t.target, t.condition) for t in loaded.triggers] == [
-        ("OnSubjobOk", "in_1", "out_2", None),
-        ("RunIf", "in_1", "out_1", "context.max > 1"),
+    assert [(t.kind, t.source, t.target, t.condition, t.order) for t in loaded.triggers] == [
+        ("OnSubjobOk", "in_1", "next_1", None, 2),
+        ("RunIf", "in_1", "next_2", "context.max > 1", 0),
     ]
 
 

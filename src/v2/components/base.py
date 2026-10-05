@@ -9,6 +9,9 @@ A component is one of four kinds, and the kind says who does the work:
   collects its inputs for it. This is the one kind that holds rows in memory.
 
 Components never collect. The engine does, once per subjob wherever it can.
+A component that needs something out of the data (a few rows to print, a
+count to verify) asks for it with ``tap`` or ``check`` and is handed the
+answer when the engine has run the subjob.
 """
 from __future__ import annotations
 
@@ -44,6 +47,11 @@ class Component:
             it. A flow with no explicit port is matched on its type.
         min_inputs: The fewest input flows the component can work with.
         max_inputs: The most input flows it takes; None for any number.
+        conforms: Whether the engine makes the ``main`` and ``reject``
+            outputs match the declared schemas (column order, missing
+            columns, types, values that may not be missing), as v1 does
+            after every component. A component that already produces
+            exactly its schema turns this off.
 
     An instance exists for one run of one subjob. It holds:
 
@@ -60,6 +68,7 @@ class Component:
     outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {"main": ("flow", "main")}
     min_inputs: ClassVar[int] = 0
     max_inputs: ClassVar[Optional[int]] = 1
+    conforms: ClassVar[bool] = True
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -68,6 +77,41 @@ class Component:
         self.schema: List["Column"] = spec.schema
         self.input_schema: List["Column"] = spec.input_schema
         self.run_context = run_context
+        self.taps: List[Tap] = []
+
+    def needs_rows(self) -> bool:
+        """Whether this component must be handed real rows instead of a lazy frame."""
+        return False
+
+    def tap(self, frame: pl.LazyFrame, receive: Callable[[pl.DataFrame], None]) -> None:
+        """Ask for a frame to be computed in the same pass as the subjob.
+
+        Keep it small: a few rows, or an aggregate. It is held in memory.
+
+        Args:
+            frame: What to compute.
+            receive: Called with the result once the pass has run and before
+                any file of the subjob is put in place. If it raises, the
+                component has failed.
+        """
+        self.taps.append(Tap(frame, receive))
+
+    def check(self, frame: pl.LazyFrame, problem: Callable[[pl.DataFrame], Optional[str]]) -> None:
+        """Verify something about the data once the subjob has run.
+
+        Args:
+            frame: What to compute, as for ``tap``.
+            problem: Given the result, returns what is wrong, or None. A
+                problem fails the component, and no file of the subjob is
+                put in place.
+        """
+
+        def receive(result: pl.DataFrame) -> None:
+            found = problem(result)
+            if found:
+                raise CheckFailed(found)
+
+        self.tap(frame, receive)
 
     @property
     def context(self) -> Dict[str, Any]:
@@ -94,6 +138,18 @@ class Component:
         return None
 
 
+@dataclass
+class Tap:
+    """A frame a component wants computed alongside its subjob."""
+
+    frame: pl.LazyFrame
+    receive: Callable[[pl.DataFrame], None]
+
+
+class CheckFailed(Exception):
+    """A component's check found a problem in the data."""
+
+
 class Source(Component):
     """A component that produces rows and takes no input."""
 
@@ -118,6 +174,13 @@ class Transform(Component):
         """
         raise NotImplementedError
 
+    def run(self, inputs: Dict[str, pl.DataFrame]) -> Dict[str, pl.DataFrame]:
+        """Return the frame of each output port, given real rows.
+
+        Called instead of ``build`` when ``needs_rows()`` says so.
+        """
+        raise NotImplementedError
+
 
 @dataclass
 class Write:
@@ -132,6 +195,9 @@ class Write:
         sink: Given a path, returns the lazy sink that writes there.
         rows: A lazy frame whose one value is the number of rows written.
         append: Whether to add to an existing file instead of replacing it.
+        place: Puts the written temporary file in place, given its path and
+            the row count; it must leave no temporary file behind. Without
+            it the file is moved to ``path``, or added to it on ``append``.
         finish: Called after the file is in place, with the row count.
     """
 
@@ -139,6 +205,7 @@ class Write:
     sink: Callable[[str], pl.LazyFrame]
     rows: Optional[pl.LazyFrame] = None
     append: bool = False
+    place: Optional[Callable[[str, Optional[int]], None]] = None
     finish: Optional[Callable[[Optional[int]], None]] = None
 
 
@@ -155,6 +222,9 @@ class Sink(Component):
 
 class Eager(Component):
     """A component that needs its input rows in hand."""
+
+    def needs_rows(self) -> bool:
+        return True
 
     def run(self, inputs: Dict[str, pl.DataFrame]) -> Dict[str, pl.DataFrame]:
         """Return the frame of each output port.
