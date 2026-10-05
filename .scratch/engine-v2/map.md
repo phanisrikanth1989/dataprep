@@ -104,6 +104,15 @@ not that they are designed.
   component; a join keeps left order in memory but not on streaming;
   behaviour changes inside the pinned range, which graduated to
   [Which Polars versions v2 supports](issues/28-which-polars-versions-v2-supports.md).
+- [04 - Translating Python expressions to Polars: prior art and mapping](issues/04-python-expressions-to-polars-prior-art.md)
+  -- no existing tool does it, and evaluating the text once against `pl.col`
+  objects fails or is silently wrong, so the translator walks the syntax tree
+  and refuses what it does not know (as pandas `eval` does); a faithful
+  mapping needs operand types at load; `//`, `%` and plain string methods
+  agree with Python, while None, keyword logic on integers, division by
+  zero, `round` with digits and regex dialect do not; `when/then` guards work
+  only from polars 1.44.0; v1's PyMap is not plain Python (a missing value
+  is `nan`), so "same as Python" and "same as v1" are different targets.
 
 ## Not yet specified
 

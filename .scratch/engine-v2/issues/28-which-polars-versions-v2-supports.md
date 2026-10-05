@@ -10,13 +10,21 @@ range in ways the answer key can see. Which versions does v2 support and test
 against?
 
 Changes inside the range, from
-[Polars facts: collection, streaming and Decimal](03-polars-facts-collection-streaming-decimal.md):
+[Polars facts: collection, streaming and Decimal](03-polars-facts-collection-streaming-decimal.md)
+and
+[Translating Python expressions to Polars: prior art and mapping](04-python-expressions-to-polars-prior-art.md):
 
 - Decimal `sum`: the result type widened in 1.40/1.41, and overflow wrapped
   silently before 1.44.0.
 - Several outputs of one plan: the rule that keeps a shared part when a
   branch filter cannot be pushed into it is new in 1.43.0.
 - The streaming engine was marked unstable until 1.41.0.
+- `when/then` evaluated both branches on every row before 1.44.0 and masks
+  the unselected rows only from 1.44.0. A guarded expression such as
+  `int(s) if s.isdigit() else 0` therefore fails on 1.38 to 1.43 and works on
+  1.44. Read from source for the older versions, observed on 1.44.2.
+- NaN handling in `min_horizontal` / `max_horizontal` changed in 1.44.0.
+- 1.38.0 itself is yanked on PyPI; 1.38.1 is the lowest installable release.
 - 2.0 is in pre-release, makes streaming the default, and is outside the pin.
 
 To settle:
