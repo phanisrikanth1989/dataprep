@@ -198,7 +198,7 @@ class FileInputDelimited(Source):
             total = lines.select(pl.len()).collect().item()
             length = max(total - config["header_rows"] - config["footer_rows"], 0)
         lines = lines.slice(config["header_rows"], length)
-        text = pl.col(_LINE).str.strip_prefix("﻿")
+        text = pl.col(_LINE).str.strip_prefix("\ufeff")
         lines = lines.filter(text.str.strip_chars() != "")
         if config["limit"] is not None:
             lines = lines.head(config["limit"])

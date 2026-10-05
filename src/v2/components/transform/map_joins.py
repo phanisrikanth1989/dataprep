@@ -83,7 +83,7 @@ def joined_with(
     if not several:
         # Duplicates are judged on the keys as they are compared, so a main row gets one lookup row at most.
         keep = "first" if settings["matching_mode"] == "FIRST_MATCH" else "last"
-        matches = matches.unique(subset=names, keep=keep)
+        matches = matches.unique(subset=names, keep=keep, maintain_order=True)
     result = (
         joined.with_columns([key.alias(alias) for key, alias in zip(left, names)])
         .join(matches, on=names, how="left", maintain_order="left_right" if several else "left")
