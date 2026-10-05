@@ -81,6 +81,8 @@ def test_joins_and_groupings_keep_row_order(path):
         arguments = text[call.end():end]
         if call.group(1) == "join" and "how=" not in arguments:
             continue  # joining text ("; ".join(...)), not frames
+        if call.group(1) == "unique" and text[end + 1:].lstrip().startswith(".sort("):
+            continue  # the values are sorted right after: their order is decided
         assert "maintain_order" in arguments, (
             f"{relative(path)}: .{call.group(1)}({arguments.strip()[:60]}...) does not say maintain_order"
         )

@@ -38,6 +38,18 @@ class RunContext:
         self.global_map: Dict[str, Any] = {}
         self.routines: Mapping[str, Mapping[str, Callable[..., Any]]] = routines or {}
         self._scratch: List[str] = []
+        # Every text of the job config that could name a globalMap entry; None when the job is not known.
+        self.job_text: Optional[str] = None
+
+    def reads(self, key: str) -> bool:
+        """Whether anything in the job reads a globalMap entry.
+
+        A component asks before it computes a value that costs something
+        (a count over its rows) only to put it in the globalMap. True when
+        the name stands anywhere in the job config, or when the job is not
+        known.
+        """
+        return self.job_text is None or key in self.job_text
 
     def resolve(self, text: str) -> Any:
         """Replace context references in a config value, as v1 does.

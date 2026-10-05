@@ -348,3 +348,15 @@ def test_frame_with_no_columns_gets_the_declared_columns_and_no_rows():
     frame, _ = conform(pl.LazyFrame(), [Column("a", "int"), Column("b", "str", nullable=False)])
     out = frame.collect()
     assert out.columns == ["a", "b"] and out.height == 0
+
+
+def test_floats_and_decimals_are_turned_into_each_other_through_their_digits():
+    # Polars' own casts between the two are off by the last digit; v1 goes through the printed number.
+    def conformed(value, dtype, column):
+        frame, _ = conform(pl.LazyFrame({"v": [value]}, schema={"v": dtype}), [column])
+        return frame.collect()["v"].to_list()[0]
+
+    assert conformed(1000.125, pl.Float64, Column("v", "Decimal", precision=2)) == Decimal("1000.13")
+    assert conformed(123456789.125, pl.Float64, Column("v", "Decimal")) == Decimal("123456789.125")
+    assert conformed(Decimal("12345678901234.567"), pl.Decimal(38, 3), Column("v", "float")) == 12345678901234.566
+    assert conformed(float("nan"), pl.Float64, Column("v", "Decimal", precision=2)) is None

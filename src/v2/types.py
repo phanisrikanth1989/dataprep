@@ -344,13 +344,17 @@ def _coerced(value: pl.Expr, dtype: pl.DataType, column: Column) -> pl.Expr:
         return value.cast(pl.Int64, strict=False)
     if kind == "float":
         if dtype.is_decimal():
-            return _to_places(value.cast(pl.Float64), column)
+            # Through the digits: Polars' own cast can be one step away from the nearest float.
+            return _to_places(value.cast(pl.String).cast(pl.Float64), column)
         return _to_places(value, column) if dtype.is_float() else value
     if kind == "bool":
         return value if dtype == pl.Boolean else (value != 0)
     if kind == "Decimal":
         if dtype.is_decimal() and column.precision is None:
             return value
+        if dtype.is_float():
+            # A float becomes the Decimal it prints as, which is what v1 makes of it.
+            value = value.cast(pl.String)
         return _to_places(value.cast(_wide_decimal(column), strict=False), column)
     if kind == "datetime":
         return value.cast(pl.Datetime("us"), strict=False) if dtype != pl.Datetime("us") else value

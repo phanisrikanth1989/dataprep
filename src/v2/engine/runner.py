@@ -106,7 +106,8 @@ class Runner:
         self.engine = engine or os.environ.get("V2_ENGINE") or DEFAULT_ENGINE
         self.run_context = RunContext(job.name, job.context, routines or job.routine_modules, job.context_types)
         self.rows: Dict[str, int] = {}
-        self._wanted = _wanted_stats(job)
+        self.run_context.job_text = _job_text(job)
+        self._wanted = _wanted_stats(job, self.run_context.job_text)
 
     def run(self) -> JobResult:
         """Run the job's subjobs and report how it went."""
@@ -398,12 +399,16 @@ class Runner:
 # Helpers
 # ------------------------------------------------------------------
 
-def _wanted_stats(job: Job) -> Dict[str, List[str]]:
-    """The row counts something in the job reads: component id to stat names."""
+def _job_text(job: Job) -> str:
+    """Every text of a job config that could name a globalMap entry: config values and trigger conditions."""
     texts: List[str] = [trigger.condition or "" for trigger in job.triggers]
     for spec in job.components.values():
         _strings(spec.raw_config, texts)
-    everything = "\n".join(texts)
+    return "\n".join(texts)
+
+
+def _wanted_stats(job: Job, everything: str) -> Dict[str, List[str]]:
+    """The row counts something in the job reads: component id to stat names."""
     wanted: Dict[str, List[str]] = {}
     if "_NB_LINE" not in everything:
         return wanted
