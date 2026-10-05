@@ -193,10 +193,21 @@ def test_context_given_at_run_time_overrides_the_job_config(tmp_path):
     assert lines(out) == ["n", "1"]
 
 
-def test_unknown_context_variable_in_a_config_fails_the_job(tmp_path):
+def test_unknown_context_variable_in_a_config_is_refused_before_anything_runs(tmp_path):
+    with pytest.raises(JobRefusedError) as caught:
+        run(job(
+            [("in", "rows", {"data": {"n": [1]}}), ("out", "save", {"path": "${context.nope}/o.csv"})],
+            [("r1", "in", "out", "flow")],
+        ))
+    assert "context has no variable 'nope'" in caught.value.report.format()
+
+
+def test_context_variable_nothing_ever_sets_fails_the_component_that_reads_it(tmp_path):
+    # With a component that sets context while the job runs, the check at load cannot tell.
     result = run(job(
-        [("in", "rows", {"data": {"n": [1]}}), ("out", "save", {"path": "${context.nope}/o.csv"})],
-        [("r1", "in", "out", "flow")],
+        [("vars", "rows", {"data": {"other": ["x"]}}), ("set", "set_context", {}),
+         ("in", "rows", {"data": {"n": [1]}}), ("out", "save", {"path": "${context.nope}/o.csv"})],
+        [("r0", "vars", "set", "flow"), ("r1", "in", "out", "flow")],
     ))
     assert result.status == "failed"
     assert result.failed_component == "out"

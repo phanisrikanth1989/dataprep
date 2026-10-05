@@ -1,15 +1,48 @@
-"""The v2 engine: load a job config and run it."""
+"""The v2 engine: load a job config, check it, and run it."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
 from ..components.registry import REGISTRY, Registry
-from ..job.loader import load_job
+from ..errors import JobRefusedError
+from ..job.loader import load_job as read_job
 from ..job.model import Job
+from .check import check_job
 from .runner import JobResult, Runner
 
-__all__ = ["JobResult", "Runner", "run_job"]
+__all__ = ["JobResult", "Runner", "check_job", "load_job", "run_job"]
+
+Routines = Mapping[str, Mapping[str, Callable[..., Any]]]
+
+
+def load_job(
+    source: Union[Mapping[str, Any], str, Path],
+    context: Optional[Mapping[str, Any]] = None,
+    *,
+    registry: Registry = REGISTRY,
+    routines: Optional[Routines] = None,
+) -> Job:
+    """Load a job config and check that v2 can run it.
+
+    Args:
+        source: The job config, as a dict or as the path of a JSON file.
+        context: Context values that override the job config's own.
+        registry: Where component types are looked up.
+        routines: Routine modules available to expressions.
+
+    Returns:
+        The loaded job.
+
+    Raises:
+        JobRefusedError: When the job config holds anything v2 will not run
+            with. Its report lists every problem found. Nothing has run.
+    """
+    job = read_job(source, context=context, registry=registry)
+    report = check_job(job, routines=routines)
+    if report:
+        raise JobRefusedError(report)
+    return job
 
 
 def run_job(
@@ -18,9 +51,9 @@ def run_job(
     *,
     registry: Registry = REGISTRY,
     engine: Optional[str] = None,
-    routines: Optional[Mapping[str, Mapping[str, Callable[..., Any]]]] = None,
+    routines: Optional[Routines] = None,
 ) -> JobResult:
-    """Load a job config and run it.
+    """Load a job config, check it, and run it.
 
     Args:
         source: A job config (dict or path of a JSON file), or a loaded job.
@@ -39,5 +72,8 @@ def run_job(
         JobRefusedError: When the job config holds anything v2 will not run
             with. Nothing has run.
     """
-    job = source if isinstance(source, Job) else load_job(source, context=context, registry=registry)
+    if isinstance(source, Job):
+        job = source
+    else:
+        job = load_job(source, context=context, registry=registry, routines=routines)
     return Runner(job, engine=engine, routines=routines).run()

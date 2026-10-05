@@ -1,0 +1,292 @@
+# Writing a v2 component
+
+A v2 component is one Python file that declares its config keys and builds a
+lazy Polars plan. This page is the contract. Read `src/v2/CONTEXT.md` first
+for the words used here (config key, alias, refusal report, answer key).
+
+## The rules
+
+1. **Lazy.** A component turns `pl.LazyFrame`s into `pl.LazyFrame`s. It
+   never calls `collect`, `fetch`, `sink_*` (except a sink's `lazy=True`
+   plan) or anything else that runs the data. The engine runs a whole subjob
+   in one pass.
+2. **Native Polars only.** No `map_elements`, `map_batches`, `apply`, no
+   Python loop over rows. If Polars cannot express a config key natively,
+   declare the key **refused** with the reason. The only components that run
+   user Python are the Python components.
+3. **v1 is the answer key.** For the same job config and input files, the
+   output files must equal v1's byte for byte. Read the v1 component
+   (`src/v1/engine/components/...`) before writing a line, and remember that
+   v1's base class also acts on every component's output (see "What the
+   engine does for you").
+4. **Keep row order.** v1 keeps input order through every component. Pass
+   `maintain_order=True` (or the join's `maintain_order="left"`) wherever
+   Polars would otherwise be free to reorder.
+5. **A bad row is data, not an exception.** Never let Polars raise on a row
+   (`strict=False`, flag columns). A row that cannot be processed goes to the
+   `reject` output when `die_on_error` is false; when it is true, count the
+   bad rows with `self.check(...)` and fail with v1's message.
+6. **Nothing undeclared.** Every config key the converter emits for the
+   component, and every key v1's engine component reads, is declared:
+   supported, ignored, or refused. An undeclared key refuses the job.
+7. **ASCII only** in log messages and source. Log with
+   `logger.info(f"[{self.id}] ...")`.
+
+## Skeleton
+
+```python
+"""Sort row: order rows by one or more columns."""
+from __future__ import annotations
+
+from typing import Dict
+
+import polars as pl
+
+from ...errors import ConfigurationError
+from ...job.keys import Key, Kind
+from ..base import Transform
+from ..registry import REGISTRY
+
+
+@REGISTRY.register
+class SortRow(Transform):
+    """One sentence saying what it does."""
+
+    names = ("sort_row", "SortRow", "tSortRow")       # v2's name first, then v1's
+    keys = (
+        Key("criteria", type=list, required=True, items=_CRITERION, doc="..."),
+        Key("external", kind=Kind.IGNORED, type=object, doc="Talend's sort-on-disk switch."),
+    )
+
+    def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
+        (frame,) = inputs.values()
+        ...
+        return {"main": frame.sort(...)}
+```
+
+Put the file in `src/v2/components/<category>/<name>.py` (`file`,
+`transform`, `aggregate`, `context`). It is imported automatically; the
+decorator registers it. Working examples: `transform/sort_row.py`,
+`transform/filter_rows.py`, `file/file_input_delimited.py`,
+`file/file_output_delimited.py`.
+
+## The four kinds (`src/v2/components/base.py`)
+
+| Kind | You write | Gets | Returns |
+|---|---|---|---|
+| `Source` | `read()` | nothing | `{port: LazyFrame}` |
+| `Transform` | `build(inputs)` | `{flow name: LazyFrame}` in job-config flow order | `{port: LazyFrame}` |
+| `Sink` | `write(frame)` | its one input | a `Write` |
+| `Eager` | `run(inputs)` | `{flow name: DataFrame}` (real rows) | `{port: DataFrame}` |
+
+- `Eager` is for components that truly need rows in hand (user Python, a
+  tiny lookup that sets context). The engine collects its inputs, which
+  holds them in memory. A `Transform` can decide per run: override
+  `needs_rows()` and implement both `build` and `run`.
+- Class attributes: `names`, `keys`, `outputs`, `min_inputs`, `max_inputs`
+  (`None` = any number), `conforms`.
+- `outputs` maps each output port to the v1 flow types that leave by it.
+  Default `{"main": ("flow", "main")}`. A filter declares
+  `{"main": ("flow", "main", "filter"), "reject": ("reject",)}`; v1's other
+  flow types are `unique` and `duplicate`. Return a frame for every port you
+  declare, even when it is empty (`frame.clear()`): v1 stalls a job whose
+  wired reject flow got nothing, v2 writes the empty file.
+- Named outputs (Map): override the classmethod
+  `port_for(flow_type, flow_name, config)` to return the port a flow leaves
+  by, and return frames under those port names.
+- Inside a component: `self.id`, `self.config` (v2 names, defaults filled,
+  context resolved), `self.schema` (declared output columns, a list of
+  `Column`), `self.input_schema`, `self.spec.reject_schema`,
+  `self.spec.input_schemas` (per incoming flow name), `self.context`,
+  `self.global_map`, `self.run_context`.
+
+## Config keys (`src/v2/job/keys.py`)
+
+```python
+Key("path", required=True, aliases=("filepath",), doc="The file to read.")
+Key("header_rows", type=int, default=0, doc="Lines to skip at the top.")
+Key("order", default="asc", choices=("asc", "desc"), doc="...")
+Key("condition", type=EXPRESSION, default="", aliases=("advanced_cond",), doc="...")
+Key("criteria", type=list, required=True, items=(Key("column", required=True), ...), doc="...")
+Key("external", kind=Kind.IGNORED, type=object, doc="why it does not matter")
+Key("uncompress", kind=Kind.REFUSED, type=bool, reason="compressed files are not read by v2", doc="...")
+```
+
+- **Naming.** There is no blanket rule. The v2 name is the documented one;
+  every v1 spelling is an alias. Keep v1's name as the v2 name unless a
+  clearer one is obviously better (`path` for `filepath`); when in doubt,
+  keep v1's. A job config giving both spellings is refused automatically.
+- **Supported** keys must behave as in v1, defaults included. Take the
+  default from v1's engine component (what it does when the key is absent),
+  not from the converter.
+- **Ignored** means: accepted, no effect, and the result still equals v1's.
+  Use it for keys v1 itself ignores and for Talend tuning knobs.
+- **Refused** means: v2 will not run a job that uses it. Give the `reason`.
+  A refused key is still accepted when its value means "off" (false, empty,
+  zero, null, or anything listed in `off=`).
+- `type`: `str`, `int`, `float`, `bool`, `list`, `dict`, `object` (anything),
+  `EXPRESSION` (a Python expression) or `CODE` (a block of Python). Booleans
+  and integers written as text (`"true"`, `"5"`) are accepted. `convert=`
+  post-processes a value and refuses it by raising `ValueError`. It is not
+  applied to `default`: write the default as the value the component sees.
+- `label`, `tstatcatcher_stats`, `execution_mode`, `chunk_size` are accepted
+  on every component already.
+- Context references (`${context.x}`, `context.x`) in `str`/`int`/`bool`
+  values are resolved before you see them. `EXPRESSION` and `CODE` values
+  are never touched: the expression reads `context.x` itself.
+- Java (`{{java}}...`) is refused by the loader before the component sees
+  it. Nothing to do.
+
+## Expressions (`src/v2/expressions`)
+
+Expressions in a job config are Python, translated once to a Polars
+expression:
+
+```python
+from ...expressions import translate
+
+scope = self.row_scope(frame.collect_schema(), flow_name, "input_row")
+keep = translate(self.config["condition"], scope)        # a pl.Expr
+```
+
+`row_scope(types, *names)` lets the expression write a column bare (`price`)
+or after a row name (`row1.price`, `row1['price']`), and read `context.x`,
+`globalMap.get("k")` and routines. For several rows at once (a main row and
+joined lookups) build a `Scope` yourself: see `Scope.for_rows` in
+`expressions/translate.py`. Translation errors are `ExpressionError`s with
+the offending text; let them propagate.
+
+What the language covers is listed in `expressions/functions.py`. If a v1
+job needs a function that is missing, do not add it yourself: report it.
+
+## Types (`src/v2/types.py`)
+
+Declared column types are `str`, `int`, `float`, `bool`, `datetime`, `date`,
+`Decimal`. Helpers:
+
+- `polars_type(column)`, `polars_schema(columns)`
+- `from_text(text_expr, column) -> (value_expr, unreadable_expr)`: text to a
+  typed value with v1's rules; use it in anything that reads text.
+- `to_text(expr, dtype, declared_column_or_None)`: a value as v1's file
+  outputs write it; use it in anything that writes or prints.
+- `chrono_format(pattern, parsing=...)`: a job config's `date_pattern`
+  (Python strftime) as the pattern Polars wants.
+
+Missing values: a `str` read from a file is never missing (an empty field is
+empty text); every other type reads an empty field as missing. Missing
+values are written as empty fields.
+
+## What the engine does for you
+
+After `read`/`build`/`run`, for the `main` output, the engine applies v1's
+base-class behaviour (`types.conform`), unless the class sets
+`conforms = False`:
+
+- declared columns first, in declared order; other columns kept after them;
+- a declared column you did not produce is added (missing, or zero-like when
+  not nullable);
+- values of another kind are turned into the declared type (`str` is left
+  alone, whole numbers declared `float` stay whole, text is parsed);
+- `precision` rounds floats (half to even) and Decimals (half up);
+- a missing value in a `nullable: false` column fails the component when
+  `die_on_error` is true (the default the engine assumes when the component
+  declares no such key) or sends the row to `reject` with `errorCode`
+  `SCHEMA_VIOLATION` when it is false;
+- columns named `errorCode` / `errorMessage` arriving on `main` are renamed
+  `errorCode_user` / `errorMessage_user` (always, whatever `conforms` says).
+
+So do not reorder or cast to the declared schema yourself. Do declare
+`die_on_error` with v1's default for the component if v1 reads it.
+
+Row counts: sinks set `<id>_NB_LINE`. `<id>_NB_LINE`, `_NB_LINE_OK` and
+`_NB_LINE_REJECT` of other components are counted by the engine only when
+something in the job reads them. Do not count rows yourself.
+
+## Asking about the data: `tap` and `check`
+
+A component cannot look at rows while it builds. When it needs something
+from the data, it asks, and the engine computes it in the same pass:
+
+```python
+self.tap(frame.head(100), self._print)            # a few rows, after the pass
+self.check(
+    frame.select(pl.col("__bad").sum()),
+    lambda found: f"{found.item()} row(s) could not be read" if found.item() else None,
+)
+```
+
+`check` fails the component (and no file of the subjob is put in place) when
+its function returns a message. Keep tapped frames small: they are held in
+memory. Values for `self.global_map` that depend on the data are set from a
+tap.
+
+## Sinks
+
+`write(frame)` returns `Write(path, sink, rows, append, place, finish)`:
+`sink(temp_path)` returns the lazy sink plan (`frame.sink_csv(temp_path,
+..., lazy=True)`), `rows` is `frame.select(pl.len())`. The engine writes to
+a temporary file beside `path` and puts it in place when the whole subjob
+has succeeded. See `file/file_output_delimited.py`.
+
+## Tests
+
+Tests come first (red, then green). Two kinds, both under
+`tests/v2/components/test_<name>.py`:
+
+**Answer-key tests** run the same job config on v1 and on v2 and compare the
+files they write. They are the proof of parity; cover every supported key
+and every supported value of it:
+
+```python
+from tests.v2.answer_key import assert_matches_v1
+
+def job(config):
+    return {
+        "job_name": "sort", "default_context": "Default", "context": {"Default": {}},
+        "components": [
+            {"id": "in", "type": "FileInputDelimited",
+             "config": {"filepath": "in.csv", "fieldseparator": ";", "header_rows": 1, "encoding": "UTF-8"},
+             "schema": {"input": [], "output": COLUMNS}, "inputs": [], "outputs": ["row1"]},
+            {"id": "sort", "type": "SortRow", "config": config,
+             "schema": {"input": COLUMNS, "output": COLUMNS}, "inputs": ["row1"], "outputs": ["row2"]},
+            {"id": "out", "type": "FileOutputDelimited",
+             "config": {"filepath": "out.csv", "fieldseparator": ";", "include_header": True, "encoding": "UTF-8"},
+             "schema": {"input": COLUMNS, "output": []}, "inputs": ["row2"], "outputs": []},
+        ],
+        "flows": [{"name": "row1", "from": "in", "to": "sort", "type": "flow"},
+                  {"name": "row2", "from": "sort", "to": "out", "type": "flow"}],
+        "triggers": [], "subjobs": {}, "java_config": {"enabled": False},
+    }
+
+def test_sorts_numbers_descending(tmp_path):
+    assert_matches_v1(job({"criteria": [{"column": "n", "sort_type": "num", "order": "desc"}]}),
+                      {"in.csv": b"n;s\n2;b\n10;a\n"}, tmp_path)
+```
+
+Write the job config in v1's shape with v1's key spellings: that is what
+users have. Paths are relative; each engine runs in its own fresh folder.
+Use data that exercises ties, missing values, mixed case, negative numbers
+and empty input. Where v1's behaviour is a bug v2 should not copy (it
+depends on what else is in the column, it crashes, it stalls), do not copy
+it: test v2's behaviour directly and list the difference in your report.
+
+**Unit tests** cover what an answer key cannot: refusals (a refused key, a
+bad value), error messages, v2-only spellings. Build the job dict and call
+`src.v2.run_job` / `src.v2.load_job`.
+
+Run: `.venv/bin/python -m pytest tests/v2/components/test_<name>.py -o addopts="" -q -p no:cacheprovider`
+and, before you finish, the whole of `tests/v2` the same way.
+
+Also add one test that the converter's own sample for the component loads:
+take the component's `config` and `schema` from
+`tests/talend_xml_samples/converted_jsons/Job_t<Name>_0.1.json` (when there
+is one) and assert v2 accepts every key in it (Java expressions aside).
+
+## Done means
+
+- one file, declared keys with v1 aliases, docstrings;
+- answer-key tests for every supported key, unit tests for refusals;
+- the whole `tests/v2` suite green;
+- a short report: keys supported / ignored / refused (with reasons), every
+  deliberate difference from v1, anything missing from the engine or the
+  expression language that you needed.

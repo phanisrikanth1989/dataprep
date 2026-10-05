@@ -200,7 +200,7 @@ class Runner:
         for component_id in component_ids:
             spec = self.job.components[component_id]
             try:
-                component = self._instantiate(spec)
+                component = self._ready(spec)
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 if isinstance(component, Sink):
                     state.writes.append((component_id, component.write(next(iter(inputs.values())))))
@@ -238,6 +238,14 @@ class Runner:
         if refusals:
             raise ConfigurationError("; ".join(f"{refusal.key}: {refusal.reason}" for refusal in refusals))
         return spec.cls(spec, config, self.run_context)
+
+    def _ready(self, spec: ComponentSpec) -> Component:
+        """A component about to run: built, and with nothing wrong in its config."""
+        component = self._instantiate(spec)
+        found = component.problems()
+        if found:
+            raise ConfigurationError("; ".join(found))
+        return component
 
     def _share(self, flow_name: str, frame: pl.LazyFrame, frames: Dict[str, pl.LazyFrame]) -> None:
         """Hand a collected frame to every flow that carries the same output."""

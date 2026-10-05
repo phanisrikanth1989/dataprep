@@ -92,6 +92,7 @@ class SetContext(Eager):
 
     names = ("set_context",)
     min_inputs = 1
+    sets_context = True
 
     def run(self, inputs):
         (frame,) = inputs.values()

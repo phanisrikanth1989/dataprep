@@ -16,10 +16,11 @@ answer when the engine has run the subjob.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Mapping, Optional, Tuple
 
 import polars as pl
 
+from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
 
 if TYPE_CHECKING:
@@ -82,6 +83,59 @@ class Component:
     def needs_rows(self) -> bool:
         """Whether this component must be handed real rows instead of a lazy frame."""
         return False
+
+    def problems(self) -> List[str]:
+        """What is wrong with this component's config that no data is needed to see.
+
+        Called when the job is checked at load and again before the component
+        runs. Say here what the key declarations cannot: keys that do not go
+        together, a schema that is needed. Each entry reads
+        ``"<key>: <what is wrong>"``.
+        """
+        return []
+
+    def declared_outputs(self) -> Dict[str, pl.LazyFrame]:
+        """Empty frames shaped like this component's outputs, from its declared schema.
+
+        Used when a job is checked at load, where a source is not read and a
+        component that needs rows is not run. Returns nothing when no schema
+        is declared, and what follows the component is then left unchecked.
+        """
+        from ..types import polars_schema  # late: types reads the job model only
+
+        if not self.schema:
+            return {}
+        outputs = {"main": pl.LazyFrame(schema=polars_schema(self.schema))}
+        for port in type(self).outputs:
+            if port != "main":
+                text = {column.name: pl.String for column in self.schema}
+                text.update({"errorCode": pl.String, "errorMessage": pl.String})
+                outputs[port] = pl.LazyFrame(schema=text)
+        return outputs
+
+    def row_scope(self, types: Mapping[str, pl.DataType], *names: str, **more: Any) -> Scope:
+        """What an expression over one input may refer to.
+
+        Its columns may be written bare (``price``) or after any of the given
+        row names (``row1.price``, ``input_row.price``), and it may read
+        ``context``, ``globalMap`` and the run's routines.
+
+        Args:
+            types: The input's columns and their Polars types.
+            *names: Names the row goes by; the flow's name, usually.
+            **more: Further ``Scope`` fields, such as ``variables``.
+        """
+        same = {column: column for column in types}
+        rows = {name: dict(same) for name in names or ("row",)}
+        return Scope(
+            columns=dict(types),
+            rows=rows,
+            bare=next(iter(rows)),
+            context=self.context,
+            global_map=self.global_map,
+            routines=self.run_context.routines,
+            **more,
+        )
 
     def tap(self, frame: pl.LazyFrame, receive: Callable[[pl.DataFrame], None]) -> None:
         """Ask for a frame to be computed in the same pass as the subjob.

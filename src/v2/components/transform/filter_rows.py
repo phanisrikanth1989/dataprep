@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import polars as pl
 
 from ...errors import ConfigurationError
-from ...expressions import Scope, translate
+from ...expressions import translate
 from ...job.keys import EXPRESSION, Key, Kind
 from ..base import Transform
 from ..registry import REGISTRY
@@ -55,17 +55,8 @@ class FilterRows(Transform):
         keep = self._conditions(types)
         expression = self._expression()
         if expression:
-            scope = Scope.for_rows(
-                {name: dict(types), "input_row": dict(types)} if name != "input_row" else {name: dict(types)},
-                bare=name,
-                context=self.context,
-                global_map=self.global_map,
-                routines=self.run_context.routines,
-            )
-            # Both row names refer to the same frame columns.
-            scope.columns = dict(types)
-            scope.rows = {row: {column: column for column in types.names()} for row in scope.rows}
-            keep = keep & pl.Expr.fill_null(translate(expression, scope).cast(pl.Boolean), False)
+            matches = translate(expression, self.row_scope(types, name, "input_row"))
+            keep = keep & matches.cast(pl.Boolean).fill_null(False)
 
         flagged = frame.with_columns(keep.alias("__keep"))
         return {

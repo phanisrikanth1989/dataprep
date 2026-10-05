@@ -8,9 +8,8 @@ Usage::
     result.raise_for_status()
 """
 from . import components  # noqa: F401 -- importing it registers every component
-from .engine import JobResult, run_job
+from .engine import JobResult, check_job, load_job, run_job
 from .errors import ConfigurationError, ExpressionError, JobFailedError, JobRefusedError, V2Error
-from .job.loader import load_job
 
 __all__ = [
     "ConfigurationError",
@@ -19,6 +18,7 @@ __all__ = [
     "JobRefusedError",
     "JobResult",
     "V2Error",
+    "check_job",
     "load_job",
     "run_job",
 ]
