@@ -1,6 +1,6 @@
 # 14 - Encoding: what to do about ISO-8859-15
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 02, 05
 
@@ -27,3 +27,26 @@ Covers reading and writing, and what an omitted `encoding` means given v1's
 default. The verdict lands in the two delimited-file key tickets
 ([input](20-config-keys-delimited-file-input.md),
 [output](21-config-keys-delimited-file-output.md)).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+- Transcode, both ways, paid only when needed. On read, a file in an
+  encoding that agrees with ASCII is first looked through (about 10 GB/s);
+  if it holds nothing but ASCII it is read in place, otherwise through a
+  UTF-8 scratch copy (about 2 GB/s for ISO-8859-15), removed when the job
+  ends. On write, Polars writes UTF-8 and the file is converted only when it
+  holds more than ASCII.
+- An omitted `encoding` means ISO-8859-15 on both sides, as in v1. Any
+  encoding Python knows is accepted; an unknown one is refused at load.
+- Bytes that cannot be decoded become U+FFFD (Talend's behaviour); text the
+  output encoding cannot hold fails the writer and leaves the target file
+  untouched.
+- v1's replacement of control characters by spaces is not copied: it exists
+  for the Java bridge.
+- Code: `src/v2/files.py`. `V2_TEMP_DIR` says where scratch copies go.

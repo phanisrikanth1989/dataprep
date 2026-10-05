@@ -1,6 +1,6 @@
 # 08 - Flows and ports
 
-Status: open
+Status: resolved
 Type: grilling
 
 ## Question
@@ -29,3 +29,26 @@ To settle:
 
 Iterate flows are not decided here; they depend on
 [Pin the component list](27-pin-the-component-list.md).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+- v1's flow shape is the one read: `{name, from, to, type}`; `source` /
+  `target` are v2 spellings of `from` / `to`, and `output` names a port
+  outright. Types `flow`, `main`, `reject`, `filter`, `unique`, `duplicate`
+  are mapped to an output port by the source component's `outputs`
+  declaration; `iterate` is refused.
+- A component gets its inputs as `{flow name: frame}` in the order of its
+  own `inputs` list, then job-config order: v1's rule, so a join's first
+  input is its main flow. Map tells main and lookups apart by flow name.
+- Fan-out and two outputs meeting again work and read the source once.
+- Refused at load: a flow from or to an unknown component, a duplicate flow
+  name, a flow asking for an output the source does not have, too many or
+  too few inputs, flows that form a loop.
+- Order inside a subjob is v1's, reproduced from its execution plan and
+  checked against it on generated graphs (`src/v2/job/graph.py`).

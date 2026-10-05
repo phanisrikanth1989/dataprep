@@ -1,6 +1,6 @@
 # 28 - Which Polars versions v2 supports
 
-Status: open
+Status: resolved
 Type: grilling
 
 ## Question
@@ -47,3 +47,17 @@ To settle:
 
 Surfaced while resolving the research tickets. Each of their notes has a
 table of what changed inside the range.
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+`polars>=1.44,<2.0`. Below 1.44 a guarded expression (`int(s) if
+s.isdigit() else 0`) fails, CSV row counts were wrong on 1.39 to 1.40, and
+`empty_string_is_null` (used by the delimited reader) does not exist before
+1.43. Built and tested on 1.44.2 only; other versions inside the range are
+untested.

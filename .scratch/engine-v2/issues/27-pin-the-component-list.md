@@ -1,6 +1,6 @@
 # 27 - Pin the component list
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 01, 05
 
@@ -29,3 +29,19 @@ Candidates known today:
 For each component chosen, add a key-by-key ticket and a build. If iterate
 comes in, add its semantics ticket. Also decide what happens to components v2
 has today that are not chosen (parquet output exists only in v2).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+Sixteen components, as the dev listed them in ticket 01: delimited file
+input and output; positional, full-row and Excel input; filter rows; filter
+columns; sort row; unique row; aggregate row; join; unite; map; Python
+dataframe; log row; context load. No iterate, no database, no Python row or
+Python code, no ConvertType, SchemaComplianceCheck, Replicate, Excel output,
+file list or flow to iterate. Everything the old v2 had beyond this list
+was removed with it.

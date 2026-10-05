@@ -1,6 +1,6 @@
 # 15 - Expression translator spike
 
-Status: open
+Status: resolved
 Type: prototype
 Blocked by: 04
 
@@ -28,3 +28,16 @@ in.
 
 Feeds
 [Python expressions: what is allowed and how it reads](16-python-expressions-allowed.md).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+Superseded by the build: the translator was built for real
+(`src/v2/expressions`), tests first, rather than spiked. The motivating
+case reads `row1.name[:10].strip().upper()`. What it refuses and how a
+refusal reads is in the tests (`tests/v2/unit/test_expressions_*.py`).

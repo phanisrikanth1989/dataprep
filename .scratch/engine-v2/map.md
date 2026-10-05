@@ -81,15 +81,25 @@ are designed.
     doc page generated from the declared keys.
   - Tests first, and `src/v2` comes under the same 95% per-module coverage
     gate as v1.
-- Component set: eight are locked -- delimited file input, delimited file
-  output, filter rows, sort row, unique row, aggregate row, map, python
-  dataframe. The tail is decided in
+- Component set: sixteen, fixed in
   [Pin the component list](issues/27-pin-the-component-list.md).
+- How the open decisions were closed. On 2026-10-05 the dev stopped the
+  question rounds and asked for the build: "make your own assumptions based
+  on the answers I have given till now, and then go ahead and build the
+  entire V2 ... when I test it out, then we can make changes". Every ticket
+  resolved after [The performance bar](issues/05-performance-bar.md) is
+  therefore an assumption recorded as built, not an answer the dev gave.
+  Each says so, and each is open to change when the dev tests.
 - Environment: run Python as `.venv/bin/python`. This Mac has polars 1.44.2
-  and Python 3.14; the repo pins `polars>=1.38,<2.0` and Python 3.12+.
+  and Python 3.14; the repo pins `polars>=1.44,<2.0` for v2 and Python 3.12+.
   Observations made here are provisional for the target servers until checked
-  there. There is no JVM or bridge JAR on this Mac (as of 2026-10-04), so v1
-  runs here only for Java-free job configs.
+  there. A JDK 17 and the bridge JAR are on this Mac since 2026-10-05
+  (`PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"`), so v1 job configs with
+  Java can serve as answer keys here.
+- Polars trap found while building: never call `.cache()`. On 1.44.2 a
+  `select`/`drop` between an explicitly cached frame and a frame with two
+  readers is lost and a sink writes the dropped column
+  (`research/probes/probe_polars_cache_loses_projection.py`).
 - Data and servers, as the dev recalls them (2026-10-05, not measured): input
   files are typically 500 MB to 1 GB, the largest are 30 to 100 GB, and the
   servers have about 500 GB of memory.
@@ -141,6 +151,57 @@ are designed.
   component tickets, need against cost. Footer rows stays. The hard cases
   were measured: the figures are in the ticket and the scripts in
   `research/probes/`.
+
+- [Job file shape, key by key](issues/06-job-file-shape-key-by-key.md) --
+  v1's shape is read as it is; v2 names are extra spellings; converter
+  metadata is ignored; a `{{java}}` string is refused where it stands.
+- [Config-key declaration and the refusal report](issues/07-config-key-declaration-and-refusal-report.md)
+  -- one `Key(...)` declaration per config key drives loading, aliases,
+  defaults (v1's), refusals and the doc page; the job is also built against
+  empty frames at load, and `--check` prints the report alone.
+- [Flows and ports](issues/08-flows-and-ports.md) -- v1's `{name, from, to,
+  type}` flows; a component declares which flow types leave by which output;
+  inputs arrive in the order of the component's own `inputs` list, as in v1.
+- [Barriers, collection and row counts](issues/09-barriers-collection-and-row-counts.md)
+  -- one `collect_all` per subjob on the streaming engine; only components
+  that need rows in hand are barriers; a file output always reports its rows,
+  other counts are taken when something reads them.
+- [Subjobs, triggers and what happens after a failure](issues/10-subjobs-triggers-and-failure.md)
+  -- v1's subjob order and its five trigger types; a failed subjob fires its
+  error triggers, the others still run, the job ends `failed` with exit 1.
+- [Context and globalMap](issues/11-context-and-globalmap.md) -- values typed
+  as v1 types them and resolved when each component is built; `${context.x}`
+  and bare `context.x`; globalMap spelled `globalMap.get("k")`.
+- [Errors and rejects](issues/12-errors-and-rejects.md) -- `die_on_error`
+  per component with v1's default; rejected rows carry `errorCode` and
+  `errorMessage`; every row leaves by exactly one output; a reject output
+  always exists.
+- [Types, nulls and schemas](issues/13-types-nulls-and-schemas.md) -- v1's
+  type names plus `date`; Decimal is a real decimal; text from a file is
+  never missing; one rule per type where v1's answer depends on the rest of
+  the column.
+- [Encoding: ISO-8859-15](issues/14-encoding-iso-8859-15.md) -- any encoding
+  Python knows, read and written through UTF-8 only when the file holds more
+  than ASCII.
+- [Expression translator spike](issues/15-expression-translator-spike.md) --
+  superseded: the translator was built, tests first.
+- [Python expressions: what is allowed](issues/16-python-expressions-allowed.md)
+  -- Python's meaning made total (a missing value propagates, never raises);
+  the allowed functions are the tables in `src/v2/expressions/functions.py`.
+- [Expressions outside Map](issues/17-expressions-outside-map.md) -- filter
+  rows takes a Python expression; RunIf keeps v1's own dialect exactly;
+  config values take context references only.
+- [How a job is run on v2](issues/18-how-a-job-is-run-on-v2.md) --
+  `python -m src.v2 job.json [--context_param K=V] [--check]`; exit 0, 1 or 2.
+- [Answer-key harness](issues/19-answer-key-harness.md) -- built:
+  `tests/v2/answer_key`.
+- [Pin the component list](issues/27-pin-the-component-list.md) -- the
+  sixteen the dev listed; no iterate, no database.
+- [Which Polars versions v2 supports](issues/28-which-polars-versions-v2-supports.md)
+  -- `polars>=1.44,<2.0`, tested on 1.44.2.
+- [Routines as Polars functions](issues/29-routines-as-polars-functions.md)
+  -- loaded and named as in v1 from `python_config`; a routine takes and
+  returns Polars expressions; a row-by-row one is refused at load.
 
 ## Not yet specified
 

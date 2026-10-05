@@ -1,6 +1,6 @@
 # 16 - Python expressions: what is allowed and how it reads
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 15
 
@@ -45,3 +45,27 @@ Evidence comes from
 [Usage count of real v1 jobs](01-usage-count-of-real-v1-jobs.md). Findings 10
 to 16 in [v2 engine as found](../research/2026-10-05-v2-as-found.md#verified-findings)
 describe what the old language got wrong.
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+- References: `row1.col`, `row1['col']`, bare `col` where there is one
+  input, `Var.x`, `context.x`, `globalMap.get("k"[, default])`.
+- Allowed: arithmetic and comparison operators, `a if c else b`, `and` /
+  `or` / `not`, `in`, `is None`, slicing, f-strings, the string methods and
+  built-ins listed in `src/v2/expressions/functions.py`, parts of `re`,
+  `math`, `datetime`, `Decimal`, and routines. Anything else is refused at
+  load with what to write instead where there is a known hint (Java
+  left-overs such as `&&`, `null`, `.equals`).
+- The baseline is Python's meaning, made total: a missing value propagates
+  instead of raising; `==` / `!=` treat a missing value as a value;
+  truthiness follows the operand's type. Mixed text and number operands are
+  refused rather than guessed.
+- Operand types come from the frame's schema at translation time.
+- Long expressions: Map variables (`Var.name`), each able to use the ones
+  before it.

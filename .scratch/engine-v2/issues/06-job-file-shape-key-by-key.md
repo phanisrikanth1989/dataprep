@@ -1,6 +1,6 @@
 # 06 - Job file shape, key by key
 
-Status: open
+Status: resolved
 Type: grilling
 
 ## Question
@@ -38,3 +38,28 @@ schema column keys and type names
 ([Types, nulls and schemas](13-types-nulls-and-schemas.md)); context behaviour
 ([Context and globalMap](11-context-and-globalmap.md)); keys inside component
 `config` (the key-by-key tickets).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+- The job config keeps v1's shape. Job level: `job_name` is an alias of
+  `name`; `context` (grouped by context name, or flat), `default_context`,
+  `components`, `flows`, `triggers` and `python_config` are read;
+  `subjobs`, `java_config`, `job_type`, `version`, `description`,
+  `engine_config`, `oracle_config`, `mssql_config` and every key starting
+  with `_` are accepted and ignored.
+- Component level: `id`, `type`, `config`, `schema` (`input`, `output`,
+  `reject`, per-flow `inputs`; a bare list means `output`) and `inputs` (the
+  order inputs reach the component in, as in v1) are read; `outputs`,
+  `original_type`, `position`, `subjob_id`, `is_subjob_start` are ignored. A
+  component type is found under v2's snake_case name and under every v1 name.
+- `java_config.enabled: true` alone is ignored; any `{{java}}` string is
+  refused where it stands ("Java expressions are not run by v2; rewrite it in
+  Python"). v2's old `streaming` key did not survive: an unknown key is
+  refused.
+- Code: `src/v2/job/loader.py`.

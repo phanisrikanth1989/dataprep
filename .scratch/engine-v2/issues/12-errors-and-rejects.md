@@ -1,6 +1,6 @@
 # 12 - Errors and rejects
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 08
 
@@ -28,3 +28,25 @@ To settle:
 
 Facts on when Polars raises come from
 [Polars facts: collection, streaming and Decimal](03-polars-facts-collection-streaming-decimal.md).
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+- `die_on_error` is a declared key per component with v1's default for that
+  component (false for the file inputs, true where v1's component says so);
+  where a component declares none, the engine assumes true, as v1's base
+  class does.
+- Rejected rows carry the row's columns plus `errorCode` and `errorMessage`
+  (v1's names). A row is unreadable when its text was there and could not be
+  read, never because a value is missing.
+- Every input row leaves by exactly one output: main and reject are two
+  filters on one flag column.
+- A component with a reject output always produces it, empty if need be.
+- Errors: `JobRefusedError` (with the report), and a `JobResult` carrying
+  `status`, `error`, `failed_component`, `failures`, `rows`, `global_map`,
+  `context`; `raise_for_status()` raises `JobFailedError`.

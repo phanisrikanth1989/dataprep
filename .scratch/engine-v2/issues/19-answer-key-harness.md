@@ -1,6 +1,6 @@
 # 19 - Answer-key harness
 
-Status: claimed
+Status: resolved
 Type: task
 
 ## Question
@@ -27,3 +27,18 @@ the comparison are proven here and the v2 side is proven against the first
 slice of the build.
 
 `src/v1` is not modified.
+
+## Answer
+
+Resolved 2026-10-05 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn.
+
+Built: `tests/v2/answer_key`. A test hands over a job config and input
+files; v1 and v2 each run it in a fresh folder; what is compared is whether
+the job finished, which files it wrote and their bytes. Nothing is stored.
+A job whose v1 form needs Java carries a v2 rewrite (`v2_job=`) and is
+skipped where the bridge is not available. Component tests add a guard that
+both engines really finished, since two failures compare as equal.
