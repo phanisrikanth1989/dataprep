@@ -61,7 +61,6 @@ markers = [
     "oracle: Tests requiring an Oracle DB testcontainer (slow, opt-in)",
     "slow: Tests that take >5 seconds",
     "coverage: Documents coverage gate requirements (always skipped; enforced by CI command)",
-    "benchmark: v2 timing-ratio benchmarks (skipped unless run with -m benchmark; see tests/v2/conftest.py)",
 ]
 addopts = "-v --tb=short"
 
@@ -78,12 +77,10 @@ include = ["src*"]
 source = [
     "src/v1/engine",
     "src/converters",
+    "src/v2",
 ]
 omit = [
     "src/converters/complex_converter/*",
-    # v2 converters stay outside the v1 per-module gate (src/v2 is not in `source` either).
-    "src/converters/talend_to_v2/*",
-    "src/converters/v1_to_v2/*",
     "*/__init__.py",
     "*/tests/*",
     "*/test_*.py",
