@@ -391,3 +391,16 @@ def test_reject_output_is_put_in_its_declared_shape(tmp_path):
     }
     assert run(made).status == "success"
     assert lines(rejected) == ["errorMessage,s,n,errorCode", "Column 'n': non-nullable column has null,b,,SCHEMA_VIOLATION"]
+
+
+def test_failing_component_is_not_searched_for_after_a_long_pass(tmp_path, monkeypatch):
+    # Finding it means computing every component's output again; after a long pass that costs too much.
+    from src.v2.engine import runner
+
+    monkeypatch.setattr(runner, "BLAME_BUDGET_S", -1.0)
+    made = job([("in", "lying", {}), ("add", "add", {}), ("x", "add", {}),
+                ("a", "save", {"path": str(tmp_path / "a.csv")}), ("b", "save", {"path": str(tmp_path / "b.csv")})],
+               [("r1", "in", "add", "flow"), ("r2", "add", "a", "flow"), ("r3", "in", "x", "flow"), ("r4", "x", "b", "flow")])
+    result = edge(made)
+    assert result.status == "failed" and result.failed_component is None
+    assert result.error and list(result.failures) == ["job"]

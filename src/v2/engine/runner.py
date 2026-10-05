@@ -35,6 +35,8 @@ from .context import RunContext
 logger = logging.getLogger(__name__)
 
 DEFAULT_ENGINE = "streaming"
+# A failed pass that ran longer than this is not followed by the search for the component at fault.
+BLAME_BUDGET_S = 60.0
 _STATS = ("NB_LINE", "NB_LINE_OK", "NB_LINE_REJECT")
 _NULL_COLUMN = re.compile(r"Column '(.*)': non-nullable column has null")
 
@@ -315,6 +317,7 @@ class Runner:
             return []
         temps = [_temp_path(write.path) for _, write in writes]
         counted = [(component_id, write.rows) for component_id, write in writes if write.rows is not None]
+        started = time.perf_counter()
         try:
             plans = [write.sink(temp) for (_, write), temp in zip(writes, temps)]
             plans += [rows for _, rows in counted]
@@ -323,7 +326,9 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
             for temp in temps:
                 _remove(temp)
-            blamed = self._blame(state.produced, exc) or (writes[0][0] if len(writes) == 1 else None)
+            blamed = None
+            if time.perf_counter() - started <= BLAME_BUDGET_S:
+                blamed = self._blame(state.produced) or (writes[0][0] if len(writes) == 1 else None)
             raise _Failed(blamed, _reason(exc)) from exc
 
         first_count, first_tap, first_wanted = len(writes), len(writes) + len(counted), len(plans)
@@ -365,12 +370,13 @@ class Runner:
                 _remove(temp)
                 raise _Failed(component_id, _reason(exc)) from exc
 
-    def _blame(self, produced: List[Tuple[str, pl.LazyFrame]], error: Exception) -> Optional[str]:
+    def _blame(self, produced: List[Tuple[str, pl.LazyFrame]]) -> Optional[str]:
         """Find the first component whose own output cannot be computed.
 
         Polars reports a data problem when the plan runs and names a column,
         not a component. Each component's output is therefore computed on its
-        own, in order, holding no rows, until one fails.
+        own, in order, holding no rows, until one fails. That reads the data
+        again once per component, so it is only done after a short pass.
         """
         for component_id, frame in produced:
             try:
