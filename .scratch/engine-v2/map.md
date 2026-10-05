@@ -93,6 +93,18 @@ not that they are designed.
 
 <!-- one line per closed ticket -->
 
+- [03 - Polars facts: collection, streaming and Decimal](issues/03-polars-facts-collection-streaming-decimal.md)
+  -- two collects re-run a shared upstream, and `collect_all` shares it only
+  when the optimizer keeps the cache (main + reject as `filter(c)` /
+  `filter(~c)` reads the source twice; a computed flag column reads it once);
+  `write_csv` is `sink_csv` underneath, sinks return no row count, and a
+  count can ride the sink's own pass on the streaming engine; `pl.Decimal` is
+  stable but `*` and `/` round to the operands' scale (`1.25 * 1.25 = 1.56`),
+  unlike Python's Decimal; errors surface at collect and name a column, not a
+  component; a join keeps left order in memory but not on streaming;
+  behaviour changes inside the pinned range, which graduated to
+  [Which Polars versions v2 supports](issues/28-which-polars-versions-v2-supports.md).
+
 ## Not yet specified
 
 - The build. After the
