@@ -20,6 +20,14 @@ refused and the defaults policy from
 Also settle v1 behaviours that have no key but that the answer key still
 demands.
 
+[The performance bar](05-performance-bar.md) settled that there is no blanket
+test: each key here is judged on need against cost, and footer rows stays.
+Bring its measurements for `footer_rows`, `encoding` and `die_on_error`, and
+the three defects it found in the component as found: reject messages built
+in a Python loop, a Boolean column failing when `die_on_error` is false, and
+a trailer line that does not fit the schema failing when `die_on_error` is
+true.
+
 And settle, one by one, what v2 does about the Polars reader behaviours that
 give a wrong result without an error: guard against it, refuse the input, or
 accept it. They are listed in the answer to

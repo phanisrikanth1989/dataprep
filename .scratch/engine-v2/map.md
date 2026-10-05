@@ -7,9 +7,9 @@ Label: wayfinder:map
 A rebuilt v2 engine, built and passing: pure Python, Polars-fast, and able to
 run v1 job configs for a chosen set of 10-15 components. It accepts v1's config
 keys, takes expressions written in Python, and produces output equal to v1's.
-Anything it cannot run at Polars speed it refuses at load, in one refusal
-report. Done means the components are built and pass their answer-key tests,
-not that they are designed.
+What it does not support it refuses at load, in one refusal report. Done
+means the components are built and pass their answer-key tests, not that they
+are designed.
 
 ## Notes
 
@@ -32,9 +32,12 @@ not that they are designed.
   a user takes a v1 job config, removes the Java, rewrites the expressions in
   Python and runs it on v2.
 - Rules that stay:
-  - Performance first, capability second. A v1 capability Polars cannot do
-    natively, or only with a large slowdown, is refused, never emulated
-    slowly.
+  - Performance first, capability second, but a config key users need is not
+    dropped for being slower. Performance decides how a key is built: the
+    fastest way Polars allows, paid for only by jobs that use the key.
+    Whether a key stays is decided key by key in the component tickets, need
+    against cost, and a refusal is made there with a reason
+    ([The performance bar](issues/05-performance-bar.md)).
   - Lazy everywhere: components pass lazy frames and never collect; the engine
     collects only at barriers.
   - Explicit schema, never inferred.
@@ -62,9 +65,9 @@ not that they are designed.
   - Aliases and translation happen once, at load. Components see one
     spelling. A job config that uses both spellings of one key is refused.
   - v1 is the answer key: for supported config keys, v2's output for a job
-    equals v1's. Polars speed has priority: where matching v1 would cost it,
-    the key is refused. Deliberate differences, if any ever exist, go on a
-    short written list.
+    equals v1's. Where matching v1 would cost speed, the component's ticket
+    decides, need against cost. Deliberate differences, if any ever exist, go
+    on a short written list.
 - Build rules:
   - Rebuild clean inside `src/v2`, no second package: new loader, new core,
     new expression translator, then components one at a time. Each old module
@@ -87,6 +90,9 @@ not that they are designed.
   Observations made here are provisional for the target servers until checked
   there. There is no JVM or bridge JAR on this Mac (as of 2026-10-04), so v1
   runs here only for Java-free job configs.
+- Data and servers, as the dev recalls them (2026-10-05, not measured): input
+  files are typically 500 MB to 1 GB, the largest are 30 to 100 GB, and the
+  servers have about 500 GB of memory.
 - Logs are ASCII only (repo rule).
 
 ## Decisions so far
@@ -128,6 +134,13 @@ not that they are designed.
   row count; floats are written as `30200.0`; no thousands separators; zip
   is unsupported; row counts on CSV scans were wrong on polars 1.39 and
   1.40.
+- [05 - The performance bar](issues/05-performance-bar.md) -- there is no
+  blanket test: a config key is not dropped for being slower. Performance
+  decides how a key is built (the fastest way Polars allows, paid for only by
+  jobs that use it); whether a key stays is decided key by key in the
+  component tickets, need against cost. Footer rows stays. The hard cases
+  were measured: the figures are in the ticket and the scripts in
+  `research/probes/`.
 
 ## Not yet specified
 
@@ -159,7 +172,8 @@ not that they are designed.
 - Talend as a source for v2: no Talend-to-v2 conversion.
 - Rewriting Java expressions into Python automatically: users do it by hand.
 - Java in any form: no bridge, no Java routines.
-- Emulating slowly what Polars cannot do natively: such capabilities are
-  refused.
+- A blanket performance test for config keys: verdicts are made key by key in
+  the component tickets
+  ([The performance bar](issues/05-performance-bar.md)).
 - Any change to `src/v1`.
 - Harvesting the old v2 roadmap and audit backlog left behind in ETL-AIAgent.

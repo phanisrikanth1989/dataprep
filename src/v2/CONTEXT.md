@@ -1,7 +1,7 @@
 # v2 Engine
 
-The pure-Python, Polars-based ETL engine in `src/v2/`. It runs v1 job configs at
-Polars speed and refuses what it cannot run that way. (Map:
+The pure-Python, Polars-based ETL engine in `src/v2/`. It runs v1 job configs as
+fast as Polars allows and refuses, at load, what it does not support. (Map:
 `.scratch/engine-v2/map.md`.)
 
 ## Language
@@ -27,8 +27,8 @@ data: a label, a canvas position.
 _Avoid_: harmless key
 
 **Refused config key**:
-A config key whose presence stops a job at load: one Polars cannot honour at
-speed, or one no component declares.
+A config key whose presence stops a job at load: one v2 has decided not to
+support, or one no component declares.
 _Avoid_: unsupported feature
 
 **Alias**:
