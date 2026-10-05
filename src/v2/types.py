@@ -190,12 +190,28 @@ def to_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = Non
             return value.cast(pl.String)
         return value.cast(pl.String).str.to_titlecase()
     if dtype.is_float():
-        return value.fill_nan(None).cast(pl.String)
+        return _float_text(value)
     if dtype.is_decimal():
         return _decimal_text(value, dtype, declared)
     if dtype.is_temporal():
         return _date_text(value, dtype, declared)
     return value.cast(pl.String)
+
+
+def _float_text(value: pl.Expr) -> pl.Expr:
+    """A float as Python writes it, which is what v1 writes.
+
+    Polars spells a float the same way except below 0.0001, where Python
+    has ``1e-05`` and ``1e-07`` for Polars' ``0.00001`` and ``1e-7``. Only
+    those values are respelled; the others cost nothing extra.
+    """
+    text = value.fill_nan(None).cast(pl.String)
+    respelled = (
+        text.str.replace(r"e-(\d)$", "e-0${1}")
+        .str.replace(r"^(-?)0\.0000([1-9])$", "${1}${2}e-05")
+        .str.replace(r"^(-?)0\.0000([1-9])(\d+)$", "${1}${2}.${3}e-05")
+    )
+    return pl.when((value.abs() < 1e-4) & (value != 0)).then(respelled).otherwise(text)
 
 
 def _decimal_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:
@@ -249,6 +265,9 @@ def conform(
         frame.
     """
     have = frame.collect_schema()
+    if not have.names() and columns:
+        # A frame with no columns has no rows; Polars would make one row out of the columns added below.
+        return pl.LazyFrame(schema=polars_schema(columns)), None
     # An error column renamed by an earlier component stands in for the name a schema still declares.
     renamed = {
         name: f"{name}_user" for name in _ERROR_COLUMNS

@@ -84,7 +84,9 @@ def test_whole_numbers(tmp_path, text):
 
 
 @pytest.mark.parametrize(
-    "text", ["1", "1.50", "30200.00", "1e5", "+5", " 7 ", "007", "0.1", "2.50", "1e15", "1e16", "1e22", "0.0001", "inf", "-inf"],
+    "text",
+    ["1", "1.50", "30200.00", "1e5", "+5", " 7 ", "007", "0.1", "2.50", "1e15", "1e16", "1e22", "0.0001", "inf", "-inf",
+     "0.00001", "0.00005", "0.000012345", "1e-7", "-2.5e-9", "5e-324"],
 )
 def test_floats(tmp_path, text):
     same(tmp_path, f"x;{text}\ny;2.5\n".encode(), "k:str, v:float")
@@ -555,3 +557,28 @@ def test_data_column_named_like_the_reject_reason_gives_its_place_to_it(tmp_path
         b"id;errorCode;errorMessage\nx;TYPE_CONVERSION;Column 'id': could not convert string to float: 'x'\n"
     )
     assert run.files["out.csv"] == b"id;errorCode_user\n1;mine\n"
+
+
+def test_flow_with_no_columns_writes_an_empty_file(tmp_path):
+    # What v1 writes when a component hands on a frame with nothing in it.
+    import os
+
+    import polars as pl
+
+    from src.v2.components.base import Source
+    from src.v2.components.registry import REGISTRY, Registry
+
+    class Nothing(Source):
+        names = ("nothing",)
+
+        def read(self):
+            return {"main": pl.LazyFrame()}
+
+    registry = Registry()
+    for cls in list(REGISTRY.classes()) + [Nothing]:
+        registry.register(cls)
+    made = job([{"id": "in", "type": "nothing", "config": {}}, writer(None, inputs=("row1",))], [flow("row1", "in", "out")])
+    made["components"][1]["config"]["filepath"] = str(tmp_path / "out.csv")
+    result = run_job(made, registry=registry)
+    assert result.status == "success" and result.rows == {"out": 0}
+    assert os.path.getsize(tmp_path / "out.csv") == 0

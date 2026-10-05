@@ -112,7 +112,10 @@ class FileOutputDelimited(Sink):
         declared = {column.name: column for column in self.input_schema}
         types = frame.collect_schema()
         columns = [_as_written(name, types[name], declared.get(name)) for name in types.names()]
-        if len(delimiter.encode()) == 1:
+        if not columns:
+            # A flow with no columns has nothing to write, not even a header: the file is left empty.
+            header, out = False, pl.LazyFrame(schema={"nothing": pl.String})
+        elif len(delimiter.encode()) == 1:
             out = frame.select(columns)
         else:
             # Polars separates fields with one byte; any other separator is put in by hand.
@@ -155,12 +158,10 @@ class FileOutputDelimited(Sink):
 
 
 def _as_written(name: str, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:
-    """A column as it goes to the file. Text and numbers are left for Polars to write."""
+    """A column as it goes to the file. Text and whole numbers are left for Polars to write."""
     column = pl.col(name)
     if dtype == pl.String or dtype.is_integer():
         return column
-    if dtype.is_float():
-        return column.fill_nan(None)
     if dtype == pl.Boolean and declared is not None and declared.type == "bool":
         return column
     return to_text(column, dtype, declared).alias(name)

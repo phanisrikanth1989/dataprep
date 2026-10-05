@@ -95,3 +95,12 @@ def test_condition_that_cannot_be_read_says_so(condition):
 def test_datetime_context_value_cannot_be_compared_in_a_condition():
     with pytest.raises(ConfigurationError):
         evaluate("context.day == 1", {"day": datetime.datetime(2024, 1, 31)}, GLOBAL_MAP)
+
+
+def test_numbers_numpy_hands_out_are_read_as_python_numbers():
+    import numpy as np
+
+    global_map = {"total": np.int64(7), "ratio": np.float64(0.5), "flag": np.bool_(True)}
+    assert evaluate('globalMap.get("total") == 7 && globalMap.get("ratio") < 1', {}, global_map) is True
+    assert evaluate('((Integer)globalMap.get("total")) > 6 && globalMap.get("flag")', {}, global_map) is True
+    assert evaluate("context.n == 7", {"n": np.int64(7)}, {}) is True

@@ -176,6 +176,11 @@ def test_numbers_are_written_as_v1_writes_them():
     ]
 
 
+def test_small_floats_are_written_with_an_exponent_as_python_writes_them():
+    values = [1e-05, 5e-05, 1.2e-05, 9.99e-05, 1e-07, 1.5e-07, 5e-324, -3e-05, -2e-09, 0.0001, 0.00012345, 0.0, -0.0]
+    assert written(values, pl.Float64) == [repr(value) for value in values]
+
+
 def test_not_a_number_is_written_as_missing():
     assert written([float("nan"), 1.5], pl.Float64) == [None, "1.5"]
 
@@ -337,3 +342,9 @@ def test_declared_type_the_values_cannot_become_is_an_error_when_the_plan_is_bui
 
     with pytest.raises(ConfigurationError, match="column 'v' is declared"):
         conform(pl.LazyFrame(schema={"v": dtype}), [declared])
+
+
+def test_frame_with_no_columns_gets_the_declared_columns_and_no_rows():
+    frame, _ = conform(pl.LazyFrame(), [Column("a", "int"), Column("b", "str", nullable=False)])
+    out = frame.collect()
+    assert out.columns == ["a", "b"] and out.height == 0

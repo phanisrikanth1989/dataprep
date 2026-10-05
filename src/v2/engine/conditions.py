@@ -61,7 +61,7 @@ def evaluate(condition: Optional[str], context: Mapping[str, Any], global_map: M
 def _context_values(text: str, context: Mapping[str, Any]) -> str:
     def value(match: "re.Match[str]") -> str:
         name = match.group(1)
-        return repr(context[name]) if name in context else match.group(0)
+        return repr(_plain(context[name])) if name in context else match.group(0)
 
     return _BARE.sub(value, _TEMPLATE.sub(value, text))
 
@@ -71,6 +71,7 @@ def _cast(type_name: str, raw: Any) -> str:
     if convert is None:
         return repr(raw)
     empty = "0" if convert in (int, float) else "False" if convert is bool else '"None"'
+    raw = _plain(raw)
     if raw is None:
         return empty
     try:
@@ -79,7 +80,19 @@ def _cast(type_name: str, raw: Any) -> str:
         return empty if convert is not str else repr(str(raw))
 
 
+def _plain(value: Any) -> Any:
+    """A numpy or pandas scalar as the Python value it stands for; anything else as it is."""
+    item = getattr(value, "item", None)
+    if callable(item) and type(value).__module__ in ("numpy", "pandas"):
+        try:
+            return item()
+        except (TypeError, ValueError):
+            return value
+    return value
+
+
 def _literal(value: Any) -> str:
+    value = _plain(value)
     return "None" if value is None else repr(value)
 
 
