@@ -70,7 +70,8 @@ COMPONENT_KEYS: Tuple[Key, ...] = (
     Key("type", required=True, convert=_not_empty, doc="The component type."),
     Key("config", type=dict, default={}, doc="The component's config."),
     Key("schema", type=object, default=None, doc="Declared columns: {input: [...], output: [...]}."),
-    Key("inputs", kind=Kind.IGNORED, type=object, doc="v1's list of incoming flow names; the flows decide."),
+    Key("inputs", type=list, default=[],
+        doc="Names of the incoming flows, in the order the component takes them. The flows decide which arrive."),
     Key("outputs", kind=Kind.IGNORED, type=object, doc="v1's list of outgoing flow names; the flows decide."),
     Key("original_type", kind=Kind.IGNORED, type=object, doc="The Talend type the component was converted from."),
     Key("position", kind=Kind.IGNORED, type=object, doc="Canvas position."),
@@ -256,6 +257,7 @@ class _Loader:
             input_schema=schemas["input"],
             reject_schema=schemas["reject"],
             input_schemas=schemas["inputs"],
+            input_order=[name for name in fields.get("inputs") or [] if isinstance(name, str)],
         )
 
     def _schema(self, value: Any, where: str) -> Dict[str, Any]:

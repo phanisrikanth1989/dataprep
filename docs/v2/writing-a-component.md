@@ -79,6 +79,9 @@ decorator registers it. Working examples: `transform/sort_row.py`,
 | `Sink` | `write(frame)` | its one input | a `Write` |
 | `Eager` | `run(inputs)` | `{flow name: DataFrame}` (real rows) | `{port: DataFrame}` |
 
+- Inputs arrive in the order of the component's own `inputs` list in the job
+  config (v1's rule: a join's first input is its main flow), and in
+  job-config flow order where the list does not say.
 - `Eager` is for components that truly need rows in hand (user Python, a
   tiny lookup that sets context). The engine collects its inputs, which
   holds them in memory. A `Transform` can decide per run: override
@@ -99,6 +102,23 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   `Column`), `self.input_schema`, `self.spec.reject_schema`,
   `self.spec.input_schemas` (per incoming flow name), `self.context`,
   `self.global_map`, `self.run_context`.
+
+## Checked at load
+
+A job is checked before it runs: every subjob is built against empty frames
+(`src/v2/engine/check.py`). `build` is called for real, so it must not touch
+files or data. For the other kinds the engine does not call `read`, `write`
+or `run`; it uses `declared_outputs()` (empty frames made from the declared
+schema) instead. Two hooks let a component take part:
+
+- `problems()` returns what is wrong with the config that the key
+  declarations cannot say: keys that do not go together, a schema that is
+  needed. Each entry reads `"<key>: <what is wrong>"`. It is called at load
+  and again before the component runs, so `read`/`build`/`write` may assume
+  it returned nothing.
+- A component that sets context variables while the job runs declares
+  `sets_context = True` on its class, so that a config naming a variable
+  that does not exist yet is not refused at load.
 
 ## Config keys (`src/v2/job/keys.py`)
 

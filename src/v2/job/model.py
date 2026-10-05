@@ -104,6 +104,8 @@ class ComponentSpec:
         reject_schema: The declared columns of its reject output.
         input_schemas: Declared input columns per incoming flow name, for
             components that take several inputs.
+        input_order: The component's own list of incoming flow names. Its
+            order is the order inputs reach the component in, as in v1.
     """
 
     id: str
@@ -115,6 +117,7 @@ class ComponentSpec:
     input_schema: List[Column] = field(default_factory=list)
     reject_schema: List[Column] = field(default_factory=list)
     input_schemas: Dict[str, List[Column]] = field(default_factory=dict)
+    input_order: List[str] = field(default_factory=list)
 
     @property
     def where(self) -> str:
@@ -144,8 +147,18 @@ class Job:
     triggers: List[Trigger] = field(default_factory=list)
 
     def incoming(self, component_id: str) -> List[Flow]:
-        """The flows arriving at a component, in job-config order."""
-        return [flow for flow in self.flows if flow.target == component_id]
+        """The flows arriving at a component, in the order it takes its inputs.
+
+        That is the order of the component's own ``inputs`` list where it
+        names them, and job-config order for the rest.
+        """
+        arriving = [flow for flow in self.flows if flow.target == component_id]
+        spec = self.components.get(component_id)
+        listed = spec.input_order if spec is not None else []
+        if not listed:
+            return arriving
+        place = {name: index for index, name in enumerate(listed)}
+        return sorted(arriving, key=lambda flow: place.get(flow.name, len(place)))
 
     def outgoing(self, component_id: str) -> List[Flow]:
         """The flows leaving a component, in job-config order."""

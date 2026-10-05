@@ -237,3 +237,20 @@ def test_unknown_schema_block_is_refused(tmp_path):
     with pytest.raises(JobRefusedError) as caught:
         run(made)
     assert "schema.sideways" in caught.value.report.format()
+
+
+# ------------------------------------------------------------------
+# The order inputs reach a component in
+# ------------------------------------------------------------------
+
+def test_inputs_follow_the_components_own_list_when_it_gives_one_as_in_v1(tmp_path):
+    out = tmp_path / "out.csv"
+    made = job(
+        [("a", "rows", {"data": {"n": [1]}}), ("b", "rows", {"data": {"n": [2]}}),
+         ("c", "rows", {"data": {"n": [3]}}), ("stack", "stack", {}), ("out", "save", {"path": str(out)})],
+        [("fa", "a", "stack", "flow"), ("fb", "b", "stack", "flow"), ("fc", "c", "stack", "flow"),
+         ("r", "stack", "out", "flow")],
+    )
+    made["components"][3]["inputs"] = ["fc", "fa"]
+    run(made)
+    assert lines(out) == ["n,via", "3,fc", "1,fa", "2,fb"]
