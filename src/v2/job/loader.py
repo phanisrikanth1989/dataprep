@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from ..components.registry import REGISTRY, Registry
+from .graph import loop
 from .keys import EXPRESSION, Key, Kind, normalize_config
 from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Trigger
 from .refusal import Refusal, RefusalReport
@@ -154,6 +155,9 @@ class _Loader:
             if trigger is not None:
                 job.triggers.append(trigger)
         self._check_input_counts(job)
+        stuck = loop(job)
+        if stuck:
+            self.report.add("job", "flows", f"the flows form a loop through: {', '.join(stuck)}")
         self.report.raise_if_refused()
         return job
 

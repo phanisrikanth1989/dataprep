@@ -34,3 +34,24 @@ class ExpressionError(V2Error):
         super().__init__(f"{reason} (in: {expression})")
         self.expression = expression
         self.reason = reason
+
+
+class ConfigurationError(V2Error):
+    """A config value turned out to be unusable once the job was running.
+
+    Raised when a value that named a context variable resolves to something
+    the key does not accept, or names a variable that does not exist.
+    """
+
+
+class JobFailedError(V2Error):
+    """A job started and did not finish.
+
+    Attributes:
+        result: The ``JobResult`` of the run.
+    """
+
+    def __init__(self, result) -> None:
+        where = f" at component {result.failed_component}" if result.failed_component else ""
+        super().__init__(f"job '{result.job_name}' failed{where}: {result.error}")
+        self.result = result
