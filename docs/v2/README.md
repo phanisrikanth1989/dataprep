@@ -16,6 +16,7 @@ python -m src.v2 job.json                                  # run
 python -m src.v2 job.json --context_param in_dir=/data     # set context variables
 python -m src.v2 job.json --check                          # load and check only; run nothing
 python -m src.v2 job.json --summary run.json               # also write the summary to a file
+python -m src.v2 job.json --row-counts                     # log the row counts of every component
 ```
 
 | Exit code | Meaning |
@@ -31,10 +32,16 @@ names the lowest level that is written (`INFO` unless told otherwise).
 
 A summary of the run is the last thing written to standard output, as JSON
 (`status`, `error`, `failed_component`, `failures`, `rows` written by each
-output, `duration_s`). `--summary FILE` writes it to a file as well, so
+output, `counts`, `duration_s`). `--summary FILE` writes it to a file as well, so
 that nothing has to pick it out of the log. The file is opened before the
 job runs: when it cannot be written, nothing runs (exit code 2). A job that
 was not run leaves the file as it was.
+
+`--row-counts` is for looking into a job: it counts the rows of every
+component and logs them, one line a component (see "What the log says").
+The run takes about three times as long, because every count is one more
+plan Polars works through. Without it a run is as fast as it can be and
+counts only what the job itself reads.
 
 From Python:
 
@@ -152,7 +159,11 @@ Polars expressions.
   by a context load in an earlier subjob is seen.
 - Row counts: every file output sets `<id>_NB_LINE` in the globalMap. The
   counts of other components (`_NB_LINE`, `_NB_LINE_OK`, `_NB_LINE_REJECT`)
-  are taken only when something in the job reads them.
+  are taken only when something in the job reads them, or when the run asks
+  for the counts of every component (`--row-counts`, or
+  `run_job(..., row_counts=True)`). They follow v1's rules: rows read, rows
+  passed on, rows rejected; a map counts the rows of its outputs, a join the
+  rows of its main input, a full-row input every line of its file.
 - After each component the engine makes its output match the declared
   schema, as v1 does: column order, columns nobody produced, types, decimal
   places, and columns that may not hold a missing value.
@@ -172,6 +183,14 @@ At INFO:
   [job] trigger OnSubjobOk from settings_in to payments_in fired: the subjob of payments_in is set off
   [job] trigger RunIf from rejects_out to rejects_in, judged when rejects_out was done: ((Integer)globalMap.get("rejects_out_NB_LINE")) > 0 is true: the subjob of rejects_in is set off
   ```
+
+With `--row-counts`, one more line for every component when its subjob has
+finished, in v1's words. The same numbers are in the summary, under
+`counts`, and in the globalMap:
+
+```
+[format_check] NB_LINE:4000 OK:3920 REJECT:80
+```
 
 `--log-level DEBUG` adds what a person needs when a job does not do what
 they expected:
@@ -226,6 +245,13 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - A component's row counts are known when its subjob has finished, so a
   later subjob and its triggers can read them, a component of the same
   subjob cannot.
+- A component's row counts are of the rows it hands on. Most of v1's
+  components count their rows before v1 checks them against the declared
+  schema, so a row that check drops, or moves to the reject output (a
+  missing value in a column that may not hold one, with `die_on_error`
+  off), is still in v1's count of rows passed on and never in its count of
+  rejects. In v1 the positional and the Excel input therefore always report
+  no rejects. Where no row is dropped that way, the counts are v1's.
 - Subjobs are always worked out from the flows. v1's `subjob_id` on a
   component is ignored.
 - A context variable named as `${context.x}` that does not exist is an

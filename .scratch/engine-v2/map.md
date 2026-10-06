@@ -235,6 +235,10 @@ are designed.
   -- DEBUG adds each component's config and output columns, how a delimited
   reader reads numbers and why, each subjob's plans, each output's temporary
   file and encoding; nothing of it is put together at INFO.
+- [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md)
+  -- on request (`--row-counts`): one line a component in v1's words, the
+  counts v1's except where v1 counts a row its schema check then drops; the
+  run takes about three times as long.
 
 ## Not yet specified
 
@@ -258,8 +262,6 @@ decide, not fog on the way there.
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
 - Asked for by the dev in the review of 2026-10-06:
-  [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md),
-  on request;
   [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md);
   [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),
   to be researched before anything is built.

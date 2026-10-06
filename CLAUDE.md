@@ -98,7 +98,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 - `PyYAML` — YAML config parsing for SWIFT transformer.
 - `jsonpath_ng` — JSONPath expression evaluation. See `extract_json_fields.py`.
 - `numpy` — numerical operations. See `bridge.py`, `python_dataframe_component.py`.
-- `polars` (`>=1.44,<2.0`, the `v2` extra) — the v2 engine's only data library; `fastexcel` reads Excel for it. Never call `LazyFrame.cache()` in v2: Polars 1.44 loses a projection around it (see `docs/v2/writing-a-component.md`).
+- `polars` (`>=1.44,<2.0`, the `v2` extra) — the v2 engine's only data library; `fastexcel` reads Excel for it. Never call `LazyFrame.cache()` in v2: Polars 1.44 loses a projection around it (see `docs/v2/writing-a-component.md`). Polars 1.44 also miscounts `select(pl.len())` over a `concat` cut by `slice`/`head`; the engine counts rows its own way (`_row_count` in `src/v2/engine/runner.py`).
 - Groovy `3.0.21` — dynamic script compilation in the Java bridge.
 
 ### Configuration
@@ -117,7 +117,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 ### Entry Points (CLI)
 - Converter: `python -m src.converters.talend_to_v1.converter <input.item> [output.json]` (see `src/converters/talend_to_v1/converter.py:460-472`)
 - Engine: `python src/v1/engine/engine.py <job_config.json> [--context_param KEY=VALUE]` (see `src/v1/engine/engine.py:860-889`)
-- v2 engine: `python -m src.v2 <job_config.json> [--context_param KEY=VALUE] [--check]` (see `src/v2/cli.py`). Exit code 0 finished, 1 ran and failed, 2 not run (job config refused, or bad command line). `--check` prints the refusal report and runs nothing. INFO and DEBUG log lines go to stdout, warnings and errors to stderr (an empty stderr is a clean run); the JSON summary is the last thing on stdout, and `--summary FILE` writes it to a file as well.
+- v2 engine: `python -m src.v2 <job_config.json> [--context_param KEY=VALUE] [--check] [--row-counts] [--summary FILE]` (see `src/v2/cli.py`). Exit code 0 finished, 1 ran and failed, 2 not run (job config refused, or bad command line). `--check` prints the refusal report and runs nothing. INFO and DEBUG log lines go to stdout, warnings and errors to stderr (an empty stderr is a clean run); the JSON summary is the last thing on stdout, and `--summary FILE` writes it to a file as well. `--row-counts` logs the row counts of every component, for looking into a job (the run takes about three times as long).
 
 ---
 

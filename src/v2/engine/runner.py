@@ -39,6 +39,7 @@ DEFAULT_ENGINE = "streaming"
 # A failed pass that ran longer than this is not followed by the search for the component at fault.
 BLAME_BUDGET_S = 60.0
 _STATS = ("NB_LINE", "NB_LINE_OK", "NB_LINE_REJECT")
+_ROW_NUMBER = "__v2_row_number"
 _NULL_COLUMN = re.compile(r"Column '(.*)': non-nullable column has null")
 
 
@@ -54,6 +55,10 @@ class JobResult:
         failures: Every failure: component id to reason, in the order they
             happened.
         rows: Rows written by each sink, by component id.
+        counts: The row counts of every component of every subjob that
+            finished, when the run was asked for them: component id to
+            ``NB_LINE``, ``NB_LINE_OK`` and ``NB_LINE_REJECT``. Empty
+            otherwise.
         global_map: globalMap entries at the end of the run.
         context: Context values at the end of the run.
         duration_s: Wall-clock seconds the run took.
@@ -65,6 +70,7 @@ class JobResult:
     failed_component: Optional[str] = None
     failures: Dict[str, str] = field(default_factory=dict)
     rows: Dict[str, int] = field(default_factory=dict)
+    counts: Dict[str, Dict[str, int]] = field(default_factory=dict)
     global_map: Dict[str, Any] = field(default_factory=dict)
     context: Dict[str, Any] = field(default_factory=dict)
     duration_s: float = 0.0
@@ -98,20 +104,35 @@ class _Subjob:
 
 
 class Runner:
-    """Runs one loaded job."""
+    """Runs one loaded job.
+
+    Args:
+        job: The loaded job.
+        engine: The Polars engine to collect with.
+        routines: Routine modules available to expressions.
+        row_counts: Whether the rows of every component are counted and
+            logged. Without it only the counts something in the job reads
+            are taken, because every count is one more plan Polars works
+            through.
+    """
 
     def __init__(
         self,
         job: Job,
         engine: Optional[str] = None,
         routines: Optional[Mapping[str, Mapping[str, Callable[..., Any]]]] = None,
+        row_counts: bool = False,
     ) -> None:
         self.job = job
         self.engine = engine or os.environ.get("V2_ENGINE") or DEFAULT_ENGINE
         self.run_context = RunContext(job.name, job.context, routines or job.routine_modules, job.context_types)
         self.rows: Dict[str, int] = {}
+        self.row_counts = row_counts
+        self.counts: Dict[str, Dict[str, int]] = {}
         self.run_context.job_text = _job_text(job)
         self._wanted = _wanted_stats(job, self.run_context.job_text)
+        if row_counts:
+            self._wanted = {component_id: list(_STATS) for component_id in job.components}
 
     def run(self) -> JobResult:
         """Run the job's subjobs and report how it went."""
@@ -125,6 +146,7 @@ class Runner:
         if result.failures:
             result.status = "failed"
         result.rows = dict(self.rows)
+        result.counts = dict(self.counts)
         result.global_map = dict(self.run_context.global_map)
         result.context = dict(self.run_context.context)
         result.duration_s = time.perf_counter() - started
@@ -328,8 +350,21 @@ class Runner:
             # A run that is stopped (Ctrl-C) leaves no file half written either.
             _discard(state)
             raise
+        if self.row_counts:
+            self._say_counts(component_ids)
         logger.info(f"[{self.job.name}] subjob finished in {time.perf_counter() - started:.2f}s")
         return None
+
+    def _say_counts(self, component_ids: List[str]) -> None:
+        """Keep and log the row counts of a subjob that finished, component by component, as v1 words them."""
+        global_map = self.run_context.global_map
+        for component_id in component_ids:
+            counted = {stat: global_map[f"{component_id}_{stat}"] for stat in _STATS}
+            self.counts[component_id] = counted
+            logger.info(
+                f"[{component_id}] NB_LINE:{counted['NB_LINE']} OK:{counted['NB_LINE_OK']} "
+                f"REJECT:{counted['NB_LINE_REJECT']}"
+            )
 
     def _build(self, component_ids: List[str], state: _Subjob) -> None:
         frames: Dict[str, pl.LazyFrame] = {}
@@ -444,7 +479,7 @@ class Runner:
             key = f"{component.id}_{stat}"
             global_map[key] = 0
             for frame in counted.get(stat, []):
-                component.tap(frame.select(pl.len()), lambda rows, key=key: _add(global_map, key, rows.item()))
+                component.tap(_row_count(frame), lambda rows, key=key: _add(global_map, key, rows.item()))
 
     # ------------------------------------------------------------------
     # Collecting and placing files
@@ -608,6 +643,19 @@ def _before(global_map: Mapping[str, Any], later: List[str], everyone: Iterable[
         if owner not in hidden:
             kept[key] = value
     return kept
+
+
+def _row_count(frame: pl.LazyFrame) -> pl.LazyFrame:
+    """A frame of one value: how many rows a frame holds.
+
+    The rows are numbered and the highest number is taken. Asking Polars for
+    the number outright (``select(pl.len())``) is wrong on Polars 1.44 for
+    frames put one after another and then cut (``concat`` under ``slice`` or
+    ``head``): it counts each frame on its own and cuts the list of counts,
+    not the rows.
+    """
+    highest = frame.with_row_index(_ROW_NUMBER).select(pl.col(_ROW_NUMBER).max().cast(pl.Int64))
+    return highest.select((pl.col(_ROW_NUMBER) + 1).fill_null(0))
 
 
 def _add(global_map: Dict[str, Any], key: str, rows: int) -> None:

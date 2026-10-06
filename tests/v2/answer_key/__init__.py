@@ -34,9 +34,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BRIDGE_JAR = REPO_ROOT / "src" / "v1" / "java_bridge" / "java" / "target" / "java-bridge-with-dependencies.jar"
 
+ROW_COUNTS = ("NB_LINE", "NB_LINE_OK", "NB_LINE_REJECT")
+
 Job = Dict[str, Any]
 Inputs = Mapping[str, Union[Path, bytes]]
-Runner = Callable[[Job], None]
+Runner = Callable[[Job], Any]
 
 
 @dataclass
@@ -61,8 +63,14 @@ class JobRun:
 # Runners
 # ------------------------------------------------------------------
 
-def run_v1(job: Job) -> None:
-    """Run a job on v1, in process. Raises when the job does not finish."""
+def run_v1(job: Job) -> Dict[str, Dict[str, int]]:
+    """Run a job on v1, in process. Raises when the job does not finish.
+
+    Returns:
+        The row counts v1 kept for each component it ran: component id to
+        ``NB_LINE``, ``NB_LINE_OK`` and ``NB_LINE_REJECT``. They are the
+        answer key for the counts v2 takes when a run asks for them.
+    """
     from src.v1.engine.engine import ETLEngine
 
     with warnings.catch_warnings():
@@ -72,6 +80,10 @@ def run_v1(job: Job) -> None:
     status = result.get("status")
     if status != "success":
         raise RuntimeError(f"v1 ended with status {status!r}: {result.get('error', '')}")
+    return {
+        component_id: {stat: stats[stat] for stat in ROW_COUNTS}
+        for component_id, stats in result["component_stats"].items()
+    }
 
 
 def run_v2(job: Job) -> None:

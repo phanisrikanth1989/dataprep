@@ -45,11 +45,27 @@ def on_v2(work):
 
 
 @pytest.fixture(scope="module")
-def on_v1_pymap(work):
+def v1_pymap(work):
+    """v1 with its PyMap, run once: the files it wrote and the row counts it kept."""
     out = work / "v1_pymap"
     out.mkdir()
-    run_v1(jobs.build("python", work / "data", out))
-    return written(out)
+    counts = run_v1(jobs.build("python", work / "data", out))
+    return written(out), counts
+
+
+@pytest.fixture(scope="module")
+def on_v1_pymap(v1_pymap):
+    return v1_pymap[0]
+
+
+@pytest.fixture(scope="module")
+def v2_counted(work):
+    """v2 asked for row counts: the files it wrote and the counts."""
+    out = work / "v2_counted"
+    out.mkdir()
+    result = run_job(jobs.build("python", work / "data", out), row_counts=True)
+    assert result.status == "success", result.error
+    return written(out), result.counts
 
 
 @pytest.fixture(scope="module")
@@ -86,6 +102,20 @@ def test_v1_with_pymap_writes_the_same_files_as_v2(on_v2, on_v1_pymap):
 @pytest.mark.java
 def test_v1_with_a_tmap_of_java_writes_the_same_files_as_v2(on_v2, on_v1_tmap):
     assert differing(on_v2, on_v1_tmap) == []
+
+
+def test_row_counts_asked_for_are_v1s_for_every_component(v2_counted, v1_pymap):
+    _, counts = v2_counted
+    assert len(counts) == 24
+    assert counts == v1_pymap[1]
+    # Not a job where nothing is turned away: the counts that differ from one step to the next are in it.
+    assert counts["format_check"]["NB_LINE_REJECT"] == BAD_FORMAT
+    assert counts["branch_join"]["NB_LINE_REJECT"] == UNKNOWN_BRANCH
+    assert counts["no_repeats"]["NB_LINE_REJECT"] == REPEATED
+
+
+def test_asking_for_row_counts_changes_no_file(on_v2, v2_counted):
+    assert differing(on_v2, v2_counted[0]) == []
 
 
 # ------------------------------------------------------------------

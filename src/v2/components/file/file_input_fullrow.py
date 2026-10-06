@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import polars as pl
 
@@ -117,6 +117,14 @@ class FileInputFullRow(Source):
             return {"main": pl.LazyFrame(schema={_COLUMN: pl.String})}
         return super().declared_outputs()
 
+    def line_counts(
+        self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
+    ) -> Dict[str, List[pl.LazyFrame]]:
+        """v1's full-row input counts as read every line the file splits into, whatever it then skips."""
+        counts = super().line_counts(inputs, outputs)
+        counts["NB_LINE"] = self._split
+        return counts
+
     def read(self) -> Dict[str, pl.LazyFrame]:
         config = self.config
         path = config["path"]
@@ -133,6 +141,7 @@ class FileInputFullRow(Source):
         header, footer = max(config["header_rows"], 0), max(config["footer_rows"], 0)
         # v1 splits the text at its line ends, so what follows the last of them is one more line, of nothing.
         last_is_empty = _ends_in_line_end(source, lone_cr)
+        self._split = [lines, pl.LazyFrame({name: [""]})] if last_is_empty else [lines]
         length: Optional[int] = None
         if footer:
             length = max(count_rows(lines) + int(last_is_empty) - header - footer, 0)

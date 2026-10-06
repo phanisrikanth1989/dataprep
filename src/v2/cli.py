@@ -1,6 +1,6 @@
 """Command line of the v2 engine.
 
-    python -m src.v2 job.json [--context_param KEY=VALUE ...] [--check]
+    python -m src.v2 job.json [--context_param KEY=VALUE ...] [--check] [--row-counts]
 
 Exit code 0 when the job finished, 1 when it ran and failed, 2 when it was
 not run at all: the job config was refused, or the command line was wrong.
@@ -38,6 +38,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Logging level (default: INFO).")
     parser.add_argument("--summary", metavar="FILE",
                         help="Also write the summary of the run to this file, as JSON.")
+    parser.add_argument("--row-counts", action="store_true",
+                        help="Count the rows of every component and log them. For looking into a job: "
+                             "the run takes about three times as long.")
     try:
         args = parser.parse_args(argv)
     except SystemExit as stop:
@@ -103,7 +106,7 @@ def _run(args: argparse.Namespace) -> int:
             print(f"--summary {args.summary}: {exc}", file=sys.stderr)
             return 2
 
-    result = run_job(job, engine=args.engine)
+    result = run_job(job, engine=args.engine, row_counts=args.row_counts)
     summary = json.dumps({
         "job_name": result.job_name,
         "status": result.status,
@@ -111,6 +114,7 @@ def _run(args: argparse.Namespace) -> int:
         "failed_component": result.failed_component,
         "failures": result.failures,
         "rows": result.rows,
+        "counts": result.counts,
         "duration_s": round(result.duration_s, 3),
     }, indent=2)
     if summary_file is not None:

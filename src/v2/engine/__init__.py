@@ -60,6 +60,7 @@ def run_job(
     registry: Registry = REGISTRY,
     engine: Optional[str] = None,
     routines: Optional[Routines] = None,
+    row_counts: bool = False,
 ) -> JobResult:
     """Load a job config, check it, and run it.
 
@@ -71,6 +72,10 @@ def run_job(
             ``in-memory`` or ``auto``. The ``V2_ENGINE`` environment variable
             sets it too.
         routines: Routine modules available to expressions.
+        row_counts: Whether the rows of every component are counted, logged
+            and put in the result's ``counts``. The run then takes about
+            three times as long; without it only the counts something in
+            the job reads are taken.
 
     Returns:
         How the run ended. A job that starts and fails is reported in the
@@ -84,4 +89,4 @@ def run_job(
         job = source
     else:
         job = load_job(source, context=context, registry=registry, routines=routines)
-    return Runner(job, engine=engine, routines=routines).run()
+    return Runner(job, engine=engine, routines=routines, row_counts=row_counts).run()

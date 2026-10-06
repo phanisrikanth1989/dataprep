@@ -225,8 +225,19 @@ So do not reorder or cast to the declared schema yourself. Do declare
 `die_on_error` with v1's default for the component if v1 reads it.
 
 Row counts: sinks set `<id>_NB_LINE`. `<id>_NB_LINE`, `_NB_LINE_OK` and
-`_NB_LINE_REJECT` of other components are counted by the engine only when
-something in the job reads them. Do not count rows yourself.
+`_NB_LINE_REJECT` of other components are counted by the engine, when
+something in the job reads them or when the run asks for the counts of
+every component. Do not count rows yourself. Where v1's component counts
+other rows than the default (every input for `NB_LINE`, the main output for
+`_OK`, the reject output for `_REJECT`), say which frames add up to each
+count in `line_counts`; `tests/v2/test_row_counts_against_v1.py` is where
+the counts are held against v1's.
+
+The engine does not count with `select(pl.len())`, and neither should
+anything else that counts a frame it did not build: on Polars 1.44 that
+gives a wrong number for frames put one after another and then cut
+(`concat` under `slice` or `head`; reproduction in
+`.scratch/engine-v2/research/probes/probe_polars_count_of_a_cut_union.py`).
 
 ## Asking about the data: `tap` and `check`
 

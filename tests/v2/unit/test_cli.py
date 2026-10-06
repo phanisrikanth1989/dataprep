@@ -115,6 +115,27 @@ def test_command_leaves_logging_as_it_found_it(tmp_path, capsys):
 
 
 # ------------------------------------------------------------------
+# Row counts on request
+# ------------------------------------------------------------------
+
+def test_row_counts_of_every_component_can_be_asked_for(tmp_path, capsys):
+    assert main([job_file(tmp_path), "--row-counts"]) == 0
+    captured = capsys.readouterr()
+    assert summary_of(captured.out)["counts"] == {
+        "in": {"NB_LINE": 2, "NB_LINE_OK": 2, "NB_LINE_REJECT": 0},
+        "out": {"NB_LINE": 2, "NB_LINE_OK": 2, "NB_LINE_REJECT": 0},
+    }
+    assert "[in] NB_LINE:2 OK:2 REJECT:0" in captured.out and "[out] NB_LINE:2 OK:2 REJECT:0" in captured.out
+
+
+def test_run_that_did_not_ask_has_no_counts_in_its_summary_or_its_log(tmp_path, capsys):
+    assert main([job_file(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert summary_of(captured.out)["counts"] == {}
+    assert "NB_LINE:" not in captured.out
+
+
+# ------------------------------------------------------------------
 # The summary in a file
 # ------------------------------------------------------------------
 
