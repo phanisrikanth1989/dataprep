@@ -569,3 +569,30 @@ def test_combination_a_load_may_still_change_is_not_judged_at_load():
     made = filled_in("text_enclosure", "${context.sep}")
     made["components"][2]["config"]["csv_option"] = True
     load_job(made)
+
+
+def test_component_that_cannot_be_built_is_still_refused_beside_a_load():
+    # Not a config value waiting for the load: the code itself is wrong, whatever the context holds.
+    made = filled_in("fieldseparator", ";")
+    code = {"id": "py", "type": "PythonDataFrameComponent", "config": {"python_code": "df = nothing_here", "dataframe": "polars"},
+            "schema": {"input": columns("a:str, b:str"), "output": columns("a:str, b:str")},
+            "inputs": ["row2"], "outputs": ["row3"]}
+    made["components"][3] = code
+    made["components"].append(writer("a:str, b:str", path="out.csv", inputs=("row3",)))
+    made["flows"] = [flow("row1", "in", "load"), flow("row2", "in2", "py"), flow("row3", "py", "out")]
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert "nothing_here" in caught.value.report.format()
+
+
+def test_reader_without_columns_is_still_refused_beside_a_load():
+    made = filled_in("fieldseparator", ";")
+    made["components"][2]["schema"]["output"] = []
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert "needs its columns declared" in caught.value.report.format()
+
+
+def test_value_inside_a_list_that_a_load_fills_in_is_not_judged_at_load():
+    made = filled_in("trim_select", [{"column": "a", "trim": "${context.sep}"}])
+    load_job(made)

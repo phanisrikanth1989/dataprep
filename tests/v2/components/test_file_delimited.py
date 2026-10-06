@@ -832,6 +832,8 @@ TWO, THREE = "a:str, b:str", "a:str, b:str, c:str"
         (TWO, {"limit": 2, "header_rows": 1, "footer_rows": 1}, b"H;h\n\n1;a\n\n2;b\n3;c\n\nEND;x\n"),
         (TWO, {"remove_empty_row": False, "header_rows": 1, "footer_rows": 1}, b"H;h\n\n1;a\n\n2;b\n\nEND;x\n"),
         (TWO, {"remove_empty_row": False, "row_separator": "\\r\\n"}, b"1;a\r\n\r\n2;b\r\n"),
+        (TWO, {"remove_empty_row": False, "fieldseparator": "\u00a6", "encoding": "UTF-8"},
+         "1\u00a6a\n\n   \n2\u00a6b\n".encode("utf-8")),
     ],
 )
 def test_blank_line_is_never_a_row_and_does_not_count_toward_the_limit(tmp_path, schema, read, data):

@@ -441,3 +441,60 @@ def test_v2_can_be_imported_without_the_excel_library():
     done = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True)
     assert done.returncode == 0, done.stderr[-400:]
     assert int(done.stdout.strip()) >= 16
+
+
+# ------------------------------------------------------------------
+# Putting a finished file in place
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "existing, mark, holds_header, expected",
+    [
+        (None, b"", False, b"h\nbody\n"),             # the file is new after all: the header goes in first
+        (None, b"\xef\xbb\xbf", False, b"\xef\xbb\xbfh\nbody\n"),
+        (b"", b"", False, b"h\nbody\n"),
+        (b"old\n", b"", True, b"old\nbody\n"),        # the file is there after all: the header is left out
+        (b"old\n", b"\xef\xbb\xbf", True, b"old\nbody\n"),
+        (None, b"", True, b"h\nbody\n"),
+    ],
+)
+def test_header_and_mark_go_into_a_new_file_only(tmp_path, existing, mark, holds_header, expected):
+    from src.v2 import files
+
+    written, target = tmp_path / "written", tmp_path / "target.csv"
+    written.write_bytes(mark + (b"h\n" if holds_header else b"") + b"body\n")
+    if existing is not None:
+        target.write_bytes(existing)
+    files.put_in_place(str(written), str(target), append=True, mark=mark, header=b"h\n", holds_header=holds_header)
+    assert target.read_bytes() == expected and not written.exists()
+
+
+def test_file_is_copied_where_it_cannot_be_moved(tmp_path, monkeypatch):
+    import errno
+
+    from src.v2 import files
+
+    def other_file_system(source, target):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    written, target = tmp_path / "written", tmp_path / "target.csv"
+    written.write_bytes(b"body\n")
+    monkeypatch.setattr(files.os, "replace", other_file_system)
+    files.put_in_place(str(written), str(target))
+    assert target.read_bytes() == b"body\n" and not written.exists()
+
+
+def test_file_that_cannot_be_put_in_place_fails_and_leaves_nothing_behind(tmp_path, monkeypatch):
+    import errno
+
+    from src.v2 import files
+
+    def denied(source, target):
+        raise OSError(errno.EACCES, "Permission denied")
+
+    written, target = tmp_path / "written", tmp_path / "target.csv"
+    written.write_bytes(b"body\n")
+    monkeypatch.setattr(files.os, "replace", denied)
+    with pytest.raises(OSError):
+        files.put_in_place(str(written), str(target))
+    assert not target.exists() and not written.exists()

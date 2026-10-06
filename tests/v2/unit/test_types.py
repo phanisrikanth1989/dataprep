@@ -384,3 +384,10 @@ def test_fixed_text_of_a_missing_value_is_missing():
 
     frame = pl.DataFrame({"v": [None, float("nan"), 1.0]}, schema={"v": pl.Float64})
     assert frame.select(fixed_text(pl.col("v"), 2)).to_series().to_list() == [None, None, "1.00"]
+
+
+def test_fixed_text_beyond_the_places_a_float_holds_is_the_float_as_it_prints():
+    from src.v2.types import fixed_text
+
+    frame = pl.DataFrame({"v": [1.5]}, schema={"v": pl.Float64})
+    assert frame.select(fixed_text(pl.col("v"), 20)).to_series().to_list() == ["1.5"]

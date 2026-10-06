@@ -76,7 +76,8 @@ def check_job(
                 if late_context and reason.startswith("context has no variable"):
                     continue
                 if late_context:
-                    reason = _judged_now(spec, runner)
+                    judged = _judged_now(spec, runner)
+                    reason = reason if judged is None else judged
                 if reason:
                     report.add(spec.where, "config", reason)
                 continue
@@ -91,12 +92,16 @@ def check_job(
 # Values a component of the job may still set
 # ------------------------------------------------------------------
 
-def _judged_now(spec: ComponentSpec, runner: Runner) -> str:
-    """What is wrong with a component's config, leaving out the values that name a context variable."""
-    try:
-        _, refusals = normalize_config(spec.raw_config, spec.cls.all_keys(), spec.where, resolve=runner.run_context.resolve)
-    except Exception as exc:  # noqa: BLE001 -- the same failure the build met
-        return _reason(exc)
+def _judged_now(spec: ComponentSpec, runner: Runner) -> Optional[str]:
+    """What is wrong with a component's config, leaving out the values that name a context variable.
+
+    Returns:
+        The problems to report, empty when every one of them waits for the
+        context; None when the config is not what stopped the build.
+    """
+    _, refusals = normalize_config(spec.raw_config, spec.cls.all_keys(), spec.where, resolve=runner.run_context.resolve)
+    if not refusals:
+        return None
     wrong: List[str] = [
         f"{refusal.key}: {refusal.reason}" for refusal in refusals
         if not _names_context(_raw_at(spec.raw_config, refusal.key))
