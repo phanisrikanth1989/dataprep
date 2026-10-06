@@ -157,7 +157,10 @@ class FileInputDelimited(Source):
 
         if config["remove_empty_row"]:
             blank = [pl.col(name).is_null() if name in native else pl.col(name).str.strip_chars() == "" for name in names]
-            frame = frame.filter(~pl.all_horizontal(blank))
+            # Hardly any row is empty, and a row whose first field is not blank is not: only the others
+            # have the rest of their fields looked at.
+            empty = pl.when(blank[0]).then(pl.all_horizontal(blank)).otherwise(False) if len(blank) > 1 else blank[0]
+            frame = frame.filter(~empty)
         if self._by_line():
             frame = frame.with_row_index(_LINE, offset=1)
         trimmed = self._trimmed()

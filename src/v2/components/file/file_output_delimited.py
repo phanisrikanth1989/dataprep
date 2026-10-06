@@ -136,10 +136,10 @@ class FileOutputDelimited(Sink):
 
         def count(written: str) -> int:
             """Rows in the written file, not counting the header line."""
-            if csv and terminator in ("\n", "\r\n", "\r"):
-                # Fields may hold line breaks inside their enclosures: let Polars tell rows apart.
+            if terminator in ("\n", "\r\n", "\r"):
+                # Polars counts lines on every core, and knows a line break inside an enclosure from a row's end.
                 lines = pl.scan_csv(
-                    written, separator=delimiter, has_header=False, quote_char=config["text_enclosure"],
+                    written, separator=delimiter, has_header=False, quote_char=config["text_enclosure"] if csv else None,
                     eol_char="\r" if terminator == "\r" else "\n", infer_schema=False, raise_if_empty=False,
                 ).select(pl.len()).collect().item()
             else:
