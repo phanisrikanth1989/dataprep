@@ -34,7 +34,7 @@ def codec_name(encoding: str) -> str:
         raise ConfigurationError(f"unknown encoding: {encoding}") from None
 
 
-def as_utf8(path: str, encoding: str, run_context: "RunContext") -> str:
+def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = False) -> str:
     """A file Polars can read: the file itself, or a UTF-8 copy of it.
 
     Bytes the encoding cannot decode become U+FFFD, as Talend does.
@@ -44,9 +44,17 @@ def as_utf8(path: str, encoding: str, run_context: "RunContext") -> str:
         encoding: Its declared encoding.
         run_context: The run; it owns the scratch copy and removes it when
             the job ends.
+        exact: Whether the reader needs every byte to be valid UTF-8. Polars'
+            delimited reader repairs a bad byte itself; its line reader
+            fails on one, so a file declared UTF-8 is looked through for it
+            first and copied with the repair when it holds one.
     """
     name = codec_name(encoding)
-    if name in _UTF8 or (_agrees_on_ascii(name) and _is_ascii(path)):
+    if name in _UTF8:
+        if not exact or _is_utf8(path):
+            return path
+        name = "utf-8"
+    elif _agrees_on_ascii(name) and _is_ascii(path):
         return path
     copy = run_context.temp_path(".utf8")
     decoder = codecs.getincrementaldecoder(name)(errors="replace")
@@ -114,6 +122,20 @@ def _agrees_on_ascii(name: str) -> bool:
         return plain.decode(name) == plain.decode("ascii") and plain.decode("ascii").encode(name) == plain
     except (UnicodeError, LookupError):
         return False
+
+
+def _is_utf8(path: str) -> bool:
+    """Whether every byte of a file is valid UTF-8."""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        with open(path, "rb") as handle:
+            while chunk := handle.read(_CHUNK):
+                if not chunk.isascii():
+                    decoder.decode(chunk)
+            decoder.decode(b"", final=True)
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def _is_ascii(path: str) -> bool:

@@ -425,3 +425,31 @@ def test_failure_reason_is_plain_ascii(tmp_path):
     reason = _reason(RuntimeError("cannot cast datetime[\u03bcs] to i64 \u2014 really"))
     assert reason == "cannot cast datetime[us] to i64 ? really"
     assert reason.isascii()
+
+
+def test_text_file_declared_utf8_with_a_bad_byte_is_read_through_a_repaired_copy(tmp_path):
+    # Polars' line reader fails on a byte that is not UTF-8; Talend and v1 read it as a replacement character.
+    from src.v2.engine.context import RunContext
+    from src.v2.files import as_utf8
+
+    good, bad = tmp_path / "good.txt", tmp_path / "bad.txt"
+    good.write_bytes("café\n".encode("utf-8"))
+    bad.write_bytes(b"caf\xe9\nok\n")
+    run_context = RunContext("t", {})
+    assert as_utf8(str(good), "UTF-8", run_context, exact=True) == str(good)
+    repaired = as_utf8(str(bad), "UTF-8", run_context, exact=True)
+    assert repaired != str(bad)
+    with open(repaired, "rb") as handle:
+        assert handle.read().decode("utf-8") == "caf�\nok\n"
+    assert as_utf8(str(bad), "UTF-8", run_context) == str(bad)
+    run_context.cleanup()
+
+
+def test_v2_can_be_imported_without_the_excel_library():
+    import subprocess
+
+    code = "import sys; sys.modules['fastexcel'] = None; import src.v2; print(len(src.v2.components.registry.REGISTRY.classes()))"
+    root = __import__("pathlib").Path(__file__).resolve().parents[3]
+    done = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-400:]
+    assert int(done.stdout.strip()) >= 16

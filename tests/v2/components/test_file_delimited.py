@@ -667,3 +667,17 @@ def test_a_failure_that_is_not_about_reading_is_still_reported_after_the_second_
     finally:
         os.chdir(previous)
     assert failed.status == "failed" and failed.failed_component == "out"
+
+
+def test_file_name_with_pattern_characters_is_one_file_not_a_pattern(tmp_path):
+    made = copy("id:int, name:str")
+    made["components"][0]["config"]["filepath"] = "in[1]*.csv"
+    run = assert_matches_v1(made, {"in[1]*.csv": b"1;a\n", "in1x.csv": b"9;z\n"}, tmp_path)
+    assert run.succeeded and run.files["out.csv"] == b"id;name\n1;a\n"
+
+
+def test_bad_byte_in_a_file_read_line_by_line_becomes_a_replacement_character(tmp_path):
+    result, folder = v2(tmp_path, b"1||caf\xe9\n2||ok\n", "id:int, name:str",
+                        read={"fieldseparator": "||", "encoding": "UTF-8"}, write={"encoding": "UTF-8"})
+    assert result.status == "success"
+    assert (folder / "out.csv").read_bytes() == "id;name\n1;caf�\n2;ok\n".encode("utf-8")

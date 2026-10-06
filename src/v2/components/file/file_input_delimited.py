@@ -149,7 +149,7 @@ class FileInputDelimited(Source):
         self.global_map[f"{self.id}_FILENAME"] = path
         self.global_map[f"{self.id}_ENCODING"] = config["encoding"]
         names = [column.name for column in self.schema]
-        source = as_utf8(path, config["encoding"], self.run_context)
+        source = as_utf8(path, config["encoding"], self.run_context, exact=self._by_line())
         native = self._native()
         if native:
             self.run_context.used_fast_read = True
@@ -204,6 +204,7 @@ class FileInputDelimited(Source):
                 empty_string_is_null=False,
                 truncate_ragged_lines=True,
                 raise_if_empty=False,
+                glob=False,
             )
 
         rows = config["limit"]
@@ -216,7 +217,7 @@ class FileInputDelimited(Source):
     def _lines(self, source: str, names: List[str]) -> pl.LazyFrame:
         """The file's fields as text columns, split here: slower, but any delimiter and the field count."""
         config = self.config
-        lines = pl.scan_lines(source, name=_LINE)
+        lines = pl.scan_lines(source, name=_LINE, glob=False)
         length: Optional[int] = None
         if config["footer_rows"] > 0:
             total = lines.select(pl.len()).collect().item()
@@ -286,7 +287,7 @@ class FileInputDelimited(Source):
             *[expr for name, expr in reason.items() if name not in names],
         )
         if self.config["die_on_error"]:
-            self.check(reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why")), _fatal)
+            self.check(reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why")), fatal)
         return {"main": main, "reject": reject}
 
     @staticmethod
@@ -312,7 +313,7 @@ class FileInputDelimited(Source):
         for column in typed:
             if column.name not in native:
                 wrong = unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column)
-                cases.append((wrong, "TYPE_CONVERSION", pl.format(_unreadable_text(column), pl.col(column.name))))
+                cases.append((wrong, "TYPE_CONVERSION", pl.format(unreadable_text(column), pl.col(column.name))))
         for column in typed:
             if not column.nullable:
                 parsed = pl.col(column.name) if column.name in native else pl.col(_VALUE + column.name)
@@ -326,7 +327,7 @@ class FileInputDelimited(Source):
         return code, message
 
 
-def _unreadable_text(column: Column) -> str:
+def unreadable_text(column: Column) -> str:
     """The message for text that is not the column's type; ``{}`` stands for the text."""
     name = column.name.replace("{", "{{").replace("}", "}}")
     if column.type in ("int", "float"):
@@ -339,6 +340,6 @@ def _unreadable_text(column: Column) -> str:
     return f"Column '{name}': time data '{{}}' does not match format '{pattern}'"
 
 
-def _fatal(found: pl.DataFrame) -> Optional[str]:
+def fatal(found: pl.DataFrame) -> Optional[str]:
     rows = found["rows"].item()
     return f"Schema/coercion failed for {rows} row(s); first error: {found['why'].item()}" if rows else None
