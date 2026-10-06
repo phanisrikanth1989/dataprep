@@ -221,6 +221,10 @@ are designed.
 - [Config keys: python dataframe](issues/26-config-keys-python-dataframe.md)
   -- pandas by default as in v1, or a Polars lazy frame that keeps the
   component lazy.
+- [Each part of a subjob's plan runs once](issues/31-each-part-of-a-plan-runs-once.md)
+  -- parked: `cache()` with a guard behind it does it and was about 40% faster
+  on the payments job, but it holds more memory and leans on one Polars
+  version; not built.
 
 ## Not yet specified
 
@@ -236,17 +240,16 @@ decide, not fog on the way there.
   delimited output; row separators other than `\n`, `\r\n`, `\r` on
   delimited input; Map lookups reloaded for each row; routing rows whose
   expression failed to a catch output.
-- Known cost: when sharing nests two levels in one subjob (a reader with its
-  reject output wired, feeding a component with a check of its own) Polars
-  reads the source twice. Marking frames as cached would cure it and is
-  unsafe on Polars 1.44 (see the Notes).
+- Known cost: where the outputs of a subjob nest, Polars produces the rows of
+  the shared front of the plan once for each level. The payments scenario's
+  job reads its payments file four times. The cure was tried and parked
+  ([Each part of a subjob's plan runs once](issues/31-each-part-of-a-plan-runs-once.md)).
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
 - Asked for by the dev in the review of 2026-10-06:
-  [Each part of a subjob's plan runs once](issues/31-each-part-of-a-plan-runs-once.md),
-  which comes before
-  [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md);
+  [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md),
+  on request;
   [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md);
   [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
   [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md);

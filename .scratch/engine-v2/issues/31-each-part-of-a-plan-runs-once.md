@@ -1,6 +1,6 @@
 # 31 - Each part of a subjob's plan runs once
 
-Status: needs-triage
+Status: resolved
 Type: grilling
 
 ## Question
@@ -121,9 +121,24 @@ Rows that one reader has taken and another has not yet are held in memory.
 - Polars' documentation says of `cache()` only that it caches the result at
   that node, and that the optimizer usually does better.
 
-### Left to decide
+## Answer
 
-- On by default, or asked for; and a size above which the engine goes back to
-  today's way, which keeps memory flat.
-- The rule "never call `.cache()`" in the guide and in `tests/v2/test_rules.py`
-  becomes "only through the engine's own helper".
+Parked by the dev on 2026-10-06: it can be done, and it is not built.
+
+- The gain is not needed. On the payments job v2 is about 70 times faster
+  than v1 as it is (0.5 s against 34 s at 100,000 payments); 40% on top
+  changes nothing for anyone.
+- The cost is real: memory that in one shape grows with the file, on an
+  engine whose largest inputs are 30 to 100 GB, and a guard that leans on how
+  one Polars version plans a query, against a fault that writes wrong
+  columns without an error.
+- The row counts it would have made free are taken another way: on request,
+  with the engine's own count plans
+  ([Row count of every component in the log](32-row-count-of-every-component-in-the-log.md)).
+
+Come back to it when a real job is too slow for this reason, or when a later
+Polars shares nested plans by itself or mends the `cache()` fault. Whoever
+does starts from the try-out patch and the two probes, and still has to
+settle: on by default or asked for, a size above which the engine goes back
+to today's way, and the rule "never call `.cache()`" in the guide and in
+`tests/v2/test_rules.py`.
