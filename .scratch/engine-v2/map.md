@@ -249,7 +249,8 @@ decide, not fog on the way there.
   [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md);
   [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md);
   [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
-  [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md).
+  [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md);
+  [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md).
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).
