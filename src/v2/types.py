@@ -10,7 +10,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import polars as pl
 
@@ -19,6 +19,11 @@ from .job.model import Column
 
 # Places a Decimal column holds when its schema declares none.
 DEFAULT_DECIMAL_SCALE = 10
+# 2**27 + 1: multiplying by it splits a float in two halves (Veltkamp).
+_SPLIT = 134217729.0
+_FIXED_LIMIT = 9.0e18
+# The places a float can be asked for: ten to that power is still a whole number a float holds exactly.
+_FIXED_PLACES = 15
 _DECIMAL_DIGITS = 38
 # Places text is read at before it is rounded to the declared ones.
 _WIDE_SCALE = 18
@@ -212,6 +217,53 @@ def _float_text(value: pl.Expr) -> pl.Expr:
         .str.replace(r"^(-?)0\.0000([1-9])(\d+)$", "${1}${2}.${3}e-05")
     )
     return pl.when((value.abs() < 1e-4) & (value != 0)).then(respelled).otherwise(text)
+
+
+def fixed_text(value: pl.Expr, places: int) -> pl.Expr:
+    """A float with exactly ``places`` decimal places, as Python's ``'%.2f'`` writes it.
+
+    The float is rounded as the number it exactly is, a tie going to the
+    even digit: 2.675 is a little less than it looks and gives 2.67, 0.125
+    is exactly halfway and gives 0.12. To know on which side a float lies,
+    the part after its point is multiplied by the power of ten together
+    with the error that multiplication makes (Dekker's product), which
+    float arithmetic gives exactly.
+    """
+    value = value.fill_nan(None)
+    if places > _FIXED_PLACES:
+        return _float_text(value)
+    power = 10 ** places
+    scale = float(power)
+    size = value.abs()
+    units = size.floor()
+    part = size - units
+    product = part * scale
+
+    def halves(number: Any) -> Tuple[Any, Any]:
+        # Two floats that add up to the number, each short enough for their products to be exact.
+        high = number * _SPLIT - (number * _SPLIT - number)
+        return high, number - high
+
+    high, low = halves(part)
+    scale_high, scale_low = halves(scale)
+    error = ((high * scale_high - product) + high * scale_low + low * scale_high) + low * scale_low
+    whole = product.floor()
+    # What lies beyond the last place, less one half: its sign says which way to round.
+    beyond = ((product - whole) - 0.5) + error
+    last = (whole if places else units) % 2
+    up = (beyond > 0) | ((beyond == 0) & (last == 1))
+    digits = (whole + up.cast(pl.Float64)).cast(pl.Int64)
+    # Rounded up to a whole one, the part after the point carries into the units.
+    carried = digits >= power
+    ones = units.cast(pl.Int64, strict=False) + carried.cast(pl.Int64)
+    sign = pl.when(value.cast(pl.String).str.starts_with("-")).then(pl.lit("-")).otherwise(pl.lit(""))
+    if places:
+        rest = pl.when(carried).then(digits - power).otherwise(digits).cast(pl.String).str.zfill(places)
+        text = pl.concat_str(sign, ones.cast(pl.String), pl.lit("."), rest)
+    else:
+        text = pl.concat_str(sign, ones.cast(pl.String))
+    # Beyond what a whole number of 64 bits holds, the float is written as it is.
+    return pl.when(size < _FIXED_LIMIT).then(text).otherwise(_float_text(value))
 
 
 def _decimal_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:

@@ -11,7 +11,7 @@ from ...errors import ConfigurationError
 from ...files import encoded, put_in_place, to_encoding
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import to_text
+from ...types import fixed_text, to_text
 from ..base import Sink, Write
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, unescape
@@ -171,8 +171,30 @@ class FileOutputDelimited(Sink):
 def _as_written(name: str, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:
     """A column as it goes to the file. Text and whole numbers are left for Polars to write."""
     column = pl.col(name)
+    if declared is not None and declared.type == "Decimal":
+        written = _number_as_decimal(column, dtype, declared.precision)
+        if written is not None:
+            return written.alias(name)
     if dtype == pl.String or dtype.is_integer():
         return column
     if dtype == pl.Boolean and declared is not None and declared.type == "bool":
         return column
     return to_text(column, dtype, declared).alias(name)
+
+
+def _number_as_decimal(column: pl.Expr, dtype: pl.DataType, places: Optional[int]) -> Optional[pl.Expr]:
+    """A number that is not a Decimal, written under a declared Decimal the way v1 writes it.
+
+    With declared places a whole number gets them as zeros and a float is
+    rounded to them as Python's ``'%.2f'`` rounds it. Without, a float is
+    written as it prints, less the ``.0`` of a whole one. Returns None for
+    what is written as it stands.
+    """
+    if dtype.is_float():
+        if places is None:
+            return to_text(column, dtype).str.replace(r"\.0$", "")
+        return fixed_text(column, places)
+    if places is not None and (dtype.is_integer() or dtype == pl.Boolean):
+        whole = column.cast(pl.Int64).cast(pl.String)
+        return whole + "." + "0" * places if places else whole
+    return None

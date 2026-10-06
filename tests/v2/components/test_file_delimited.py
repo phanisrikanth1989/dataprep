@@ -883,3 +883,27 @@ def test_enclosed_fields_with_a_separator_of_more_than_one_byte_are_refused(side
     with pytest.raises(JobRefusedError) as caught:
         load_job(made)
     assert "one byte" in caught.value.report.format()
+
+
+# ------------------------------------------------------------------
+# A column written under another type than it arrives with
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "arriving, data",
+    [
+        ("int", b"1\n-2\n0\n\n123456789012\n"),
+        ("bool", b"true\nfalse\n"),
+        # 2.675 and 1.115 are a little less than they look, 0.125 and 0.375 are exactly halfway.
+        ("float", b"1\n2.5\n2.675\n1.115\n0.125\n0.375\n1.005\n-2.5\n-0.004\n1e-7\n123456789.125\n0\n\n"),
+    ],
+)
+@pytest.mark.parametrize("places", [0, 2, 4])
+def test_number_written_as_a_decimal_gets_the_declared_places(tmp_path, arriving, data, places):
+    same(tmp_path, data, f"v:{arriving}", write_schema=f"v:Decimal#{places}", write={"include_header": False})
+
+
+def test_float_written_as_a_decimal_of_no_declared_places_is_written_plainly(tmp_path):
+    run = same(tmp_path, b"1\n2.5\n2.675\n-0.004\n\n", "v:float", write_schema="v:Decimal",
+               write={"include_header": False})
+    assert run.files["out.csv"] == b"1\n2.5\n2.675\n-0.004\n"

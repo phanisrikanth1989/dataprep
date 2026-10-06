@@ -161,6 +161,25 @@ def test_context_may_be_flat():
     assert load(job).context == {"max": 7, "plain": "x"}
 
 
+@pytest.mark.parametrize(
+    "group, expected",
+    [
+        ({"value": {"value": "7", "type": "int"}, "type": {"value": "x", "type": "str"}, "n": {"value": "1", "type": "int"}},
+         {"value": 7, "type": "x", "n": 1}),
+        ({"value": {"value": "7", "type": "int"}}, {"value": 7}),
+        ({"value": "plain", "n": {"value": "1", "type": "int"}}, {"value": "plain", "n": 1}),
+    ],
+)
+def test_context_group_may_hold_a_variable_named_value(group, expected):
+    assert load(changed(context={"Default": group})).context == expected
+
+
+def test_flat_context_may_hold_a_variable_named_like_a_group():
+    job = changed(context={"Default": {"value": "x", "type": "str"}, "n": {"value": "1", "type": "int"}})
+    del job["default_context"]
+    assert load(job).context == {"Default": "x", "n": 1}
+
+
 def test_context_values_can_be_overridden_at_load():
     assert load(V1_JOB, context={"max": "9"}).context == {"in_dir": "/data", "max": 9}
 

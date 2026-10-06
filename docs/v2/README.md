@@ -205,6 +205,10 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   the digits as they were typed. Written through a file output that declares
   the column, the result is the same (trailing zeros are dropped); printed
   or handed to Python code, ten places show.
+- A negative Decimal that rounds to zero is written `0.00`. v1 writes
+  `-0.00`.
+- A float written by an output that declares the column `Decimal` with no
+  `precision` is written as it prints (`1e-07`). v1 writes `0.0000001`.
 - Where v1 writes the text `<NA>` or `<na>` for a missing value (a Decimal
   or bool column the engine added, a missing Decimal after some readers), v2
   writes an empty field.

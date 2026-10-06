@@ -189,9 +189,13 @@ class _Loader:
         """The context values, converted to their declared types, and those types."""
         declared = top.get("context") or {}
         group_name = top.get("default_context")
-        grouped = bool(declared) and all(
-            isinstance(value, dict) and "value" not in value for value in declared.values()
-        )
+        if group_name is not None and isinstance(declared.get(group_name), dict):
+            # v1's shape: default_context names the group to use, whatever its variables are called.
+            grouped = True
+        else:
+            grouped = bool(declared) and all(
+                isinstance(value, dict) and not _is_entry(value) for value in declared.values()
+            )
         if grouped:
             if group_name is None:
                 group_name = "Default" if "Default" in declared else next(iter(declared))
@@ -444,6 +448,11 @@ class _Loader:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _is_entry(value: Dict[str, Any]) -> bool:
+    """Whether a context object is one variable (``{"value": ..., "type": ...}``) and not a group of them."""
+    return "value" in value and set(value) <= {"value", "type"} and not isinstance(value["value"], dict)
+
 
 def _typed(value: Any, type_name: str) -> Any:
     """Convert a context value to its declared type."""

@@ -522,3 +522,50 @@ def test_blank_type_leaves_the_variables_type_as_it_was(tmp_path, caplog):
     v1, v2 = both(tmp_path, caplog, made, b"key;value;type\nn;7;\n", other=b"key;value\nn;8\n")
     same_values(v1, v2, "n")
     assert v2.context["n"] == 8
+
+
+# ------------------------------------------------------------------
+# Values a load fills in are not judged before the job runs
+# ------------------------------------------------------------------
+
+def filled_in(config_key, reference):
+    """A job whose second reader takes one config value from a variable the load sets."""
+    made = loading(path="out.csv", context={"sep": {"value": "", "type": "str"}})
+    made["components"][2] = reader("a:str, b:str", component_id="in2", path="data.csv", outputs=("row2",),
+                                   **{config_key: reference})
+    made["components"][3] = writer("a:str, b:str", path="out.csv", include_header=False)
+    return made
+
+
+@pytest.mark.parametrize("reference", ["${context.sep}", "context.sep"])
+def test_config_value_a_load_fills_in_is_not_judged_at_load(tmp_path, caplog, reference):
+    # The variable is declared empty, which no separator may be; the load gives it its value before
+    # the reader that uses it is built.
+    made = filled_in("fieldseparator", reference)
+    load_job(made)
+    _, v2 = both(tmp_path, caplog, made, b"key;value\nsep;|\n", other=b"x|y\n")
+    assert v2.run.files["out.csv"] == b"x;y\n"
+
+
+def test_config_value_no_load_fills_in_is_still_judged_at_load():
+    made = filled_in("fieldseparator", "${context.sep}")
+    made["components"] = made["components"][2:]
+    made["flows"] = made["flows"][1:]
+    made["triggers"] = []
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert "must not be empty" in caught.value.report.format()
+
+
+def test_value_written_in_the_job_is_judged_at_load_even_beside_a_load():
+    made = filled_in("fieldseparator", "")
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert "must not be empty" in caught.value.report.format()
+
+
+def test_combination_a_load_may_still_change_is_not_judged_at_load():
+    # text_enclosure must be one character with csv_option; here a load sets it.
+    made = filled_in("text_enclosure", "${context.sep}")
+    made["components"][2]["config"]["csv_option"] = True
+    load_job(made)

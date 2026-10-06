@@ -8,15 +8,18 @@ Polars form. Nothing is read and nothing is written.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Mapping, Optional
+import re
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import polars as pl
 
 from ..components.base import Sink, Source
 from ..errors import ExpressionError
 from ..job.graph import subjobs
-from ..job.model import Job
+from ..job.keys import normalize_config
+from ..job.model import ComponentSpec, Job
 from ..job.refusal import RefusalReport
+from .context import _BARE, _TEMPLATE
 from .runner import Runner, _reason
 
 
@@ -26,9 +29,11 @@ def check_job(
 ) -> RefusalReport:
     """Build every subjob of a job without data and report what cannot work.
 
-    A component whose config names a context variable that does not exist
-    yet is left unchecked, together with what it feeds, when the job holds a
-    component that sets context variables while it runs.
+    When the job holds a component that sets context variables while it
+    runs, a config value that names a context variable is not judged: the
+    variable may not exist yet, or hold a placeholder until it is loaded. A
+    component that cannot be built for that reason is left unchecked,
+    together with what it feeds.
     """
     report = RefusalReport(job_name=job.name)
     runner = Runner(job, routines=routines)
@@ -43,7 +48,8 @@ def check_job(
                 found = component.problems()
                 for problem in found:
                     key, _, reason = problem.partition(": ")
-                    report.add(spec.where, key, reason)
+                    if not (late_context and _names_context(_written(spec, key))):
+                        report.add(spec.where, key, reason)
                 if found or any(flow.name not in frames for flow in arriving):
                     continue
                 inputs = {flow.name: frames[flow.name] for flow in arriving}
@@ -69,10 +75,56 @@ def check_job(
                 reason = _reason(exc)
                 if late_context and reason.startswith("context has no variable"):
                     continue
-                report.add(spec.where, "config", reason)
+                if late_context:
+                    reason = _judged_now(spec, runner)
+                if reason:
+                    report.add(spec.where, "config", reason)
                 continue
             for flow in job.outgoing(component_id):
                 if flow.port in outputs:
                     frames[flow.name] = outputs[flow.port]
     runner.run_context.cleanup()
     return report
+
+
+# ------------------------------------------------------------------
+# Values a component of the job may still set
+# ------------------------------------------------------------------
+
+def _judged_now(spec: ComponentSpec, runner: Runner) -> str:
+    """What is wrong with a component's config, leaving out the values that name a context variable."""
+    try:
+        _, refusals = normalize_config(spec.raw_config, spec.cls.all_keys(), spec.where, resolve=runner.run_context.resolve)
+    except Exception as exc:  # noqa: BLE001 -- the same failure the build met
+        return _reason(exc)
+    wrong: List[str] = [
+        f"{refusal.key}: {refusal.reason}" for refusal in refusals
+        if not _names_context(_raw_at(spec.raw_config, refusal.key))
+    ]
+    return "; ".join(wrong)
+
+
+def _names_context(value: Any) -> bool:
+    return isinstance(value, str) and bool(_TEMPLATE.search(value) or _BARE.search(value))
+
+
+def _raw_at(raw: Any, path: str) -> Any:
+    """The value at a place in a raw config, named the way a refusal names it: ``lookups[0].name``."""
+    value = raw
+    for part in re.findall(r"[^.\[\]]+", path):
+        if isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        elif isinstance(value, dict):
+            value = value.get(part)
+        else:
+            return None
+    return value
+
+
+def _written(spec: ComponentSpec, name: str) -> Any:
+    """The value a config key was given in the job config, under whichever of its spellings."""
+    raw = spec.raw_config or {}
+    for key in spec.cls.all_keys():
+        if key.name == name:
+            return next((raw[spelling] for spelling in key.spellings if spelling in raw), None)
+    return _raw_at(raw, name)

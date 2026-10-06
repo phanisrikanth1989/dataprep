@@ -360,3 +360,27 @@ def test_floats_and_decimals_are_turned_into_each_other_through_their_digits():
     assert conformed(123456789.125, pl.Float64, Column("v", "Decimal")) == Decimal("123456789.125")
     assert conformed(Decimal("12345678901234.567"), pl.Decimal(38, 3), Column("v", "float")) == 12345678901234.566
     assert conformed(float("nan"), pl.Float64, Column("v", "Decimal", precision=2)) is None
+
+
+@pytest.mark.parametrize("places", [0, 1, 2, 3, 6])
+def test_fixed_text_is_what_python_writes_for_any_float(places):
+    import random
+
+    from src.v2.types import fixed_text
+
+    random.seed(places)
+    values = [0.0, -0.0, 0.5, 1.5, 2.5, -2.5, 0.125, 0.375, 2.675, 1.115, 1.005, 0.285, 1e-7, -1e-7, 123456789.125,
+              0.1 + 0.2, 1e15 + 0.3, 5e-324, 99999.995, 0.045, 8.345, 1.0000000000000002]
+    # Numbers that look exactly halfway at the place that is cut, and ordinary ones of every size.
+    values += [round(random.uniform(-1000, 1000), places) + 5 / 10 ** (places + 1) for _ in range(20000)]
+    values += [random.uniform(-10, 10) * 10 ** random.randint(-6, 9) for _ in range(20000)]
+    frame = pl.DataFrame({"v": values}, schema={"v": pl.Float64})
+    written = frame.select(fixed_text(pl.col("v"), places)).to_series().to_list()
+    assert written == [f"{value:.{places}f}" for value in values]
+
+
+def test_fixed_text_of_a_missing_value_is_missing():
+    from src.v2.types import fixed_text
+
+    frame = pl.DataFrame({"v": [None, float("nan"), 1.0]}, schema={"v": pl.Float64})
+    assert frame.select(fixed_text(pl.col("v"), 2)).to_series().to_list() == [None, None, "1.00"]
