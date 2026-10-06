@@ -90,7 +90,8 @@ tests, 2,316 of them, with a throwaway hook in the harness. What that found:
   v1's count of rows passed on. v2 counts the rows a component hands on, so
   its counts add up with what is written. In v1 the positional and Excel
   inputs never report a reject for that reason. Listed under "Differences
-  from v1" in `docs/v2/README.md`; the dev can overturn it.
+  from v1" in `docs/v2/README.md`. The dev was shown it on 2026-10-06 and
+  kept it.
 
 After the two corrections the same comparison shows those 9 jobs and
 nothing else.

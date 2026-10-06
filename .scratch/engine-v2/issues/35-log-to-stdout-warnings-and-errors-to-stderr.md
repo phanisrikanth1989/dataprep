@@ -37,8 +37,8 @@ Built on 2026-10-06 (`src/v2/cli.py`, tests in `tests/v2/unit/test_cli.py`).
 - The JSON summary is the last thing on standard output, after the log.
   Whatever read all of standard output as JSON has to change: it now holds
   the log as well.
-- `--summary FILE` was built with it. It was the dev's to confirm and the
-  dev was not there to ask; it is one flag and can be taken out. The file is
+- `--summary FILE` was built with it, and the dev confirmed it on
+  2026-10-06 after the build. The file is
   opened before the job runs, so a summary that has nowhere to go stops the
   command with exit code 2 and nothing runs. A job that ran is never
   reported as failed for its summary's sake, which could have a scheduler
