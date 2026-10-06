@@ -319,6 +319,9 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   `die_on_error` says: `int(row1.code)` on text that is not a number, for
   instance. An operation on a missing value never fails; it gives a missing
   value. Rows are not sent to a catch output.
+- An output column nothing in the job reads is never worked out, so an
+  expression there that would fail on a row does not fail the job. v1 works
+  out every column of every output.
 - In an expression a missing value is `None`. v1 hands expressions pandas'
   `nan` or `<NA>`, so `x is None`, `str(x)` and `x or default` can answer
   differently there.
