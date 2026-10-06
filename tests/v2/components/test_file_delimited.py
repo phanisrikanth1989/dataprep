@@ -1039,3 +1039,22 @@ def test_debug_says_which_encoding_an_output_is_put_in(tmp_path, caplog):
     lines, result = debug_lines(caplog, tmp_path, b"1;a\n", "id:int, name:str", write={"encoding": "ISO-8859-15"})
     assert result.status == "success"
     assert "[out] the written file is put in the encoding ISO-8859-15" in lines
+
+
+# ------------------------------------------------------------------
+# The check goes on past a reader with a fault
+# ------------------------------------------------------------------
+
+def test_fault_after_a_reader_whose_config_has_one_is_reported_with_it(tmp_path):
+    from .kit import through
+
+    made = through({"type": "FilterRows", "config": {"conditions": [
+        {"column": "nam", "operator": "==", "function": "", "value": "x"}]}},
+        "id:int, name:str", csv_option=True, text_enclosure="ab")
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    found = [(refusal.where.split()[1], refusal.key, refusal.reason) for refusal in caught.value.report]
+    assert [(component_id, key) for component_id, key, _ in found][0] == ("in", "text_enclosure")
+    assert found[1][0] == "it" and "nam" in found[1][2]
+    assert found[1][2].endswith("(checked against the columns 'in' declares, because 'in' has a fault of its own)")
+    assert len(found) == 2

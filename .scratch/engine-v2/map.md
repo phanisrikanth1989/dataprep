@@ -239,6 +239,10 @@ are designed.
   -- on request (`--row-counts`): one line a component in v1's words, the
   counts v1's except where v1 counts a row its schema check then drops; the
   run takes about three times as long.
+- [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md)
+  -- the check goes on past a faulty component with the columns it declares,
+  and a fault found that way says so; nothing is guessed where no columns
+  are declared.
 
 ## Not yet specified
 
@@ -261,8 +265,7 @@ decide, not fog on the way there.
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
-- Asked for by the dev in the review of 2026-10-06:
-  [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md);
+- Asked for by the dev in the review of 2026-10-06 and still open:
   [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),
   to be researched before anything is built.
 - Not verified here: any Polars version other than 1.44.2, the target RHEL

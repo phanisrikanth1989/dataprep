@@ -119,6 +119,28 @@ def test_asking_for_row_counts_changes_no_file(on_v2, v2_counted):
 
 
 # ------------------------------------------------------------------
+# Two faults on one flow
+# ------------------------------------------------------------------
+
+def test_two_faults_put_into_the_job_are_reported_in_one_go(work):
+    from src.v2 import JobRefusedError, load_job
+
+    made = jobs.build("python", work / "data", work / "refused")
+    by_id = {component["id"]: component for component in made["components"]}
+    # The filter tests a column that is not there, and so does the map, five components further down.
+    by_id["format_check"]["config"]["conditions"][0]["column"] = "debit_acount"
+    column = next(column for column in by_id["prepare"]["config"]["outputs"][0]["columns"]
+                  if "joined.amount" in column["expression"])
+    column["expression"] = column["expression"].replace("joined.amount", "joined.amout")
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    report = caught.value.report
+    assert [refusal.where.split()[1] for refusal in report] == ["format_check", "prepare"]
+    assert "debit_acount" in report.refusals[0].reason and "amout" in report.refusals[1].reason
+    assert "'format_check' declares" in report.refusals[1].reason
+
+
+# ------------------------------------------------------------------
 # The one command that times the variants
 # ------------------------------------------------------------------
 

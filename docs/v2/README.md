@@ -64,7 +64,13 @@ when they hold more than ASCII).
 ## Taking a v1 job config to v2
 
 1. Run `python -m src.v2 job.json --check`. The refusal report lists
-   everything that stops the job, component by component.
+   everything that stops the job, component by component. A component with
+   a fault does not hide the faults of what it feeds: the check goes on
+   down the flow with the columns the component declares, and a fault found
+   that way says so. Two things are still left for a second look: what
+   follows a faulty component that declares no columns (a map, for one), and
+   what follows a component that waits for a value the job sets while it
+   runs (a context variable a context load sets, a row count).
 2. Rewrite every Java expression (`{{java}}...`) in Python. See
    "Expressions" below.
 3. Replace or remove components v2 does not have. v2 has sixteen: delimited
