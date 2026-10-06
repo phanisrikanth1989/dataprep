@@ -1,6 +1,6 @@
 # 37 - How to point at the input row that failed a job
 
-Status: ready-for-agent
+Status: claimed
 Type: research
 
 ## Question
