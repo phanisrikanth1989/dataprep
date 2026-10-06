@@ -19,7 +19,7 @@ import shutil
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Deque, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 import polars as pl
 
@@ -138,12 +138,13 @@ class Runner:
         subjob_of = {component_id: index for index, members in enumerate(plan) for component_id in members}
         leaving: Dict[int, List[Trigger]] = {}
         triggered = set()
-        for trigger in sorted(self.job.triggers, key=lambda trigger: trigger.order):
+        for trigger in self.job.triggers:
             leaving.setdefault(subjob_of[trigger.source], []).append(trigger)
             triggered.add(subjob_of[trigger.target])
 
         queue: Deque[int] = deque(index for index in range(len(plan)) if index not in triggered)
-        done = set()
+        done: Set[int] = set()
+        set_off: Set[int] = set()
         while queue:
             index = queue.popleft()
             if index in done:
@@ -153,26 +154,84 @@ class Runner:
             if failure is not None:
                 self._record(result, failure.component_id, failure.reason)
             try:
-                following = self._fired(leaving.get(index, []), failure, subjob_of)
+                following = self._fired(plan[index], leaving.get(index, []), failure, subjob_of, done, set_off)
             except ConfigurationError as exc:
                 self._record(result, None, str(exc))
                 return
             queue.extendleft(reversed(following))
 
-    def _fired(self, triggers: List[Trigger], failure: Optional[_Failed], subjob_of: Dict[str, int]) -> List[int]:
-        """The subjobs a finished subjob sets off, in trigger order."""
+    def _fired(
+        self,
+        members: List[str],
+        triggers: List[Trigger],
+        failure: Optional[_Failed],
+        subjob_of: Dict[str, int],
+        done: Set[int],
+        set_off: Set[int],
+    ) -> List[int]:
+        """The subjobs a finished subjob sets off, in the order v1 sets them off.
+
+        v1 runs a subjob one component at a time. A component's own triggers
+        (OnComponentOk, OnComponentError, RunIf) fire when it is done, and
+        the subjob's (OnSubjobOk, OnSubjobError) with its last component, or
+        with the one that failed; what fires together goes by ``order``. A
+        RunIf is judged there on what globalMap held at that moment. A
+        subjob is set off this way only once in a job.
+
+        When the subjob is done, v1 goes through its subjob triggers and its
+        RunIf triggers once more, in the order the job lists them, and sets
+        off every subjob that has not run yet. That is where a condition on
+        a count of a later component of the same subjob fires.
+
+        Args:
+            members: The subjob's components, in the order they run.
+            triggers: The triggers leaving the subjob, as the job lists them.
+            failure: What failed in the subjob, if anything did.
+            subjob_of: Component id to the index of its subjob.
+            done: The subjobs that have run.
+            set_off: The subjobs a component's turn has set off, in the whole job.
+        """
+        context, global_map = self.run_context.context, self.run_context.global_map
+        by_order = sorted(triggers, key=lambda trigger: trigger.order)
+        closing = members[-1]
+        if failure is not None and failure.component_id in members:
+            closing = failure.component_id
         following: List[int] = []
+        for position, component_id in enumerate(members):
+            seen: Optional[Mapping[str, Any]] = None
+            for trigger in by_order:
+                target = subjob_of[trigger.target]
+                if target in set_off:
+                    continue
+                if trigger.kind == "OnSubjobOk":
+                    fires = failure is None and component_id == closing
+                elif trigger.kind == "OnSubjobError":
+                    fires = failure is not None and component_id == closing
+                elif trigger.source != component_id:
+                    fires = False
+                elif trigger.kind == "OnComponentOk":
+                    fires = failure is None
+                elif trigger.kind == "OnComponentError":
+                    fires = failure is not None and failure.component_id == component_id
+                else:
+                    if seen is None:
+                        seen = _before(global_map, members[position + 1:], self.job.components)
+                    fires = evaluate(trigger.condition, context, seen)
+                if fires:
+                    set_off.add(target)
+                    following.append(target)
+
         for trigger in triggers:
-            if trigger.kind in ("OnSubjobOk", "OnComponentOk"):
+            target = subjob_of[trigger.target]
+            if target in done or target in following:
+                continue
+            if trigger.kind == "OnSubjobOk":
                 fires = failure is None
             elif trigger.kind == "OnSubjobError":
                 fires = failure is not None
-            elif trigger.kind == "OnComponentError":
-                fires = failure is not None and failure.component_id == trigger.source
             else:
-                fires = evaluate(trigger.condition, self.run_context.context, self.run_context.global_map)
-            target = subjob_of[trigger.target]
-            if fires and target not in following:
+                fires = trigger.kind == "RunIf" and evaluate(trigger.condition, context, global_map)
+            if fires:
                 following.append(target)
         return following
 
@@ -456,6 +515,24 @@ def _strings(value: Any, found: List[str]) -> None:
     elif isinstance(value, list):
         for item in value:
             _strings(item, found)
+
+
+def _before(global_map: Mapping[str, Any], later: List[str], everyone: Iterable[str]) -> Mapping[str, Any]:
+    """globalMap as v1 has it before some components of a subjob have run: without what is theirs.
+
+    An entry is a component's when its key starts with the component's id
+    and an underscore; of two ids that fit, the longer one owns it.
+    """
+    if not later:
+        return global_map
+    ids = sorted(everyone, key=len, reverse=True)
+    hidden = set(later)
+    kept: Dict[str, Any] = {}
+    for key, value in global_map.items():
+        owner = next((component_id for component_id in ids if key.startswith(component_id + "_")), None)
+        if owner not in hidden:
+            kept[key] = value
+    return kept
 
 
 def _add(global_map: Dict[str, Any], key: str, rows: int) -> None:
