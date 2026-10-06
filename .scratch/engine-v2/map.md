@@ -243,6 +243,13 @@ decide, not fog on the way there.
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
+- Asked for by the dev in the review of 2026-10-06:
+  [Each part of a subjob's plan runs once](issues/31-each-part-of-a-plan-runs-once.md),
+  which comes before
+  [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md);
+  [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md);
+  [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
+  [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md).
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).
