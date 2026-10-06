@@ -228,6 +228,9 @@ are designed.
 - [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md)
   -- INFO and DEBUG lines on stdout, warnings and errors on stderr; the JSON
   summary last on stdout, and in a file with `--summary FILE`.
+- [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md)
+  -- one INFO line for every trigger that fires, and for a `RunIf` one each
+  time it is judged, with its condition and what it came to.
 
 ## Not yet specified
 
@@ -253,7 +256,6 @@ decide, not fog on the way there.
 - Asked for by the dev in the review of 2026-10-06:
   [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md),
   on request;
-  [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md);
   [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
   [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md);
   [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),

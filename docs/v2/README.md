@@ -157,6 +157,22 @@ Polars expressions.
   schema, as v1 does: column order, columns nobody produced, types, decimal
   places, and columns that may not hold a missing value.
 
+## What the log says
+
+At INFO:
+
+- when the job starts and how it ended; when each subjob starts, with the
+  components it holds, and when it finishes;
+- for every file output, the rows it wrote and where;
+- for every trigger that fires, its type, the component it leaves and the
+  subjob it sets off. A `RunIf` is logged each time it is judged, with its
+  condition and what it came to, also when that is false:
+
+  ```
+  [job] trigger OnSubjobOk from settings_in to payments_in fired: the subjob of payments_in is set off
+  [job] trigger RunIf from rejects_out to rejects_in, judged when rejects_out was done: ((Integer)globalMap.get("rejects_out_NB_LINE")) > 0 is true: the subjob of rejects_in is set off
+  ```
+
 ## Types and missing values
 
 Declared types are `str`, `int`, `float`, `bool`, `datetime`, `date` and

@@ -1,4 +1,6 @@
 """Triggers: which subjob runs after which, and what a failure sets off."""
+import logging
+
 import pytest
 
 from src.v2.errors import JobRefusedError
@@ -146,3 +148,104 @@ def test_v1_spellings_of_the_trigger_ends_are_accepted():
     triggers = [{"type": "OnSubjobOk", "from_component": "first", "to_component": "late"}]
     order, _ = ran(job(marks("late", "first"), [], triggers=triggers))
     assert order == ["first", "late"]
+
+
+# ------------------------------------------------------------------
+# What the log says of triggers
+# ------------------------------------------------------------------
+
+def trigger_lines(caplog, job_config, **kwargs):
+    """The lines a run logs about its triggers, and the order its marks ran in."""
+    caplog.set_level(logging.INFO, logger="src.v2")
+    caplog.clear()
+    order, _ = ran(job_config, **kwargs)
+    said = [record for record in caplog.records if record.name == "src.v2.engine.runner"]
+    return [record.getMessage() for record in said if "] trigger " in record.getMessage()], order
+
+
+def counted_job(tmp_path, condition, source="in"):
+    """Three rows written by `out`, and a RunIf on a count leaving `in` or `out` for the mark `after`."""
+    components = [("in", "rows", {"data": {"n": [1, 2, 3]}}), ("out", "save", {"path": str(tmp_path / "o.csv")}),
+                  *marks("after")]
+    triggers = [trigger("RunIf", source, "after", condition=condition)]
+    return job(components, [("r1", "in", "out", "flow")], triggers=triggers)
+
+
+def test_trigger_that_fires_is_logged_with_its_type_and_both_ends(caplog):
+    lines, _ = trigger_lines(caplog, job(marks("late", "first"), [], triggers=[trigger("OnSubjobOk", "first", "late")]))
+    assert lines == ["[t] trigger OnSubjobOk from first to late fired: the subjob of late is set off"]
+
+
+def test_trigger_line_is_logged_at_info(caplog):
+    caplog.set_level(logging.INFO, logger="src.v2")
+    ran(job(marks("a", "b"), [], triggers=[trigger("OnComponentOk", "a", "b")]))
+    (record,) = [record for record in caplog.records if "] trigger " in record.getMessage()]
+    assert record.levelno == logging.INFO
+    assert record.getMessage() == "[t] trigger OnComponentOk from a to b fired: the subjob of b is set off"
+
+
+def test_trigger_that_does_not_fire_is_not_logged(caplog):
+    triggers = [trigger("OnSubjobOk", "bad", "ok_next"), trigger("OnSubjobError", "bad", "error_next")]
+    lines, order = trigger_lines(caplog, failing(triggers))
+    assert lines == ["[t] trigger OnSubjobError from bad to error_next fired: the subjob of error_next is set off"]
+    assert order == ["error_next"]
+
+
+def test_on_component_error_that_fires_is_logged(caplog):
+    triggers = [trigger("OnComponentOk", "bad", "ok_next"), trigger("OnComponentError", "bad", "error_next")]
+    lines, _ = trigger_lines(caplog, failing(triggers))
+    assert lines == ["[t] trigger OnComponentError from bad to error_next fired: the subjob of error_next is set off"]
+
+
+def test_run_if_is_logged_each_time_it_is_judged_with_what_it_came_to(caplog, tmp_path):
+    # The count of `out` is not there yet when `in` is done; it is when the subjob is.
+    condition = '((Integer)globalMap.get("out_NB_LINE")) > 0'
+    lines, order = trigger_lines(caplog, counted_job(tmp_path, condition))
+    assert lines == [
+        f"[t] trigger RunIf from in to after, judged when in was done: {condition} is false",
+        f"[t] trigger RunIf from in to after, judged when the subjob was done: {condition} is true: "
+        "the subjob of after is set off",
+    ]
+    assert order == ["after"]
+
+
+def test_run_if_that_stays_false_is_logged_both_times_and_sets_nothing_off(caplog, tmp_path):
+    condition = '((Integer)globalMap.get("out_NB_LINE")) > 3'
+    lines, order = trigger_lines(caplog, counted_job(tmp_path, condition))
+    assert lines == [
+        f"[t] trigger RunIf from in to after, judged when in was done: {condition} is false",
+        f"[t] trigger RunIf from in to after, judged when the subjob was done: {condition} is false",
+    ]
+    assert order == []
+
+
+def test_run_if_that_is_true_when_its_component_is_done_is_judged_once(caplog, tmp_path):
+    condition = '((Integer)globalMap.get("out_NB_LINE")) > 2'
+    lines, order = trigger_lines(caplog, counted_job(tmp_path, condition, source="out"))
+    assert lines == [
+        f"[t] trigger RunIf from out to after, judged when out was done: {condition} is true: "
+        "the subjob of after is set off",
+    ]
+    assert order == ["after"]
+
+
+def test_subjob_trigger_that_fires_when_the_subjob_is_done_is_logged(caplog):
+    # b2 was set off by root already, so b1's trigger to it fires only when b1's subjob is gone through again.
+    triggers = [trigger("OnSubjobOk", "root", "b1"), trigger("OnSubjobOk", "root", "b2"),
+                trigger("OnSubjobOk", "b1", "b2")]
+    lines, order = trigger_lines(caplog, job(marks("root", "b1", "b2"), [], triggers=triggers))
+    assert lines == [
+        "[t] trigger OnSubjobOk from root to b1 fired: the subjob of b1 is set off",
+        "[t] trigger OnSubjobOk from root to b2 fired: the subjob of b2 is set off",
+        "[t] trigger OnSubjobOk from b1 to b2 fired: the subjob of b2 is set off",
+    ]
+    assert order == ["root", "b1", "b2"]
+
+
+def test_trigger_line_is_one_line_of_plain_ascii(caplog):
+    condition = "(context.go == 'caf\u00e9'\n    or True)"
+    lines, order = trigger_lines(caplog, job(marks("a", "b"), [], triggers=[trigger("RunIf", "a", "b", condition=condition)],
+                                             context={"go": "x"}))
+    assert lines == ["[t] trigger RunIf from a to b, judged when a was done: (context.go == 'caf\\xe9' or True) is true: "
+                     "the subjob of b is set off"]
+    assert order == ["a", "b"]

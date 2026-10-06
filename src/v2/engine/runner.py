@@ -204,6 +204,7 @@ class Runner:
                 target = subjob_of[trigger.target]
                 if target in set_off:
                     continue
+                judged = None
                 if trigger.kind == "OnSubjobOk":
                     fires = failure is None and component_id == closing
                 elif trigger.kind == "OnSubjobError":
@@ -218,6 +219,8 @@ class Runner:
                     if seen is None:
                         seen = _before(global_map, members[position + 1:], self.job.components)
                     fires = evaluate(trigger.condition, context, seen)
+                    judged = f"{component_id} was done"
+                self._say(trigger, fires, judged)
                 if fires:
                     set_off.add(target)
                     following.append(target)
@@ -226,15 +229,36 @@ class Runner:
             target = subjob_of[trigger.target]
             if target in done or target in following:
                 continue
+            judged = None
             if trigger.kind == "OnSubjobOk":
                 fires = failure is None
             elif trigger.kind == "OnSubjobError":
                 fires = failure is not None
+            elif trigger.kind == "RunIf":
+                fires = evaluate(trigger.condition, context, global_map)
+                judged = "the subjob was done"
             else:
-                fires = trigger.kind == "RunIf" and evaluate(trigger.condition, context, global_map)
+                fires = False
+            self._say(trigger, fires, judged)
             if fires:
                 following.append(target)
         return following
+
+    def _say(self, trigger: Trigger, fires: bool, judged: Optional[str]) -> None:
+        """Log a trigger that fired, and a RunIf every time it was judged, whatever it came to.
+
+        Args:
+            trigger: The trigger.
+            fires: Whether it sets its subjob off.
+            judged: For a RunIf, the moment its condition was looked at; None for any other trigger.
+        """
+        ends = f"[{self.job.name}] trigger {trigger.kind} from {trigger.source} to {trigger.target}"
+        sets_off = f"the subjob of {trigger.target} is set off"
+        if judged is not None:
+            came_to = f"{ends}, judged when {judged}: {_one_line(trigger.condition or '')} is {str(fires).lower()}"
+            logger.info(f"{came_to}: {sets_off}" if fires else came_to)
+        elif fires:
+            logger.info(f"{ends} fired: {sets_off}")
 
     def _record(self, result: JobResult, component_id: Optional[str], reason: str) -> None:
         logger.error(f"[{self.job.name}] failed at {component_id}: {reason}")
@@ -593,6 +617,11 @@ def _counted(frame: pl.LazyFrame, heights: List[int]) -> pl.LazyFrame:
         return batch
 
     return frame.map_batches(note, streamable=True, validate_output_schema=False)
+
+
+def _one_line(text: str) -> str:
+    """A text as one line of plain ASCII, for the log: what is not ASCII is written as its escape."""
+    return " ".join(text.split()).encode("ascii", "backslashreplace").decode("ascii")
 
 
 def _discard(state: _Subjob) -> None:
