@@ -9,6 +9,7 @@ look through the file.
 from __future__ import annotations
 
 import codecs
+import errno
 import os
 import shutil
 from typing import TYPE_CHECKING
@@ -65,45 +66,87 @@ def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = F
     return copy
 
 
-def put_text_in_place(written: str, path: str, encoding: str, append: bool) -> None:
-    """Move a UTF-8 file Polars wrote to where the job wants it, in the job's encoding.
+def to_encoding(written: str, encoding: str) -> bytes:
+    """Put a UTF-8 file Polars wrote in the job's encoding, where it is.
 
-    The written file is gone afterwards, whether this succeeds or not.
+    Returns:
+        The byte order mark the file now starts with; empty for an encoding
+        that writes none.
 
     Raises:
         UnicodeEncodeError: When the text holds a character the encoding
-            cannot write. ``path`` is then left as it was.
+            cannot write.
     """
     name = codec_name(encoding)
+    if name in ("utf-8", "utf_8") or (_agrees_on_ascii(name) and _is_ascii(written)):
+        return b""
+    converted = written + ".enc"
     try:
-        if name not in ("utf-8", "utf_8") and not (_agrees_on_ascii(name) and _is_ascii(written)):
-            converted = written + ".enc"
-            try:
-                _convert(written, converted, name)
-            except BaseException:
-                _remove(converted)
-                raise
-            os.replace(converted, written)
-        if append and os.path.exists(path):
-            with open(written, "rb") as source, open(path, "ab") as target:
-                shutil.copyfileobj(source, target, _CHUNK)
-        else:
-            os.replace(written, path)
+        _convert(written, converted, name)
+        os.replace(converted, written)
+    except BaseException:
+        _remove(converted)
+        raise
+    return codecs.getincrementalencoder(name)().encode("")
+
+
+def encoded(text: str, encoding: str) -> bytes:
+    """Text in an encoding, without the byte order mark the encoding starts a file with."""
+    encoder = codecs.getincrementalencoder(codec_name(encoding))()
+    encoder.encode("")
+    return encoder.encode(text, final=True)
+
+
+def put_in_place(
+    written: str, path: str, append: bool = False, mark: bytes = b"", header: bytes = b"", holds_header: bool = False
+) -> None:
+    """Put a finished file where the job wants it, or add it to the file that is there.
+
+    Only bytes are moved: nothing here depends on the rows any more, so only
+    the file system can fail it. A file that is replaced keeps its
+    permissions and a link is followed, as when the file is written into.
+    The finished file is gone afterwards, whether this succeeds or not.
+
+    Args:
+        written: The finished file, in the job's encoding.
+        path: Where the job wants it.
+        append: Whether to add to a file that is already there.
+        mark: The byte order mark ``written`` starts with. A file has one,
+            at its start.
+        header: The header line a new file starts with, in the file's
+            encoding; empty when it has none. A header is not repeated in a
+            file that is added to.
+        holds_header: Whether ``written`` holds that header, after the mark.
+    """
+    try:
+        adding = append and os.path.exists(path) and os.path.getsize(path) > 0
+        if not adding and holds_header == bool(header):
+            _replace(written, path)
+            return
+        with open(written, "rb") as source, open(path, "ab" if adding else "wb") as target:
+            if adding:
+                source.seek(len(mark) + (len(header) if holds_header else 0))
+            else:
+                target.write(mark + header)
+                source.seek(len(mark))
+            shutil.copyfileobj(source, target, _CHUNK)
     finally:
         _remove(written)
 
 
-def count_occurrences(path: str, text: bytes) -> int:
-    """How many times a run of bytes occurs in a file."""
-    found, tail = 0, b""
-    with open(path, "rb") as handle:
-        while chunk := handle.read(_CHUNK):
-            # The end of the last chunk is looked at again, so a match cut in two by a chunk boundary is seen.
-            window = tail + chunk
-            found += window.count(text)
-            keep = len(text) - 1
-            tail = window[-keep:] if keep else b""
-    return found
+def _replace(written: str, path: str) -> None:
+    """Move a file over another, keeping what writing into the other keeps: its permissions, and a link to it."""
+    if os.path.islink(path):
+        path = os.path.realpath(path)
+    if os.path.exists(path):
+        shutil.copymode(path, written)
+    try:
+        os.replace(written, path)
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
+        # The link leads to another file system, where a file cannot be moved to.
+        shutil.copyfile(written, path)
 
 
 def _convert(source_path: str, target_path: str, name: str) -> None:

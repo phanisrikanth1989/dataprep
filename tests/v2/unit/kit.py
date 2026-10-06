@@ -69,11 +69,7 @@ class Save(Sink):
     keys = (Key("path", required=True),)
 
     def write(self, frame):
-        return Write(
-            path=self.config["path"],
-            sink=lambda path: frame.sink_csv(path, lazy=True),
-            rows=frame.select(pl.len()),
-        )
+        return Write(path=self.config["path"], sink=lambda path: frame.sink_csv(path, lazy=True))
 
 
 class Peek(Eager):

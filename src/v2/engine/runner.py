@@ -15,7 +15,6 @@ import dataclasses
 import logging
 import os
 import re
-import shutil
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -25,6 +24,7 @@ import polars as pl
 
 from ..components.base import CheckFailed, Component, Sink, Source, Tap, Write
 from ..errors import ConfigurationError, JobFailedError
+from ..files import put_in_place
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Trigger
@@ -89,10 +89,11 @@ class _Failed(Exception):
 class _Subjob:
     """What one subjob has built and written so far."""
 
-    writes: List[Tuple[str, Write]] = field(default_factory=list)
+    writes: List[Tuple[str, Write, List[int]]] = field(default_factory=list)
     taps: List[Tuple[str, Tap]] = field(default_factory=list)
     produced: List[Tuple[str, pl.LazyFrame]] = field(default_factory=list)
-    written: List[Tuple[str, Write, str, Optional[int]]] = field(default_factory=list)
+    written: List[Tuple[str, Write, str, int]] = field(default_factory=list)
+    temps: List[str] = field(default_factory=list)
 
 
 class Runner:
@@ -278,9 +279,12 @@ class Runner:
             self._collect([], state)
             self._place(state)
         except _Failed as failure:
-            for _, _, temp, _ in state.written:
-                _remove(temp)
+            _discard(state)
             return failure
+        except BaseException:
+            # A run that is stopped (Ctrl-C) leaves no file half written either.
+            _discard(state)
+            raise
         logger.info(f"[{self.job.name}] subjob finished in {time.perf_counter() - started:.2f}s")
         return None
 
@@ -292,7 +296,9 @@ class Runner:
                 component = self._ready(spec)
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 if isinstance(component, Sink):
-                    state.writes.append((component_id, component.write(next(iter(inputs.values())))))
+                    heights: List[int] = []
+                    handed = _counted(next(iter(inputs.values())), heights)
+                    state.writes.append((component_id, component.write(handed), heights))
                     outputs: Dict[str, pl.LazyFrame] = {}
                 elif isinstance(component, Source):
                     outputs = component.read()
@@ -400,20 +406,14 @@ class Runner:
         state.writes, state.taps = [], []
         if not wanted and not writes and not taps:
             return []
-        temps = [_temp_path(write.path, component_id) for component_id, write in writes]
-        counted = [
-            (component_id, write.rows) for component_id, write in writes
-            if write.rows is not None and write.count is None
-        ]
+        temps = [_temp_path(write.path, component_id) for component_id, write, _ in writes]
+        state.temps += temps
         started = time.perf_counter()
         try:
-            plans = [write.sink(temp) for (_, write), temp in zip(writes, temps)]
-            plans += [rows for _, rows in counted]
+            plans = [write.sink(temp) for (_, write, _), temp in zip(writes, temps)]
             plans += [tap.frame for _, tap in taps]
             results = pl.collect_all(plans + wanted, engine=self.engine)
         except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
-            for temp in temps:
-                _remove(temp)
             if self.run_context.fast_read and self.run_context.used_fast_read:
                 raise _Failed(None, _reason(exc), read_again=True) from exc
             blamed = None
@@ -421,19 +421,9 @@ class Runner:
                 blamed = self._blame(state.produced) or (writes[0][0] if len(writes) == 1 else None)
             raise _Failed(blamed, _reason(exc)) from exc
 
-        first_count, first_tap, first_wanted = len(writes), len(writes) + len(counted), len(plans)
-        counts = {
-            component_id: int(frame.item())
-            for (component_id, _), frame in zip(counted, results[first_count:first_tap])
-        }
-        for (component_id, write), temp in zip(writes, temps):
-            try:
-                rows = write.count(temp) if write.count is not None else counts.get(component_id)
-            except Exception as exc:  # noqa: BLE001
-                for written in temps:
-                    _remove(written)
-                raise _Failed(component_id, _reason(exc)) from exc
-            state.written.append((component_id, write, temp, rows))
+        first_tap, first_wanted = len(writes), len(plans)
+        for (component_id, write, heights), temp in zip(writes, temps):
+            state.written.append((component_id, write, temp, sum(heights)))
         for (component_id, tap), frame in zip(taps, results[first_tap:first_wanted]):
             try:
                 tap.receive(frame)
@@ -444,26 +434,44 @@ class Runner:
         return results[first_wanted:]
 
     def _place(self, state: _Subjob) -> None:
-        """Put every file the subjob wrote in place."""
+        """Put every file the subjob wrote in place.
+
+        Each file is first made ready where it was written. That is the
+        last thing the rows can fail (a character the file's encoding cannot
+        write), and it is done for every file before any is put in place:
+        a subjob that fails leaves every file as it was. Then the files are
+        moved, in the order their components run.
+        """
+        left: Set[str] = set()
+        for component_id, write, temp, rows in state.written:
+            try:
+                where = os.path.realpath(write.path)
+                if write.refuses_existing is not None and where in left:
+                    raise ConfigurationError(write.refuses_existing)
+                if write.ready is not None:
+                    write.ready(temp, rows)
+                if rows or not write.empty_leaves_none:
+                    left.add(where)
+            except Exception as exc:  # noqa: BLE001
+                raise _Failed(component_id, _reason(exc)) from exc
+
         while state.written:
             component_id, write, temp, rows = state.written.pop(0)
             try:
                 if write.place is not None:
                     write.place(temp, rows)
                 else:
-                    _put_in_place(temp, write)
-                if rows is not None:
-                    self.rows[component_id] = self.rows.get(component_id, 0) + rows
-                    self.run_context.global_map[f"{component_id}_NB_LINE"] = self.rows[component_id]
-                    for stat in self._wanted.get(component_id, ()):
-                        self.run_context.global_map[f"{component_id}_{stat}"] = (
-                            0 if stat == "NB_LINE_REJECT" else self.rows[component_id]
-                        )
+                    put_in_place(temp, write.path, write.append)
+                self.rows[component_id] = self.rows.get(component_id, 0) + rows
+                self.run_context.global_map[f"{component_id}_NB_LINE"] = self.rows[component_id]
+                for stat in self._wanted.get(component_id, ()):
+                    self.run_context.global_map[f"{component_id}_{stat}"] = (
+                        0 if stat == "NB_LINE_REJECT" else self.rows[component_id]
+                    )
                 if write.finish is not None:
                     write.finish(rows)
-                logger.info(f"[{component_id}] wrote {'?' if rows is None else rows} row(s) to {write.path}")
+                logger.info(f"[{component_id}] wrote {rows} row(s) to {write.path}")
             except Exception as exc:  # noqa: BLE001
-                _remove(temp)
                 raise _Failed(component_id, _reason(exc)) from exc
 
     def _blame(self, produced: List[Tuple[str, pl.LazyFrame]]) -> Optional[str]:
@@ -565,13 +573,26 @@ def _remove(path: str) -> None:
         pass
 
 
-def _put_in_place(temp: str, write: Write) -> None:
-    if write.append and os.path.exists(write.path):
-        with open(temp, "rb") as source, open(write.path, "ab") as target:
-            shutil.copyfileobj(source, target)
-        os.remove(temp)
-    else:
-        os.replace(temp, write.path)
+def _counted(frame: pl.LazyFrame, heights: List[int]) -> pl.LazyFrame:
+    """A frame that notes the height of every batch of rows that passes through it.
+
+    That is how the rows handed to a sink are counted: in the pass that
+    writes them, at no cost. A second frame over the same rows can make
+    Polars read the source twice, and the lines of the written file are not
+    its rows when a value holds a line break.
+    """
+    def note(batch: pl.DataFrame) -> pl.DataFrame:
+        # Batches arrive from several threads; adding to a list is safe from all of them.
+        heights.append(batch.height)
+        return batch
+
+    return frame.map_batches(note, streamable=True, validate_output_schema=False)
+
+
+def _discard(state: _Subjob) -> None:
+    """Remove what a subjob that did not finish wrote and has not put in place."""
+    for temp in state.temps:
+        _remove(temp)
 
 
 def _reason(error: BaseException) -> str:

@@ -248,11 +248,18 @@ tap.
 
 ## Sinks
 
-`write(frame)` returns `Write(path, sink, rows, append, place, finish)`:
+`write(frame)` returns `Write(path, sink, append, ready, place, finish)`:
 `sink(temp_path)` returns the lazy sink plan (`frame.sink_csv(temp_path,
-..., lazy=True)`), `rows` is `frame.select(pl.len())`. The engine writes to
-a temporary file beside `path` and puts it in place when the whole subjob
-has succeeded. See `file/file_output_delimited.py`.
+..., lazy=True)`). The engine writes to a temporary file beside `path` and
+counts the rows it hands you as they pass. When the whole subjob has
+succeeded, it calls `ready(temp_path, rows)` for every file of the subjob,
+and then `place(temp_path, rows)` for each, in the order the components
+run.
+
+Do in `ready` whatever the rows can still fail: putting the file in the
+job's encoding, say. Do nothing in `place` but move bytes
+(`files.put_in_place`). That is what lets a subjob that fails leave every
+file as it was. See `file/file_output_delimited.py`.
 
 ## Tests
 

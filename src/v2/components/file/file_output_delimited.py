@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import polars as pl
 
 from ...errors import ConfigurationError
-from ...files import count_occurrences, put_text_in_place
+from ...files import encoded, put_in_place, to_encoding
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import to_text
@@ -97,10 +97,16 @@ class FileOutputDelimited(Sink):
         if folder and not os.path.isdir(folder):
             raise ConfigurationError(f"Failed to write file '{path}': folder '{folder}' does not exist")
         exists = os.path.exists(path)
-        if exists and config["file_exist_exception"] and not config["append"]:
-            raise ConfigurationError(
+        refuses_existing = None
+        if config["file_exist_exception"] and not config["append"]:
+            refuses_existing = (
                 f"File already exists: '{path}'. Set file_exist_exception=false or append=true to allow writing."
             )
+            if exists:
+                raise ConfigurationError(refuses_existing)
+        # When appending, a header goes into a new or empty file only. The plan writes it when the file is one
+        # now; an earlier output of the same subjob may still write the file first, so it is settled for good
+        # when the file is put in place.
         header = config["include_header"] and not (config["append"] and exists and os.path.getsize(path) > 0)
         csv = config["csv_option"]
         delimiter = config["delimiter"][:1] if csv else config["delimiter"]
@@ -123,38 +129,41 @@ class FileOutputDelimited(Sink):
             out = frame.select(pl.concat_str(texts, separator=delimiter).alias(delimiter.join(types.names())))
             delimiter = "\x1f"
 
+        style = {
+            "separator": delimiter,
+            "line_terminator": terminator,
+            "quote_char": config["text_enclosure"] if csv else '"',
+            "quote_style": "always" if csv else "never",
+        }
+
         def sink(target: str) -> pl.LazyFrame:
-            return out.sink_csv(
-                target,
-                separator=delimiter,
-                include_header=header,
-                line_terminator=terminator,
-                quote_char=config["text_enclosure"] if csv else '"',
-                quote_style="always" if csv else "never",
-                lazy=True,
-            )
+            return out.sink_csv(target, include_header=header, lazy=True, **style)
 
-        def count(written: str) -> int:
-            """Rows in the written file, not counting the header line."""
-            if terminator in ("\n", "\r\n", "\r"):
-                # Polars counts lines on every core, and knows a line break inside an enclosure from a row's end.
-                lines = pl.scan_csv(
-                    written, separator=delimiter, has_header=False, quote_char=config["text_enclosure"] if csv else None,
-                    eol_char="\r" if terminator == "\r" else "\n", infer_schema=False, raise_if_empty=False,
-                ).select(pl.len()).collect().item()
-            else:
-                lines = count_occurrences(written, terminator.encode("utf-8")) if terminator else 0
-            return max(lines - (1 if header else 0), 0)
+        keeps_nothing = config["append"] or config["delete_empty_file"]
+        # What is settled once the file is written: its byte order mark, and its header line as bytes.
+        settled = {"mark": b"", "header": b""}
 
-        def place(written: str, rows: Optional[int]) -> None:
-            if not rows and (config["append"] or config["delete_empty_file"]):
+        def ready(written: str, rows: int) -> None:
+            if not rows and keeps_nothing:
+                return
+            if config["append"] and config["include_header"] and columns:
+                line = pl.DataFrame(schema=out.collect_schema()).write_csv(include_header=True, **style)
+                settled["header"] = encoded(line, config["encoding"])
+            settled["mark"] = to_encoding(written, config["encoding"])
+
+        def place(written: str, rows: int) -> None:
+            if not rows and keeps_nothing:
                 os.remove(written)
                 if not config["append"] and os.path.exists(path):
                     os.remove(path)
                 return
-            put_text_in_place(written, path, config["encoding"], config["append"])
+            held = header and bool(settled["header"])
+            put_in_place(written, path, config["append"], settled["mark"], settled["header"], held)
 
-        return Write(path=path, sink=sink, count=count, append=config["append"], place=place)
+        return Write(
+            path=path, sink=sink, append=config["append"], ready=ready, place=place,
+            refuses_existing=refuses_existing, empty_leaves_none=keeps_nothing,
+        )
 
 
 def _as_written(name: str, dtype: pl.DataType, declared: Optional[Column]) -> pl.Expr:

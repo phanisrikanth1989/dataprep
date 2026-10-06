@@ -681,3 +681,126 @@ def test_bad_byte_in_a_file_read_line_by_line_becomes_a_replacement_character(tm
                         read={"fieldseparator": "||", "encoding": "UTF-8"}, write={"encoding": "UTF-8"})
     assert result.status == "success"
     assert (folder / "out.csv").read_bytes() == "id;name\n1;caf�\n2;ok\n".encode("utf-8")
+
+
+# ------------------------------------------------------------------
+# Several outputs of one subjob, and what a run that fails or is stopped leaves behind
+# ------------------------------------------------------------------
+
+def two_outputs(first=None, second=None, second_path="out2.csv", schema="id:int, name:str"):
+    """in.csv -> out.csv and, by a second flow of the same rows, -> a second output."""
+    components = [reader(schema, outputs=("row1", "row2")),
+                  writer(schema, inputs=("row1",), **(first or {})),
+                  writer(schema, component_id="out2", path=second_path, inputs=("row2",), **(second or {}))]
+    return job(components, [flow("row1", "in", "out"), flow("row2", "in", "out2")])
+
+
+def run_in(folder, made, files):
+    """Run a job on v2 only, inside a folder holding ``files``."""
+    import os
+
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+    previous = os.getcwd()
+    os.chdir(folder)
+    try:
+        return run_job(made)
+    finally:
+        os.chdir(previous)
+
+
+def test_failed_subjob_leaves_every_file_as_it_was(tmp_path):
+    # The second output cannot be written in its encoding. The first is written by then, and must not
+    # have taken the place of the file that was there.
+    made = two_outputs(first={"file_exist_exception": False}, second={"encoding": "ascii"})
+    result = run_in(tmp_path, made, {"in.csv": "1;café\n".encode("utf-8"), "out.csv": b"old\n"})
+    assert result.status == "failed" and result.failed_component == "out2"
+    assert (tmp_path / "out.csv").read_bytes() == b"old\n"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["in.csv", "out.csv"]
+    assert result.rows == {}
+
+
+def test_two_outputs_appending_to_one_new_file_write_one_header(tmp_path):
+    made = two_outputs(first={"append": True}, second={"append": True}, second_path="out.csv")
+    run = assert_matches_v1(made, {"in.csv": b"1;a\n2;b\n"}, tmp_path)
+    assert run.succeeded and run.files["out.csv"] == b"id;name\n1;a\n2;b\n1;a\n2;b\n"
+
+
+def test_second_output_writes_over_the_first_when_allowed(tmp_path):
+    made = two_outputs(first={"file_exist_exception": False},
+                       second={"file_exist_exception": False, "include_header": False}, second_path="out.csv")
+    run = assert_matches_v1(made, {"in.csv": b"1;a\n2;b\n"}, tmp_path)
+    assert run.succeeded and run.files["out.csv"] == b"1;a\n2;b\n"
+
+
+def test_second_output_to_the_file_the_first_made_fails_when_an_existing_file_is_an_error(tmp_path):
+    from tests.v2 import answer_key
+
+    made = two_outputs(first={"file_exist_exception": True}, second={"file_exist_exception": True},
+                       second_path="out.csv")
+    inputs = {"in.csv": b"1;a\n"}
+    on_v1 = answer_key.run_job(made, inputs, tmp_path / "v1", answer_key.run_v1)
+    on_v2 = answer_key.run_job(made, inputs, tmp_path / "v2", answer_key.run_v2)
+    assert not on_v1.succeeded and not on_v2.succeeded
+    assert "File already exists" in on_v2.error
+    # v1 leaves the first output behind; v2 leaves nothing of a subjob that failed.
+    assert "out.csv" in on_v1.files and "out.csv" not in on_v2.files
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+@pytest.mark.parametrize("existing", [None, "", "id;name\n9;z\n"])
+def test_appending_writes_one_byte_order_mark(tmp_path, encoding, existing):
+    inputs = {"in.csv": b"1;a\n"}
+    if existing is not None:
+        inputs["out.csv"] = existing.encode(encoding) if existing else b""
+    run = same(tmp_path, None, "id:int, name:str", write={"append": True, "encoding": encoding}, inputs=inputs)
+    assert run.files["out.csv"] == ((existing or "id;name\n") + "1;a\n").encode(encoding)
+
+
+def test_stopped_run_leaves_no_file_half_written(tmp_path, monkeypatch):
+    import polars as pl
+
+    collect_all = pl.collect_all
+
+    def stopped(plans, **kwargs):
+        collect_all(plans, **kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pl, "collect_all", stopped)
+    with pytest.raises(KeyboardInterrupt):
+        run_in(tmp_path, copy("id:int, name:str"), {"in.csv": b"1;a\n"})
+    assert [path.name for path in tmp_path.iterdir()] == ["in.csv"]
+
+
+@pytest.mark.parametrize(
+    "write",
+    [{}, {"os_line_separator": False, "row_separator": "\\r\\n"}, {"os_line_separator": False, "row_separator": "|"},
+     {"os_line_separator": False, "row_separator": ""}, {"csv_option": True}],
+)
+def test_row_count_is_the_rows_written_whatever_the_values_hold(tmp_path, write):
+    # A value that holds a line break is still one row, though it is two lines of the file without csv_option.
+    made = copy("id:int, name:str", read={"csv_option": True}, write=write)
+    result = run_in(tmp_path, made, {"in.csv": b'1;"two\nlines"\n2;"a|b"\n3;c\n'})
+    assert result.status == "success" and result.rows["out"] == 3
+    assert result.global_map["out_NB_LINE"] == 3
+
+
+def test_output_written_over_a_link_writes_the_file_the_link_points_at(tmp_path):
+    import os
+
+    (tmp_path / "real.csv").write_bytes(b"old\n")
+    os.symlink("real.csv", tmp_path / "out.csv")
+    result = run_in(tmp_path, copy("id:int, name:str", write={"file_exist_exception": False}), {"in.csv": b"1;a\n"})
+    assert result.status == "success"
+    assert (tmp_path / "out.csv").is_symlink() and (tmp_path / "real.csv").read_bytes() == b"id;name\n1;a\n"
+
+
+def test_output_written_over_a_file_keeps_its_permissions(tmp_path):
+    import os
+    import stat
+
+    (tmp_path / "out.csv").write_bytes(b"old\n")
+    os.chmod(tmp_path / "out.csv", 0o640)
+    result = run_in(tmp_path, copy("id:int, name:str", write={"file_exist_exception": False}), {"in.csv": b"1;a\n"})
+    assert result.status == "success" and (tmp_path / "out.csv").read_bytes() == b"id;name\n1;a\n"
+    assert stat.S_IMODE(os.stat(tmp_path / "out.csv").st_mode) == 0o640

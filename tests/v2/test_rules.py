@@ -18,7 +18,6 @@ MAY_COLLECT = {
     "file_input_positional.py": "the same footer count",
     "file_input_fullrow.py": "the same footer count",
     "file_input_excel.py": "there is no lazy Excel reader",
-    "file_output_delimited.py": "counts the rows of the file it has just written",
 }
 ROW_BY_ROW = re.compile(r"\.(map_elements|map_batches|map_rows|apply|iter_rows|rows)\(")
 # Components that are handed real rows by the engine and may walk them.

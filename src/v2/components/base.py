@@ -291,31 +291,43 @@ class Write:
     """A file a sink wants written.
 
     The engine runs the write, together with everything else in the subjob,
-    into a temporary file beside the target, and moves it into place only
-    when the subjob has succeeded.
+    into a temporary file beside the target. When the whole subjob has
+    succeeded, every file it wrote is first made ready where it is
+    (``ready``), and only then are the files put in place (``place``), in
+    the order their components run. ``ready`` is the last place the rows
+    can fail the subjob, so a subjob that fails leaves every file as it was.
+
+    The engine counts the rows it hands the sink as they pass, and gives
+    that count to ``ready``, ``place`` and ``finish``.
 
     Attributes:
         path: The file the job writes.
         sink: Given a path, returns the lazy sink that writes there.
-        rows: A lazy frame whose one value is the number of rows written.
-        count: Given the written temporary file, returns the number of rows
-            in it. Used instead of ``rows`` when given: counting from the
-            file costs nothing in the pass, while a second frame over the
-            same rows can make Polars read the source twice.
         append: Whether to add to an existing file instead of replacing it.
-        place: Puts the written temporary file in place, given its path and
-            the row count; it must leave no temporary file behind. Without
-            it the file is moved to ``path``, or added to it on ``append``.
+        ready: Makes the written temporary file final in everything but its
+            name, given its path and the row count: puts it in the job's
+            encoding, say. It may raise.
+        place: Puts the ready file in place, given its path and the row
+            count; it must leave no temporary file behind, and only the file
+            system may fail it. Without it the file is moved to ``path``, or
+            added to it on ``append``.
         finish: Called after the file is in place, with the row count.
+        refuses_existing: What to fail with when an earlier output of the
+            same subjob leaves a file at ``path``; None when the write may
+            find one there. A file that is there before the subjob starts is
+            the sink's own to refuse, in ``write``.
+        empty_leaves_none: Whether no file is left at ``path`` when no row
+            was written.
     """
 
     path: str
     sink: Callable[[str], pl.LazyFrame]
-    rows: Optional[pl.LazyFrame] = None
-    count: Optional[Callable[[str], int]] = None
     append: bool = False
-    place: Optional[Callable[[str, Optional[int]], None]] = None
-    finish: Optional[Callable[[Optional[int]], None]] = None
+    ready: Optional[Callable[[str, int], None]] = None
+    place: Optional[Callable[[str, int], None]] = None
+    finish: Optional[Callable[[int], None]] = None
+    refuses_existing: Optional[str] = None
+    empty_leaves_none: bool = False
 
 
 class Sink(Component):
