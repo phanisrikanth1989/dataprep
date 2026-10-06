@@ -804,3 +804,82 @@ def test_output_written_over_a_file_keeps_its_permissions(tmp_path):
     result = run_in(tmp_path, copy("id:int, name:str", write={"file_exist_exception": False}), {"in.csv": b"1;a\n"})
     assert result.status == "success" and (tmp_path / "out.csv").read_bytes() == b"id;name\n1;a\n"
     assert stat.S_IMODE(os.stat(tmp_path / "out.csv").st_mode) == 0o640
+
+
+# ------------------------------------------------------------------
+# Blank lines, and lines around a separator of several characters
+# ------------------------------------------------------------------
+
+TWO, THREE = "a:str, b:str", "a:str, b:str, c:str"
+
+
+@pytest.mark.parametrize(
+    "schema, read, data",
+    [
+        (TWO, {"limit": 2}, b"1;a\n\n\n2;b\n3;c\n"),
+        (TWO, {"limit": 2, "remove_empty_row": False}, b"1;a\n\n\n2;b\n3;c\n"),
+        (TWO, {"limit": 2}, b"1;a\n   \n2;b\n3;c\n"),
+        (TWO, {"limit": 2}, b"1;a\n;\n;\n2;b\n3;c\n"),
+        (TWO, {"limit": 2, "footer_rows": 1}, b"1;a\n\n\n2;b\n3;c\nEND;x\n"),
+        (TWO, {"remove_empty_row": False}, b"1;a\n\n\n2;b\n;\n3;c\n"),
+        (TWO, {"remove_empty_row": False}, b"1;a\n   \n \t \n2;b\n"),
+        (TWO, {"remove_empty_row": False, "fieldseparator": "\\t"}, b"1\ta\n   \n\t\n \t \n2\tb\n"),
+        (TWO, {"remove_empty_row": False, "fieldseparator": " "}, b"1 a\n\t\n \n2 b\n"),
+        (THREE, {"remove_empty_row": False}, b"1;a;x\n\n2\n;\n;;\n3;c;z\n"),
+        ("a:str", {"remove_empty_row": False}, b"1\n\n2\n"),
+        ("a:int, b:str", {"limit": 2}, b"1;a\n\n\n2;b\n3;c\n"),
+        ("a:int, b:str", {"remove_empty_row": False}, b"1;a\n\n2;b\n"),
+        (TWO, {"limit": 2, "header_rows": 1, "footer_rows": 1}, b"H;h\n\n1;a\n\n2;b\n3;c\n\nEND;x\n"),
+        (TWO, {"remove_empty_row": False, "header_rows": 1, "footer_rows": 1}, b"H;h\n\n1;a\n\n2;b\n\nEND;x\n"),
+        (TWO, {"remove_empty_row": False, "row_separator": "\\r\\n"}, b"1;a\r\n\r\n2;b\r\n"),
+    ],
+)
+def test_blank_line_is_never_a_row_and_does_not_count_toward_the_limit(tmp_path, schema, read, data):
+    same(tmp_path, data, schema, read=read, write={"include_header": False})
+
+
+@pytest.mark.parametrize(
+    "read, data",
+    [
+        ({"fieldseparator": "||"}, b"  1||a  \n\t2||b\t\n3|| c \n"),
+        ({"fieldseparator": "||", "remove_empty_row": False}, b"  1||a  \n\n   \n2||  \n"),
+        ({"fieldseparator": "||", "check_fields_num": True}, b"  1||a  \n2||b\n"),
+    ],
+)
+def test_line_loses_the_blanks_around_it_before_a_separator_of_several_characters_splits_it(tmp_path, read, data):
+    same(tmp_path, data, TWO, read=read, write={"include_header": False})
+
+
+# ------------------------------------------------------------------
+# Enclosures that do not pair up, footers
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("line", [b'2;b"c', b'2;"bc', b'2;bc"'])
+@pytest.mark.parametrize("footer", [0, 1])
+def test_enclosure_that_does_not_pair_up_fails_the_reader_and_never_drops_rows(tmp_path, line, footer):
+    # v1 reads such a file as pandas does. v2 reads enclosed fields strictly: it must then fail, not go on
+    # with the rows it could count.
+    data = b"1;a\n" + line + b"\n3;d\n4;e\n" + (b"END;x\n" if footer else b"")
+    result, folder = v2(tmp_path, data, TWO, read={"csv_option": True, "footer_rows": footer})
+    assert result.status == "failed" and result.failed_component == "in"
+    assert "enclos" in result.error
+    assert not (folder / "out.csv").exists()
+
+
+def test_file_with_a_footer_is_read_once(tmp_path, caplog):
+    # Polars parses the lines after the last row it is asked for, so a footer of text under a number
+    # column fails the fast reader every time. Such a file is read as text from the start.
+    import logging
+
+    caplog.set_level(logging.INFO)
+    result, folder = v2(tmp_path, b"1;a\n2;b\nTOTAL;2\n", "n:int, name:str", read={"footer_rows": 1})
+    assert result.status == "success" and (folder / "out.csv").read_bytes() == b"n;name\n1;a\n2;b\n"
+    assert not [record for record in caplog.records if "reading again" in record.getMessage()]
+
+
+@pytest.mark.parametrize("side", ["read", "write"])
+def test_enclosed_fields_with_a_separator_of_more_than_one_byte_are_refused(side):
+    made = copy(TWO, **{side: {"csv_option": True, "fieldseparator": "¦"}})
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert "one byte" in caught.value.report.format()

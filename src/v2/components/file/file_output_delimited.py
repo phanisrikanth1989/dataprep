@@ -86,6 +86,8 @@ class FileOutputDelimited(Sink):
                 found.append("text_enclosure: must be one character")
             elif config["escape_char"] not in (config["text_enclosure"], ""):
                 found.append("escape_char: v2 writes an enclosure inside a field by writing it twice, nothing else")
+            if len(config["delimiter"][:1].encode()) != 1:
+                found.append("delimiter: with csv_option, v2 writes a separator of one byte only")
         return found
 
     def write(self, frame: pl.LazyFrame) -> Write:

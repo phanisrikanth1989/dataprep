@@ -128,14 +128,27 @@ class FileInputDelimited(Source):
                 found.append("escape_char: v2 reads an enclosure inside a field only when it is written twice")
             if config["check_fields_num"]:
                 found.append("check_fields_num: field counts are not checked on files read with csv_option")
+            if len(config["delimiter"][0].encode()) != 1:
+                found.append("delimiter: with csv_option, v2 reads a separator of one byte only")
         elif self._by_line() and config["row_separator"] == "\r":
             found.append("row_separator: \\r cannot be combined with check_fields_num or a delimiter of several characters")
         return found
 
     def _by_line(self) -> bool:
-        """Whether rows are split by v2 itself instead of by Polars' delimited reader."""
+        """Whether rows are split by v2 itself instead of by Polars' delimited reader.
+
+        Polars' reader cannot count the fields of a row or split on more
+        than one byte. Nor can it tell a blank line from a row of empty
+        fields, and v1 never takes a blank line for a row: that shows where
+        rows of empty fields are kept (``remove_empty_row`` off) or counted
+        (a ``limit``).
+        """
         config = self.config
-        return not config["csv_option"] and (config["check_fields_num"] or len(config["delimiter"].encode()) != 1)
+        if config["csv_option"]:
+            return False
+        if config["check_fields_num"] or len(config["delimiter"].encode()) != 1:
+            return True
+        return (config["limit"] is not None or not config["remove_empty_row"]) and config["row_separator"] != "\r"
 
     # ------------------------------------------------------------------
     # Reading
@@ -182,6 +195,9 @@ class FileInputDelimited(Source):
         """
         if not self.run_context.fast_read or self._by_line() or "reject" in self.wired:
             return {}
+        if self.config["footer_rows"] > 0:
+            # Polars parses the lines after the last row it is asked for: a footer would fail it every time.
+            return {}
         kinds = {"int": pl.Int64, "float": pl.Float64}
         return {column.name: kinds[column.type] for column in self.schema if column.type in kinds}
 
@@ -209,8 +225,16 @@ class FileInputDelimited(Source):
 
         rows = config["limit"]
         if config["footer_rows"] > 0:
-            # The footer is counted in lines from the end, so the file's length is needed first.
-            kept = max(scan(None, {}).select(pl.len()).collect().item() - config["footer_rows"], 0)
+            # The footer is counted in lines from the end, so the file's length is needed first. Where fields
+            # may be enclosed, every field is read for it, as the job's pass reads them: Polars' quick row
+            # count takes an enclosure that does not pair up for a row that goes on, and the rows after it
+            # would be dropped without a word. Read in full, such a file fails here.
+            if csv:
+                read = scan(None, {}).select(pl.len(), *[pl.col(name).null_count() for name in names])
+                total = read.collect(engine="streaming").row(0)[0]
+            else:
+                total = scan(None, {}).select(pl.len()).collect().item()
+            kept = max(total - config["footer_rows"], 0)
             rows = kept if rows is None else min(rows, kept)
         return scan(rows, native)
 
@@ -224,10 +248,19 @@ class FileInputDelimited(Source):
             length = max(total - config["header_rows"] - config["footer_rows"], 0)
         lines = lines.slice(config["header_rows"], length)
         text = pl.col(_LINE).str.strip_prefix("\ufeff")
-        lines = lines.filter(text.str.strip_chars() != "")
+        delimiter = config["delimiter"]
+        # What pandas, which reads the file for v1, takes for a blank line and never for a row.
+        if len(delimiter) > 1:
+            # It also strips a line before a separator of several characters splits it.
+            text = text.str.strip_chars()
+            blank = text == ""
+        elif len(delimiter.encode()) > 1:
+            blank = text.str.strip_chars() == ""
+        else:
+            blank = text.str.strip_chars(" \t".replace(delimiter, "")) == ""
+        lines = lines.filter(~blank)
         if config["limit"] is not None:
             lines = lines.head(config["limit"])
-        delimiter = config["delimiter"]
         parts = text.str.split_exact(delimiter, len(names) - 1).struct.rename_fields(names)
         frame = lines.select(
             (text.str.count_matches(delimiter, literal=True) + 1).alias(_FIELDS), parts.alias("__row")

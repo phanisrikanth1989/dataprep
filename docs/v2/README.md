@@ -123,12 +123,21 @@ Polars expressions.
   Polars plan and run in a single pass: a file is read once however many
   outputs hang off it, and rows are streamed, not held.
 - No file of a subjob is put in place unless the whole subjob succeeded.
-  Each file is written beside its target and moved in at the end.
+  Each file is written beside its target. At the end every file is first
+  put in its encoding, which is the last thing the rows can fail, and only
+  then are the files moved in. A run that is stopped leaves no temporary
+  file behind.
 - Subjobs run in v1's order: those nothing triggers in job-config order,
   and what a subjob triggers right after it. `OnSubjobOk`, `OnSubjobError`,
-  `OnComponentOk`, `OnComponentError` and `RunIf` are supported. After a
-  failed subjob its error triggers fire and the other subjobs still run; the
-  job's status is then `failed`.
+  `OnComponentOk`, `OnComponentError` and `RunIf` are supported. Of the
+  subjobs one subjob sets off, those of a component's own triggers
+  (`OnComponentOk`, `RunIf`) come first, component by component, and those
+  of `OnSubjobOk` with the last component; what fires together goes by
+  `output_id`. After a failed subjob its error triggers fire and the other
+  subjobs still run; the job's status is then `failed`.
+- A `RunIf` is judged twice, as in v1: when its own component is done, on
+  what globalMap holds by then (the count of a later component of the same
+  subjob is not there yet), and once more when the subjob is done.
 - Context values in config strings (`${context.x}` and v1's bare
   `context.x`) are resolved when each component is built, so a value loaded
   by a context load in an earlier subjob is seen.
@@ -386,9 +395,17 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 **Delimited files**
 
-- Blank lines are dropped with `remove_empty_row` (the default). With it
-  off, v1 still drops a blank line but keeps a row of empty fields; v2 keeps
-  both.
+- A blank line is never a row and does not count toward `limit`, as in v1.
+  The exception is a file read with `row_separator` `\r`: there a blank
+  line is a row of empty fields, kept when `remove_empty_row` is off and
+  counted toward `limit`.
+- With `csv_option`, an enclosure character must open and close a field.
+  v1 also reads a file where one does not (an inch mark inside a field that
+  is not enclosed, a field that opens an enclosure and never closes it), the
+  lenient way Python's csv reader does. v2 fails the reader and says why; it
+  never goes on with part of the rows. Reading such files is not built yet.
+- With `csv_option`, a separator of more than one byte (a broken bar or a
+  section sign, say) is refused at load, on read and on write.
 - A row with more fields than the schema has its extra fields dropped. v1
   does that only when the first row is the longest and fails the read
   otherwise.

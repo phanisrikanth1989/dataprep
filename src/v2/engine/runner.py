@@ -603,4 +603,7 @@ def _reason(error: BaseException) -> str:
     # Polars spells microseconds with a Greek letter; logs must stay ASCII.
     text = text.replace("\u03bc", "u").replace("\u00b5", "u")
     text = text.encode("ascii", "replace").decode("ascii")
+    if "CSV malformed" in text or ("could not parse" in text and "as dtype `str`" in text):
+        # Text always reads as text: what Polars could not read here is an enclosure.
+        text += " (with csv_option, an enclosure character must open and close a field; this file has one that does not)"
     return text or type(error).__name__
