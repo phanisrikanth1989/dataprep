@@ -907,3 +907,64 @@ def test_float_written_as_a_decimal_of_no_declared_places_is_written_plainly(tmp
     run = same(tmp_path, b"1\n2.5\n2.675\n-0.004\n\n", "v:float", write_schema="v:Decimal",
                write={"include_header": False})
     assert run.files["out.csv"] == b"1\n2.5\n2.675\n-0.004\n"
+
+
+# ------------------------------------------------------------------
+# The UTF-8 copy a file in another encoding is read through
+# ------------------------------------------------------------------
+
+def test_file_in_another_encoding_is_copied_once_when_the_subjob_is_read_again(tmp_path, monkeypatch):
+    # "1.0" is a whole number the fast reader does not take, so the subjob is read a second time.
+    from src.v2.engine.context import RunContext
+
+    copies = []
+    temp_path = RunContext.temp_path
+
+    def noted(self, suffix=""):
+        copies.append(temp_path(self, suffix))
+        return copies[-1]
+
+    monkeypatch.setattr(RunContext, "temp_path", noted)
+    result, folder = v2(tmp_path, "1.0;café\n2;b\n".encode("latin-1"), "n:int, name:str",
+                        read={"encoding": "ISO-8859-1"})
+    assert result.status == "success"
+    assert (folder / "out.csv").read_bytes() == "n;name\n1;café\n2;b\n".encode("utf-8")
+    assert len(copies) == 1
+
+
+def test_copies_one_subjob_read_through_are_gone_when_the_next_one_starts(tmp_path, monkeypatch):
+    import os
+
+    from src.v2.engine import runner as engine
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setenv("V2_TEMP_DIR", str(scratch))
+    left = []
+    attempt = engine.Runner._attempt
+
+    def watched(self, component_ids):
+        left.append(os.listdir(scratch))
+        return attempt(self, component_ids)
+
+    monkeypatch.setattr(engine.Runner, "_attempt", watched)
+    latin = {"encoding": "ISO-8859-1"}
+    made = job(
+        [reader("a:str", **latin), writer("a:str", inputs=("row1",)),
+         reader("a:str", component_id="in2", path="in2.csv", outputs=("row2",), **latin),
+         writer("a:str", component_id="out2", path="out2.csv")],
+        [flow("row1", "in", "out"), flow("row2", "in2", "out2")],
+        triggers=[{"type": "OnSubjobOk", "from": "in", "to": "in2"}],
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    result = run_in(work, made, {"in.csv": "café\n".encode("latin-1"), "in2.csv": "naïve\n".encode("latin-1")})
+    assert result.status == "success" and (work / "out2.csv").read_bytes() == "a\nnaïve\n".encode("utf-8")
+    assert left == [[], []] and os.listdir(scratch) == []
+
+
+@pytest.mark.parametrize("key", ["header_rows", "footer_rows"])
+def test_negative_count_of_lines_is_refused_at_load(key):
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(copy(TWO, read={key: -1}))
+    assert "must not be negative" in caught.value.report.format()

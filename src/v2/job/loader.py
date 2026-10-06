@@ -102,13 +102,20 @@ TRIGGER_KEYS: Tuple[Key, ...] = (
         doc="Where the trigger comes among those leaving the same subjob; lower first."),
 )
 
+
+def _places(value: int) -> Optional[int]:
+    """Declared decimal places; a negative number is Talend's way to say none are declared."""
+    return value if value >= 0 else None
+
+
 COLUMN_KEYS: Tuple[Key, ...] = (
     Key("name", required=True, convert=_not_empty, doc="The column name."),
     Key("type", default="str", choices=tuple(TYPE_NAMES), doc="The column type."),
     Key("nullable", type=bool, default=True, doc="Whether missing values are allowed."),
     Key("key", type=bool, default=False, doc="Whether the column is part of the key."),
     Key("length", type=int, doc="Declared length."),
-    Key("precision", type=int, doc="Declared number of decimal places."),
+    Key("precision", type=int, convert=_places,
+        doc="Declared number of decimal places. A negative number, as Talend writes for none, means none."),
     Key("date_pattern", aliases=("pattern",), doc="strftime pattern for dates."),
     Key("default", kind=Kind.IGNORED, type=object, doc="Talend default value."),
     Key("comment", kind=Kind.IGNORED, type=object, doc="Free-form comment."),
@@ -138,6 +145,10 @@ def load_job(
     if isinstance(source, (str, Path)):
         with open(source, encoding="utf-8") as handle:
             raw = json.load(handle)
+        if not isinstance(raw, dict):
+            report = RefusalReport(job_name="")
+            report.add("job", "job config", f"expected an object, found {type(raw).__name__}")
+            report.raise_if_refused()
     else:
         raw = copy.deepcopy(dict(source))
     return _Loader(raw, dict(context or {}), registry).load()

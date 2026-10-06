@@ -258,14 +258,18 @@ class Runner:
         """
         repeatable = not any(self.job.components[component_id].cls.may_need_rows for component_id in component_ids)
         self.run_context.fast_read = repeatable and not os.environ.get("V2_SAFE_READ")
-        failure = self._attempt(component_ids)
-        if failure is not None and failure.read_again:
-            logger.info(
-                f"[{self.job.name}] a file holds values the fast reader does not take ({failure.reason}); "
-                "reading again with the tolerant reader"
-            )
-            self.run_context.fast_read = False
+        try:
             failure = self._attempt(component_ids)
+            if failure is not None and failure.read_again:
+                logger.info(
+                    f"[{self.job.name}] a file holds values the fast reader does not take ({failure.reason}); "
+                    "reading again with the tolerant reader"
+                )
+                self.run_context.fast_read = False
+                failure = self._attempt(component_ids)
+        finally:
+            # No plan outlives its subjob, so neither do the scratch files it read through.
+            self.run_context.cleanup()
         return failure
 
     def _attempt(self, component_ids: List[str]) -> Optional[_Failed]:
@@ -307,6 +311,8 @@ class Runner:
                     for name, frame in zip(inputs, collected):
                         self._share(name, frame.lazy(), frames)
                     results = component.run(dict(zip(inputs, collected))) or {}
+                    # Counted from the rows in hand: the plans that made them are not run again for it.
+                    inputs = {name: frame.lazy() for name, frame in zip(inputs, collected)}
                     outputs = {port: frame.lazy() for port, frame in results.items()}
                 else:
                     outputs = component.build(inputs)

@@ -44,7 +44,7 @@ def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = F
         path: The file to read.
         encoding: Its declared encoding.
         run_context: The run; it owns the scratch copy and removes it when
-            the job ends.
+            the subjob that reads it has ended.
         exact: Whether the reader needs every byte to be valid UTF-8. Polars'
             delimited reader repairs a bad byte itself; its line reader
             fails on one, so a file declared UTF-8 is looked through for it
@@ -57,12 +57,17 @@ def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = F
         name = "utf-8"
     elif _agrees_on_ascii(name) and _is_ascii(path):
         return path
+    # A subjob that is read a second time reads the copy made the first time.
+    known = (os.path.abspath(path), name)
+    if known in run_context.utf8_copies:
+        return run_context.utf8_copies[known]
     copy = run_context.temp_path(".utf8")
     decoder = codecs.getincrementaldecoder(name)(errors="replace")
     with open(path, "rb") as source, open(copy, "wb") as target:
         while chunk := source.read(_CHUNK):
             target.write(decoder.decode(chunk).encode("utf-8"))
         target.write(decoder.decode(b"", final=True).encode("utf-8"))
+    run_context.utf8_copies[known] = copy
     return copy
 
 

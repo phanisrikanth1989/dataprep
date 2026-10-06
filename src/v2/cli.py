@@ -28,7 +28,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--check", action="store_true", help="Load and check the job config; run nothing.")
     parser.add_argument("--engine", choices=("streaming", "in-memory", "auto"),
                         help="The Polars engine to run with (default: streaming).")
-    parser.add_argument("--log-level", default="INFO", help="Logging level (default: INFO).")
+    parser.add_argument("--log-level", default="INFO", type=str.upper,
+                        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+                        help="Logging level (default: INFO).")
     try:
         args = parser.parse_args(argv)
     except SystemExit as stop:

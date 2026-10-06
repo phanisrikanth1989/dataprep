@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from ..errors import ConfigurationError
 
@@ -38,6 +38,8 @@ class RunContext:
         self.global_map: Dict[str, Any] = {}
         self.routines: Mapping[str, Mapping[str, Callable[..., Any]]] = routines or {}
         self._scratch: List[str] = []
+        # The UTF-8 copies files in other encodings are read through: (file, encoding) to the copy.
+        self.utf8_copies: Dict[Tuple[str, str], str] = {}
         # Every text of the job config that could name a globalMap entry; None when the job is not known.
         self.job_text: Optional[str] = None
         # Whether a source may let Polars parse numbers itself. That is faster and fails outright on a
@@ -107,6 +109,7 @@ class RunContext:
             except OSError:
                 pass
         self._scratch.clear()
+        self.utf8_copies.clear()
 
 
 def _as_text(value: Any) -> str:

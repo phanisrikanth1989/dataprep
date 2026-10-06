@@ -340,3 +340,38 @@ def test_expression_reading_a_context_value_nothing_sets_is_refused_at_load(tmp_
     with pytest.raises(JobRefusedError) as caught:
         run(made)
     assert "context has no variable 'bonus'" in caught.value.report.format()
+
+
+def test_rows_handed_to_a_component_that_needs_them_are_computed_once():
+    # Its row count is read by a trigger; counting must not run the plan that feeds it a second time.
+    from src.v2.components.base import Source
+    from src.v2.components.registry import Registry
+    from src.v2.engine import run_job
+
+    from .kit import Mark, Peek
+
+    runs = []
+
+    class Noted(Source):
+        """Rows whose plan notes each time it is run."""
+
+        names = ("noted",)
+
+        def read(self):
+            def note(batch):
+                runs.append(batch.height)
+                return batch
+
+            return {"main": pl.LazyFrame({"n": [1, 2, 3]}).map_batches(note)}
+
+    registry = Registry()
+    for cls in (Noted, Peek, Mark):
+        registry.register(cls)
+    condition = '((Integer)globalMap.get("peek_NB_LINE")) == 3'
+    made = job([("src", "noted", {}), ("peek", "peek", {}), ("next", "mark", {"name": "next"})],
+               [("row1", "src", "peek", "flow")],
+               triggers=[{"type": "RunIf", "from": "peek", "to": "next", "condition": condition}])
+    Mark.ran.clear()
+    result = run_job(made, registry=registry)
+    assert result.status == "success" and result.global_map["peek_NB_LINE"] == 3 and Mark.ran == ["next"]
+    assert runs == [3]

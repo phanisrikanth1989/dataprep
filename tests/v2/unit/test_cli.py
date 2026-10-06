@@ -69,3 +69,16 @@ def test_malformed_context_value_exits_two(tmp_path, capsys, argument):
 def test_job_file_that_is_not_there_exits_two(tmp_path, capsys):
     assert main([str(tmp_path / "nope.json")]) == 2
     assert "nope.json" in capsys.readouterr().err
+
+
+def test_unknown_log_level_is_a_usage_error(tmp_path, capsys):
+    assert main([job_file(tmp_path), "--log-level", "loud"]) == 2
+    assert "LOUD" in capsys.readouterr().err.upper()
+
+
+@pytest.mark.parametrize("content", ["[]", '"a job"', "7", "null"])
+def test_job_config_that_is_not_an_object_is_refused(tmp_path, capsys, content):
+    path = tmp_path / "job.json"
+    path.write_text(content)
+    assert main([str(path)]) == 2
+    assert "expected an object" in capsys.readouterr().err

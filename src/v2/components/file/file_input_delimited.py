@@ -55,6 +55,12 @@ def _row_separator(value: str) -> str:
     return value
 
 
+def _not_negative(value: int) -> int:
+    if value < 0:
+        raise ValueError("must not be negative")
+    return value
+
+
 def _limit(value: Any) -> Optional[int]:
     text = "" if value is None else str(value).strip()
     if not text:
@@ -86,8 +92,8 @@ class FileInputDelimited(Source):
             doc="What ends a row when `csv_option` is off: `\\n` (also reads `\\r\\n`), `\\r\\n` or `\\r`."),
         Key("csv_row_separator", default="\n", convert=_row_separator,
             doc="What ends a row when `csv_option` is on."),
-        Key("header_rows", type=int, default=0, doc="Lines to skip at the top of the file."),
-        Key("footer_rows", type=int, default=0, doc="Lines to skip at the end of the file."),
+        Key("header_rows", type=int, default=0, convert=_not_negative, doc="Lines to skip at the top of the file."),
+        Key("footer_rows", type=int, default=0, convert=_not_negative, doc="Lines to skip at the end of the file."),
         Key("limit", type=object, default=None, convert=_limit,
             doc="The most rows to read; empty, zero or negative for all of them."),
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The file's character encoding."),

@@ -393,3 +393,11 @@ def test_component_fed_by_a_refused_component_is_not_reported_as_short_of_inputs
         ("component a (tNoSuchReader)", "type"),
         ("component c (needs_input)", "inputs"),
     ]
+
+
+@pytest.mark.parametrize("kind", ["float", "Decimal", "str"])
+def test_negative_precision_means_none_is_declared(kind):
+    # Talend writes -1 for a column with no declared places, and converted jobs carry it.
+    job = changed()
+    job["components"][0]["schema"] = {"output": [{"name": "v", "type": kind, "precision": -1}]}
+    assert load(job).components[job["components"][0]["id"]].schema[0].precision is None

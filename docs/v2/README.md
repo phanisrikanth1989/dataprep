@@ -205,6 +205,9 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   the digits as they were typed. Written through a file output that declares
   the column, the result is the same (trailing zeros are dropped); printed
   or handed to Python code, ten places show.
+- A negative `precision`, which is how Talend writes that none is declared,
+  means none. v1 takes -1 as it stands: a float column is rounded to tens
+  (123.456 becomes 120.0) and a Decimal column to whole numbers.
 - A negative Decimal that rounds to zero is written `0.00`. v1 writes
   `-0.00`.
 - A float written by an output that declares the column `Decimal` with no
