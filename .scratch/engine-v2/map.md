@@ -240,6 +240,9 @@ decide, not fog on the way there.
   reject output wired, feeding a component with a check of its own) Polars
   reads the source twice. Marking frames as cached would cure it and is
   unsafe on Polars 1.44 (see the Notes).
+- Parked by the dev as the next enhancement: a lookup by regular
+  expressions kept in a file
+  ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).
