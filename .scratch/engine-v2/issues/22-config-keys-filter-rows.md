@@ -1,6 +1,6 @@
 # 22 - Config keys, key by key: filter rows
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 05, 07, 08, 12
 
@@ -37,3 +37,29 @@ null does to a condition (as found, such rows reach neither output, finding
 The verdict for `advanced_cond` waits for
 [Expressions outside Map](17-expressions-outside-map.md); leave that row
 pending if it is still open.
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- `conditions[]` keep v1's vocabulary exactly: the fifteen operators, the
+  functions (LOWER, UPPER, LOWER_FIRST, UPPER_FIRST, LENGTH, TRIM, LTRIM,
+  RTRIM, ABS, LEFT(n), RIGHT(n)), and v1's rule that the value decides
+  between a number and a text comparison. `logical_op` takes `&&`, `||`,
+  `AND`, `OR`.
+- The advanced condition is a Python expression: key `condition`, with v1's
+  `advanced_cond` as an alias, read only when `use_advanced` is on. The Java
+  code sample Talend stores in every filter does not refuse the job while
+  `use_advanced` is off.
+- Outputs: `main` (flow types flow, main, filter) and `reject`, with v1's
+  `errorMessage`.
+- Refused at load where v1 runs and gives an answer that is rarely meant: a
+  condition on a column that does not exist, an unknown function, a date
+  column compared with a number, a pattern with lookaround.
+- 570 tests; the Java advanced condition of v1 is checked through the bridge.

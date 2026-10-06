@@ -1,6 +1,6 @@
 # 24 - Config keys, key by key: aggregate row
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 05, 07, 13
 
@@ -36,3 +36,28 @@ order and types of output columns; what each function returns for a group of
 nulls; and what `use_financial_precision` asks for, which depends on the
 Decimal decision in
 [Types, nulls and schemas](13-types-nulls-and-schemas.md).
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- `groupbys[]` (`input_column`, `output_column`), `operations[]`
+  (`function`, `input_column`, `output_column`, `ignore_null`),
+  `list_delimiter`, `use_financial_precision`. All fifteen of v1's functions:
+  count, count_distinct, min, max, sum, avg, first, last, list, list_object,
+  union, median, std, population_std_dev, variance.
+- Groups come out in first-seen order; rows with a missing group value are
+  dropped; no rows in gives no rows out, as in v1.
+- Sums and averages are exact (v1's financial precision). With
+  `use_financial_precision` off v1 has float noise that v2 does not copy.
+- Ignored: `check_type_overflow`, `check_ulp`, `operations[].delimiter`.
+- Refused: a sum, average, median, deviation or variance of a column that
+  is not a number; a config with neither group columns nor operations.
+- 621 tests, plus about 15,000 random jobs diffed against v1 by the
+  building agent.

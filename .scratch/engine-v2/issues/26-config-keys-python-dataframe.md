@@ -1,6 +1,6 @@
 # 26 - Config keys and code contract: python dataframe
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 05, 07
 
@@ -37,3 +37,25 @@ To settle:
   that is acceptable for the one component whose purpose is to run Python.
 - The namespace: which names exist, and how context and globalMap appear.
 - How errors in user code are reported.
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- `python_code` runs once over the whole flow, never per row. A v2-only key
+  `dataframe` chooses what `df` is: `pandas` (the default, so v1 job configs
+  run unchanged; the component then holds the rows in memory) or `polars`
+  (the code gets a lazy frame, and the component stays lazy).
+- The code is handed what v1 hands it: `df`, `pd`, `np`, `context` (a
+  copy), `globalMap`, `routines`. `output_columns` and `die_on_error` are
+  supported.
+- In `polars` mode the code also runs when the job is checked at load, on
+  an empty frame: it only builds a plan.
+- Measured on 2M rows by the building agent: v2 pandas mode 2.1 s, v2 polars
+  mode 0.5 s, v1 23 s, same bytes.

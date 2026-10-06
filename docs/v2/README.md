@@ -202,6 +202,60 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Control characters in a file are kept. v1 replaces them with spaces, which
   it needs for its Java bridge.
 
+**Filter rows**
+
+- The advanced condition is a Python expression (`condition`; v1's
+  `advanced_cond` is an alias). v1 runs it as Java, row by row, and passes
+  every row when its bridge is off.
+- A missing value fails every test except `!=`, `NOT_CONTAINS` and
+  `IS_NULL`. v1 does the same, except that a missing whole number under a
+  number comparison lands in neither output there.
+- `MATCHES` always tests the whole text.
+- Refused at load, where v1 runs and gives an answer that is rarely meant:
+  a condition on a column that does not exist (v1: false for every row), an
+  unknown `function` (v1: tests the column as it is), a date column compared
+  with a number, a pattern with lookaround or back-references.
+
+**Sort row**
+
+- Sorting text as dates reads every value as `%Y-%m-%d %H:%M:%S`,
+  `%Y-%m-%d` or `%d/%m/%Y` and puts what does not fit last. v1 lets pandas
+  guess one format for the column from its first value.
+- A criterion on a column that does not exist is refused (v1 drops it).
+
+**Filter columns**
+
+- With no input rows the declared columns are kept, as with rows. v1 passes
+  every input column then.
+- A schema that shares no column with the input is refused.
+
+**Unique row**
+
+- A key column that does not exist is refused at load. v1 skips it and
+  falls back to the whole row.
+- `<id>_NB_UNIQUES` and `<id>_NB_DUPLICATES` are counted only when something
+  in the job reads them.
+
+**Aggregate row**
+
+- Sums and averages of floats are exact and do not depend on the order of
+  the rows: 0.1 + 0.2 + 0.3 is 0.6. That is v1 with
+  `use_financial_precision` (the converter's default); with it off, v1 has
+  float noise (0.6000000000000001) that v2 does not reproduce.
+- Standard deviation and variance are exact where every distance from the
+  mean has at most nine decimal places, and to about fifteen significant
+  digits otherwise; the last digits of an unrounded result can then differ
+  from v1's.
+- A missing Decimal is a missing value. v1 holds an empty Decimal field as
+  empty text and counts and lists it.
+- In a column declared `str`, or not declared, numbers print as held (`2.2`);
+  v1 prints its Decimals (`2.20`).
+- v2 runs what v1 fails on: first/last without group columns, group columns
+  without operations (each group once), lists over missing whole numbers.
+- Refused at load: a sum, average, median, deviation or variance of a column
+  that is not a number (v1 gives 0 or nothing), a config with neither group
+  columns nor operations.
+
 **Join**
 
 - A missing key matches nothing, for every type. v1 fails on whole-number

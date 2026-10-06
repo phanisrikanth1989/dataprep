@@ -1,6 +1,6 @@
 # 25 - Config keys, key by key: map
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 05, 07, 08, 12, 16
 
@@ -54,3 +54,35 @@ Also settle:
 
 Expression syntax itself is settled in
 [Python expressions: what is allowed and how it reads](16-python-expressions-allowed.md).
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- One component, registered as `map`, `Map`, `tMap` and `PyMap`, reading
+  v1's config shape: `inputs.main`, `inputs.lookups[]` (`join_keys`,
+  `join_mode`, `matching_mode`, `lookup_mode`, `filter`), `variables[]`,
+  `outputs[]` (`columns`, `filter`, `is_reject`, `inner_join_reject`),
+  `die_on_error`, `enable_auto_convert_type`.
+- Expressions are Python: `row1.price`, `row1['price']`, `Var.total`,
+  `context.x`, `globalMap.get("k")`.
+- Every lookup is a left join that keeps main order; an inner join marks the
+  rows without a match instead of dropping them, so reject outputs can take
+  them. UNIQUE_MATCH and LAST_MATCH keep the last duplicate, FIRST_MATCH the
+  first, ALL_MATCHES multiplies rows.
+- Refused: `lookup_mode` other than LOAD_ONCE (needs a loop over the rows);
+  a join key `operator` other than `=`; a lookup filter that reads the main
+  row; a text key against a number key without `enable_auto_convert_type`.
+- Answer keys: v1's PyMap on the same job config (80 tests), and v1's real
+  tMap through the Java bridge with a Python rewrite for v2 (9 tests).
+- Not done: an expression that fails on a row (`int(text)` on text that is
+  not a number) fails the component whatever `die_on_error` says; rows are
+  not routed to a catch output.
+- Where v1's PyMap and tMap disagree, v2 follows tMap. The list is in
+  `docs/v2/README.md`.

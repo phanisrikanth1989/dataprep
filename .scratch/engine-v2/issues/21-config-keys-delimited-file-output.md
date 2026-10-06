@@ -1,6 +1,6 @@
 # 21 - Config keys, key by key: delimited file output
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 02, 05, 07, 13, 14
 
@@ -43,3 +43,32 @@ The verdict for `encoding` comes from
 [Encoding: what to do about ISO-8859-15](14-encoding-iso-8859-15.md). Facts
 come from
 [Polars facts: reading and writing delimited files](02-polars-facts-delimited-files.md).
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- Supported with v1's defaults: `path` (v1 `filepath`), `delimiter` (v1
+  `fieldseparator`), `row_separator`, `csv_row_separator` (v1
+  `csvrowseparator`), `os_line_separator` (default true, which overrides
+  both separators, as in v1), `encoding`, `include_header`, `append`,
+  `create_directory`, `csv_option`, `text_enclosure`, `escape_char`,
+  `file_exist_exception`, `delete_empty_file`.
+- Ignored, because v1 ignores them too: `compress`, `usestream`,
+  `streamname`, `advanced_separator`, `thousands_separator`,
+  `decimal_separator`, `flushonrow`, `flush_row_count`, `row_mode`; and
+  `die_on_error` (a file that cannot be written always fails the job).
+- Refused: `split` (one flow into several files) is not built yet.
+- Values are written as v1 writes them, decided by the writer's own declared
+  columns: dates by `date_pattern`, Decimals to `precision` (or without
+  trailing zeros), booleans in lower case, floats as Python prints them.
+  Columns go out in the order they arrive.
+- The file is written beside its target and put in place when the whole
+  subjob has succeeded; v1's rules for an existing file, for appending and
+  for no rows are kept.

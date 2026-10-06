@@ -1,6 +1,6 @@
 # 20 - Config keys, key by key: delimited file input
 
-Status: open
+Status: resolved
 Type: grilling
 Blocked by: 02, 05, 07, 13, 14
 
@@ -57,3 +57,34 @@ The verdict for `encoding` comes from
 [Encoding: what to do about ISO-8859-15](14-encoding-iso-8859-15.md). Facts
 come from
 [Polars facts: reading and writing delimited files](02-polars-facts-delimited-files.md).
+
+## Answer
+
+Resolved 2026-10-06 by assumption. The dev stopped the question rounds and
+asked for the build ("make your own assumptions based on the answers I have
+given till now, and then go ahead and build the entire V2 ... when I test it
+out, then we can make changes"). What follows is what was built. Each point
+is a default the dev can overturn. The full key list, generated from the
+code, is the component's page under `docs/v2/components/`
+(`.venv/bin/python scripts/gen_v2_docs.py`).
+
+- Every key the converter emits is declared. Supported with v1's defaults:
+  `path` (v1 `filepath`), `delimiter` (v1 `fieldseparator`), `row_separator`,
+  `csv_row_separator`, `header_rows`, `footer_rows`, `limit`, `encoding`
+  (default ISO-8859-15), `csv_option`, `text_enclosure`, `escape_char`,
+  `remove_empty_row`, `trim_all`, `trim_select`, `check_fields_num`,
+  `die_on_error` (default false, as v1's reader).
+- Ignored, because v1 ignores them too: `uncompress`, `split_record`,
+  `random`, `nb_random`, `advanced_separator`, `thousands_separator`,
+  `decimal_separator`, `enable_decode`, `decode_cols`; and `check_date`
+  (dates are always checked against their pattern).
+- Refused values: a row separator other than `\n`, `\r\n`, `\r`; an
+  `escape_char` other than the enclosure; `check_fields_num` with
+  `csv_option`; a reader with no schema.
+- How it is built: every field is read as text by Polars' lazy reader and
+  turned into its declared type by expressions, so an unreadable field is a
+  rejected row (`errorCode`, `errorMessage` in v1's words), never a failed
+  read. A delimiter of several characters and the field-count check go
+  through a slower line-splitting path. A footer costs one fast line count.
+- Tests: `tests/v2/components/test_file_delimited.py`; most of them run the
+  same job on v1 and on v2 and compare the bytes written.

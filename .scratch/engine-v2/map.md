@@ -203,30 +203,46 @@ are designed.
   -- loaded and named as in v1 from `python_config`; a routine takes and
   returns Polars expressions; a row-by-row one is refused at load.
 
+- [Config keys: delimited file input](issues/20-config-keys-delimited-file-input.md)
+  -- every key the converter emits is declared; fields are read as text and
+  typed by expressions, so a bad field is a rejected row; numbers go through
+  Polars' own parser first, with the tolerant reader as fallback.
+- [Config keys: delimited file output](issues/21-config-keys-delimited-file-output.md)
+  -- v1's formatting per declared column and v1's rules for existing files,
+  appending and empty outputs; `split` is refused.
+- [Config keys: filter rows](issues/22-config-keys-filter-rows.md) -- v1's
+  operators and functions; the advanced condition is a Python expression.
+- [Config keys: sort row and unique row](issues/23-config-keys-sort-row-and-unique-row.md)
+  -- as v1, with v1's row counts.
+- [Config keys: aggregate row](issues/24-config-keys-aggregate-row.md) --
+  v1's fifteen functions, exact sums and averages.
+- [Config keys: map](issues/25-config-keys-map.md) -- one component for Map,
+  tMap and PyMap; Python expressions; lookups reloaded per row are refused.
+- [Config keys: python dataframe](issues/26-config-keys-python-dataframe.md)
+  -- pandas by default as in v1, or a Polars lazy frame that keeps the
+  component lazy.
+
 ## Not yet specified
 
-- The build. After the
-  [Answer-key harness](issues/19-answer-key-harness.md): the job config loader
-  with the refusal report, the engine core, a first slice (delimited file in,
-  filter rows, sort row, delimited file out, assembled from repo fixtures),
-  the expression translator, then each remaining component. How it is sliced
-  into tickets waits on the decisions it implements. Rides along with it:
-  bringing `src/v2` under the coverage gate, the benchmark harness in the new
-  shape, generating doc pages from declared keys, deleting the `talend_to_v2`
-  and `v1_to_v2` converters, and deleting or rewriting each `docs/v2` page
-  when its subject is rebuilt.
-- The tail of the component list: LogRow, filter columns, unite, python row,
-  python code, context load, file list and flow to iterate, Excel and
-  full-row input, and v1's ConvertType, Join and SchemaComplianceCheck. Each
-  one that makes the list needs a key-by-key ticket and a build.
-- Iterate, if it makes the list: iterate flows, loop bodies and nesting. The
-  engine as found loses rows on fan-out inside a loop and double-runs nested
-  loops (findings 6 and 7).
-- The list of deliberate differences from v1: where it lives and what earns a
-  place on it. Empty until a ticket puts something there.
-- What a v1 user needs in hand to migrate a job (which Python is allowed, how
-  to read a refusal report). It may fall out of the generated docs or need a
-  page of its own.
+The destination is reached: the engine and its sixteen components are built
+and pass their answer-key tests. What is left is for the dev to test and
+decide, not fog on the way there.
+
+- What the dev finds when testing real jobs. Every decision since
+  [The performance bar](issues/05-performance-bar.md) was an assumption; the
+  list of deliberate differences from v1 in `docs/v2/README.md` is the place
+  to start disagreeing.
+- Left unbuilt on purpose, each refused at load with its reason: `split` on
+  delimited output; row separators other than `\n`, `\r\n`, `\r` on
+  delimited input; Map lookups reloaded for each row; routing rows whose
+  expression failed to a catch output.
+- Known cost: when sharing nests two levels in one subjob (a reader with its
+  reject output wired, feeding a component with a check of its own) Polars
+  reads the source twice. Marking frames as cached would cure it and is
+  unsafe on Polars 1.44 (see the Notes).
+- Not verified here: any Polars version other than 1.44.2, the target RHEL
+  servers, and files beyond a few hundred MB (the dev's largest are 30 to
+  100 GB).
 
 ## Out of scope
 
