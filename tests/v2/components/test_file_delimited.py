@@ -617,6 +617,8 @@ def schemas_scanned(monkeypatch):
 def test_clean_numbers_are_parsed_by_polars_directly(tmp_path, monkeypatch):
     import polars as pl
 
+    # About the fast reader: it must be on, whatever the suite is run with.
+    monkeypatch.delenv("V2_SAFE_READ", raising=False)
     seen = schemas_scanned(monkeypatch)
     result, folder = v2(tmp_path, b"1;a;1.5\n2;b;2.5\n", "id:int, name:str, amt:float")
     assert result.status == "success"
@@ -627,6 +629,8 @@ def test_clean_numbers_are_parsed_by_polars_directly(tmp_path, monkeypatch):
 def test_file_that_needs_the_tolerant_reader_is_read_again_as_text(tmp_path, monkeypatch):
     import polars as pl
 
+    # About the fast reader: it must be on, whatever the suite is run with.
+    monkeypatch.delenv("V2_SAFE_READ", raising=False)
     seen = schemas_scanned(monkeypatch)
     result, folder = v2(tmp_path, b"1;a;1.5\n 2 ;b;2,5\nx;c;3\n4.0;d;4\n", "id:int, name:str, amt:float")
     assert result.status == "success"
