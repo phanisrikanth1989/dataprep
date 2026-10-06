@@ -826,3 +826,13 @@ def test_line_count_covers_the_main_input_only_as_in_v1(tmp_path):
     assert fired.succeeded and "marker.csv" in fired.files
     silent = assert_matches_v1(made(5), inputs, tmp_path / "five")
     assert silent.succeeded and "marker.csv" not in silent.files
+
+
+def test_decimal_key_meets_the_float_nearest_to_it(tmp_path):
+    # Compared as floats: the Decimal becomes the float its digits read as, not Polars' own cast of it,
+    # which can land one step away and miss.
+    made = joined({"use_inner_join": True, "join_key": [{"input_column": "k", "lookup_column": "k"}]},
+                  main="k:float, v:str", lookup="k:Decimal#3, w:str")
+    result = v2(tmp_path, made, {"main.csv": b"k;v\n12345678901234.567;a\n0.1;b\n",
+                                "lookup.csv": b"k;w\n12345678901234.567;x\n0.100;y\n"})
+    assert result.status == "success" and result.rows["out"] == 2

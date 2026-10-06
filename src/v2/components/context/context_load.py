@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 import logging
 from decimal import Decimal
-from typing import Any, Callable, ClassVar, Dict, Set, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Set, Tuple
 
 import polars as pl
 
@@ -76,6 +76,8 @@ class ContextLoad(Eager):
     outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {}
     min_inputs = 1
     sets_context = True
+    # The variables the flow set, by name.
+    _loaded: Tuple[str, ...] = ()
     keys = (
         Key("print_operations", type=bool, default=False, doc="Whether each variable set is logged."),
         Key("load_new_variable", default="WARNING", convert=str.upper, choices=_POLICIES,
@@ -109,7 +111,8 @@ class ContextLoad(Eager):
         for key in sorted(unloaded):
             self._report(f"Context variable '{key}' not loaded from incoming flow", "not_load_old_variable")
 
-        loaded = len(new) + len(updated)
+        self._loaded = tuple(sorted(new | updated))
+        loaded = len(self._loaded)
         self.global_map[f"{self.id}_NB_CONTEXT_LOADED"] = loaded
         self.global_map[f"{self.id}_KEY_NOT_INCONTEXT"] = ",".join(sorted(new))
         self.global_map[f"{self.id}_KEY_NOT_LOADED"] = ",".join(sorted(unloaded))
@@ -119,6 +122,13 @@ class ContextLoad(Eager):
         )
         return {}
 
+    def line_counts(
+        self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
+    ) -> Dict[str, List[pl.LazyFrame]]:
+        """v1 counts the variables loaded, not the rows that set them."""
+        loaded = [pl.LazyFrame({"key": list(self._loaded)}, schema={"key": pl.String})]
+        return {"NB_LINE": loaded, "NB_LINE_OK": loaded, "NB_LINE_REJECT": []}
+
     # ------------------------------------------------------------------
     # One variable
     # ------------------------------------------------------------------
@@ -126,8 +136,9 @@ class ContextLoad(Eager):
     def _set(self, key: str, value: Any, row_type: Any) -> None:
         kind = self._declared_type(key) if row_type is None else str(row_type)
         self.context[key] = self._converted(key, value, kind)
-        # The type stays with the variable, so a later load reads its values the same way, as in v1.
-        self.run_context.context_types[key] = kind
+        if kind:
+            # The type stays with the variable, so a later load reads its values the same way, as in v1.
+            self.run_context.context_types[key] = kind
         if self.config["print_operations"]:
             logger.info(f"[{self.id}] Context loaded: {key} = {value} (type: {kind})")
 

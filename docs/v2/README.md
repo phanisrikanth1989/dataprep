@@ -214,7 +214,8 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Refused at load, where v1 runs and gives an answer that is rarely meant:
   a condition on a column that does not exist (v1: false for every row), an
   unknown `function` (v1: tests the column as it is), a date column compared
-  with a number, a pattern with lookaround or back-references.
+  with a number, a pattern with lookaround or back-references, a text test
+  (`CONTAINS`, `MATCHES`, a text `function`) on a Decimal column.
 
 **Sort row**
 
@@ -248,6 +249,10 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   from v1's.
 - A missing Decimal is a missing value. v1 holds an empty Decimal field as
   empty text and counts and lists it.
+- The smallest and the largest of a text or date column are written. v1
+  writes nothing for them under `use_financial_precision`, its default.
+- An average kept in a Decimal column with no declared `precision` has 18
+  decimal places. v1 keeps 28 significant digits.
 - In a column declared `str`, or not declared, numbers print as held (`2.2`);
   v1 prints its Decimals (`2.20`).
 - v2 runs what v1 fails on: first/last without group columns, group columns
@@ -304,7 +309,8 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Refused at load: `lookup_mode` other than LOAD_ONCE (reloading a lookup
   for each row needs a loop over the rows), a join key `operator` other
   than `=`, a lookup filter that reads the main row, a text key against a
-  number key without `enable_auto_convert_type`.
+  number key without `enable_auto_convert_type`, `ALL_ROWS` on a lookup
+  that has join keys.
 - Kept as v1 has them: an `is_reject` output's own filter is not read, and
   an output column's `nullable` and `precision` are not applied.
 - A row count of a component in the same subjob is not known while the plan
@@ -317,6 +323,10 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - A missing Decimal reaches the code as `None`. v1's file input leaves an
   empty text in the column.
 - Code that leaves two columns of one name fails the component.
+- Decimals the code makes with different numbers of places (by a division,
+  say) are carried as text, each as Python prints it, so a file output
+  writes what v1 writes. Declare the column `Decimal` in the component's
+  schema to keep it a number for the components that follow.
 - The code runs with Python's ordinary built-ins; v1 withholds a few
   (`open`, `eval`, `exec`).
 
@@ -332,6 +342,47 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - The flow's `key` and `value` columns are checked even when it has no
   rows. v1 checks once a row arrives.
 - A policy other than ERROR, WARNING, INFO or NO_WARNING is refused at load.
+
+**Positional input**
+
+- A value that cannot be read rejects its row (or fails the component with
+  `die_on_error`), as in the delimited reader. In v1 one such value makes
+  the whole file come back with no rows, and a date that cannot be read
+  goes missing silently.
+- Text is kept as it is. v1 blanks every character outside printable ASCII,
+  accents included, and empties the texts `NA`, `N/A`, `null`, `NaN`,
+  `None`.
+- `bool` reads true/1/yes and false/0/no. v1 reads any text as true.
+- `limit` counts rows after blank lines are dropped, and works together
+  with `footer_rows`.
+- `*` as the last width takes the rest of the line (v1 refuses it).
+- Kept as v1 has it: blanks around a field are stripped and blank rows
+  dropped whatever `trim_all` and `remove_empty_row` say.
+
+**Full-row input**
+
+- `random` (lines picked at random) is refused: the rows would differ from
+  one run to the next.
+- A row separator other than `\n`, `\r\n` or `\r` is refused.
+- Kept as v1 has it: what follows the last line end counts as one more,
+  empty line, so `footer_rows: 1` on a file ending in a newline removes
+  nothing real.
+
+**Excel input**
+
+- Read with fastexcel (calamine), about four times as fast as v1 on a
+  60,000-row workbook. `.xls` is covered only for numbers and text.
+- A sheet or column range narrower than the schema gives missing columns
+  (v1 reads nothing from the sheet). `first_column` 0, which the converter
+  itself writes, is read as 1 (v1 refuses it).
+- Dates are read cell by cell with the declared pattern; whole-number
+  columns stay whole.
+- With `all_sheets` and a `sheetlist`, sheets are read in workbook order
+  (v1: an order that changes between runs).
+- Kept as v1 has it: a `sheetname` that is not in the workbook reads the
+  first sheet; in a text column a date cell is written `dd-mm-yyyy` and a
+  boolean `1`/`0`; cells that cannot be read go missing and are never
+  rejected.
 
 **Delimited files**
 
@@ -349,3 +400,5 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   with the Python version.
 - A row separator other than `\n`, `\r\n` or `\r` on read, and `split` on
   write, are refused for now.
+- A file name is one file. Polars would read `*`, `?` and `[` in it as a
+  pattern; v2 does not let it.

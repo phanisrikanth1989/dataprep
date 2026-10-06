@@ -652,7 +652,8 @@ df["whole"] = df["j"] * 2
 df["part"] = df["j"] / 4
 df["sure"] = df["j"] > 10
 df["when"] = pd.Timestamp("2024-01-31")
-df["money"] = [Decimal("1.5"), Decimal("2.25")]
+df["money"] = [Decimal("1.50"), Decimal("2.25")]
+df["own"] = [Decimal("1.5"), Decimal("2.25")]
 df["none"] = None
 df["small"] = np.array([1, 2], dtype="int32")
 '''
@@ -662,7 +663,7 @@ df["small"] = np.array([1, 2], dtype="int32")
         "s;String", "i;Int64", "j;Int64", "f;Float64", "b;Boolean", "d;Datetime(time_unit='us', time_zone=None)",
         "m;Decimal(precision=38, scale=2)", "n;Decimal(precision=38, scale=10)",
         "text;String", "whole;Int64", "part;Float64", "sure;Boolean", "when;Datetime(time_unit='us', time_zone=None)",
-        "money;Decimal(precision=38, scale=2)", "none;String", "small;Int32",
+        "money;Decimal(precision=38, scale=2)", "own;String", "none;String", "small;Int32",
     ]
 
 
@@ -686,11 +687,11 @@ def test_result_with_no_columns_is_a_result_with_no_rows(tmp_path, code):
     assert out(run) == ["id;name;amt"]
 
 
-def test_decimal_column_has_one_number_of_places(tmp_path):
-    # v1 writes each value with its own digits (1.5, 2.25, 3) when nothing is declared.
-    run, _ = alone(tmp_path, 'from decimal import Decimal\ndf["v"] = [Decimal("1.5"), Decimal("2.25"), Decimal("3")]',
-                   declares=False)
-    assert [line.split(";")[-1] for line in out(run)[1:]] == ["1.50", "2.25", "3.00"]
+def test_decimals_of_different_places_are_written_each_with_its_own_digits(tmp_path):
+    # One Polars column has one number of places, so these are carried as text when nothing declares the column.
+    run = same(tmp_path, 'from decimal import Decimal\ndf["v"] = [Decimal("1.5"), Decimal("2.25"), Decimal("3")]',
+               declares=False)
+    assert [line.split(";")[-1] for line in out(run)[1:]] == ["1.5", "2.25", "3"]
 
 
 def test_missing_value_v1_writes_as_a_marker_is_written_empty(tmp_path):
@@ -826,3 +827,18 @@ globalMap.put("built", True)
     run, result = alone(tmp_path, None, made=made, routines=routines)
     assert out(run)[1] == "1;alice;10.5;5;fallback;2.1;5.25"
     assert result.global_map["built"] is True
+
+
+def test_decimals_of_different_lengths_made_by_the_code_keep_their_own_digits(tmp_path):
+    # Python's Decimals each have their own number of places; one Polars column has one.
+    code = "from decimal import Decimal\ndf['m3'] = df['m'].apply(lambda v: v / Decimal(3))\n"
+    run = same(tmp_path, code, data=b"k;m\na;10.10\nb;4.00\nc;3.33\nd;0.05\n", schema="k:str, m:Decimal#2",
+               declares=False)
+    assert out(run)[1].startswith("a;10.10;3.366666666666666666666666667")
+
+
+def test_decimals_of_one_length_made_by_the_code_stay_numbers(tmp_path):
+    code = "from decimal import Decimal\ndf['twice'] = df['m'] * 2\n"
+    run, result = alone(tmp_path, code, data=b"k;m\na;10.10\nb;4.00\n", schema="k:str, m:Decimal#2",
+                        out="k:str, m:Decimal#2, twice:Decimal#2")
+    assert run.succeeded and out(run) == ["k;m;twice", "a;10.10;20.20", "b;4.00;8.00"]

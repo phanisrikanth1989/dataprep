@@ -8,7 +8,8 @@ the plan, so the component stays lazy.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Collection, Dict, Iterable, List, Mapping, Optional
 
 import polars as pl
 
@@ -119,7 +120,8 @@ class PythonDataFrame(Transform):
         if not len(result.columns):
             return {"main": self._no_rows()}
         kept = self._kept(list(result.columns))
-        return {"main": _from_pandas(result[kept] if kept else result, frame.schema)}
+        decimals = {column.name for column in self.schema if column.type == "Decimal"}
+        return {"main": _from_pandas(result[kept] if kept else result, frame.schema, decimals)}
 
     def _no_rows(self) -> pl.DataFrame:
         """The declared columns with no rows: what a flow with no rows, or a result with no columns, gives."""
@@ -249,29 +251,39 @@ def _pandas_column(column: pl.Series, declared: Optional[Column]) -> "pd.Series"
     return column.to_pandas()
 
 
-def _from_pandas(frame: "pd.DataFrame", before: Mapping[str, pl.DataType]) -> pl.DataFrame:
+def _from_pandas(
+    frame: "pd.DataFrame", before: Mapping[str, pl.DataType], decimals: Collection[str] = ()
+) -> pl.DataFrame:
     """The frame user code left, as a Polars frame. Its index is dropped, as v1's outputs drop it.
 
     Args:
         frame: What the code left in ``df``.
         before: The columns the code was handed, with their types. A column
             that comes back holding nothing takes its type from here.
+        decimals: The columns the component declares Decimal.
     """
     names = [str(name) for name in frame.columns]
     for name in names:
         if names.count(name) > 1:
             raise ConfigurationError(f"python_code left more than one column named '{name}'")
     return pl.DataFrame(
-        [_polars_column(name, frame.iloc[:, position], before.get(name)) for position, name in enumerate(names)]
+        [
+            _polars_column(name, frame.iloc[:, position], before.get(name), name in decimals)
+            for position, name in enumerate(names)
+        ]
     )
 
 
-def _polars_column(name: str, values: "pd.Series", before: Optional[pl.DataType]) -> pl.Series:
+def _polars_column(
+    name: str, values: "pd.Series", before: Optional[pl.DataType], declared_decimal: bool = False
+) -> pl.Series:
     """One column the code left, as a Polars column of a kind a v2 flow declares.
 
     A column of any other kind (durations, periods, categories, lists,
     values of several kinds...) is carried as text, each value as Python
-    prints it: that is what v1's outputs write for it.
+    prints it: that is what v1's outputs write for it. So are Decimals of
+    different numbers of places, unless the component declares the column
+    Decimal: each of Python's has its own places, and one Polars column has one.
     """
     import pandas as pd
 
@@ -293,8 +305,22 @@ def _polars_column(name: str, values: "pd.Series", before: Optional[pl.DataType]
         # Nothing in it says what it is: it stays what it was before the code, or is text.
         return column.cast(pl.String if before is None else before)
     if column.dtype.is_decimal():
+        if not declared_decimal and not _one_scale(values):
+            return pl.Series(name, [printed(value) for value in values], dtype=pl.String)
         return column.cast(pl.Decimal(_DECIMAL_DIGITS, column.dtype.scale))
     return column
+
+
+def _one_scale(values: Iterable[Any]) -> bool:
+    """Whether the Decimals among some values all have the same number of places."""
+    places = None
+    for value in values:
+        if isinstance(value, Decimal) and value.is_finite():
+            if places is None:
+                places = value.as_tuple().exponent
+            elif value.as_tuple().exponent != places:
+                return False
+    return True
 
 
 def _declarable(dtype: pl.DataType) -> bool:

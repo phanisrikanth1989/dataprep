@@ -224,5 +224,8 @@ def _as_number(column: pl.Expr, dtype: pl.DataType, shared: pl.DataType) -> pl.E
     if dtype != shared:
         if dtype == pl.Boolean and shared.is_decimal():
             column = column.cast(pl.Int64)
+        if dtype.is_decimal() and shared.is_float():
+            # Through its text: Polars' own cast can land one step from the float the digits read as.
+            column = column.cast(pl.String)
         column = column.cast(shared, strict=False)
     return column.fill_nan(None) if shared.is_float() else column

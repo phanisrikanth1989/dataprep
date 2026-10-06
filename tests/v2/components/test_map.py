@@ -1006,6 +1006,14 @@ def test_decimal_keys_are_compared_by_value(tmp_path):
     assert written == b"id;label\n1;two\n2;\n"
 
 
+def test_decimal_key_meets_the_float_nearest_to_it(tmp_path):
+    # Compared as floats: the Decimal becomes the float its digits read as, not Polars' own cast of it,
+    # which can land one step away and miss.
+    written = keyed(tmp_path, "id:int, k:float", "k:Decimal#3, label:str", b"id;k\n1;12345678901234.567\n2;0.1\n",
+                    b"k;label\n12345678901234.567;big\n0.100;small\n", on_v1=False)
+    assert written == b"id;label\n1;big\n2;small\n"
+
+
 def test_date_key_matches_a_date_and_time_key(tmp_path):
     written = keyed(tmp_path, "id:int, d:datetime@%Y-%m-%d %H:%M:%S", "k:datetime@%Y-%m-%d, label:str",
                     b"id;d\n1;2024-01-31 10:00:00\n2;2024-02-01 00:00:00\n",
@@ -1572,3 +1580,40 @@ def test_java_left_in_a_filter_that_is_off_does_not_refuse_the_job():
 
     made["components"][1]["config"]["outputs"][0]["activate_filter"] = True
     assert "outputs[0].filter: Java expressions are not run by v2" in refused(made)
+
+
+# ------------------------------------------------------------------
+# Outputs made of constants
+# ------------------------------------------------------------------
+
+CONSTANTS = [("source", "'orders'", "str"), ("batch", "7", "int")]
+THREE_ROWS = b"id;name;price\n1;alice;10.5\n2;bob;4\n3;carol;3.25\n"
+PEOPLE_SCHEMA = "id:int, name:str, price:float"
+
+
+def test_output_of_constants_has_one_row_for_each_mapped_row(tmp_path):
+    outputs = [out("o", [("id", "row1.id", "int")]), out("audit", CONSTANTS)]
+    made = mapping(config(outputs), {"row1": PEOPLE_SCHEMA}, {"o": "id:int", "audit": declared(CONSTANTS)})
+    run = same(tmp_path, made, {"row1.csv": THREE_ROWS})
+    assert run.files["audit.csv"] == b"source;batch\norders;7\norders;7\norders;7\n"
+
+
+def test_output_of_constants_follows_its_filter(tmp_path):
+    outputs = [out("audit", CONSTANTS, filter="row1.price > 3.5", activate_filter=True)]
+    made = mapping(config(outputs), {"row1": PEOPLE_SCHEMA}, {"audit": declared(CONSTANTS)})
+    run = same(tmp_path, made, {"row1.csv": THREE_ROWS})
+    assert run.files["audit.csv"] == b"source;batch\norders;7\norders;7\n"
+
+
+def test_output_of_context_values_has_one_row_for_each_mapped_row(tmp_path):
+    cols = [("run", "context.run_id", "str"), ("n", "1", "int")]
+    made = mapping(config([out("audit", cols)]), {"row1": PEOPLE_SCHEMA}, {"audit": declared(cols)},
+                   context={"run_id": {"value": "R1", "type": "str"}})
+    run = same(tmp_path, made, {"row1.csv": THREE_ROWS})
+    assert run.files["audit.csv"] == b"run;n\nR1;1\nR1;1\nR1;1\n"
+
+
+def test_output_of_constants_is_empty_when_no_row_is_mapped(tmp_path):
+    made = mapping(config([out("audit", CONSTANTS)]), {"row1": PEOPLE_SCHEMA}, {"audit": declared(CONSTANTS)})
+    run = same(tmp_path, made, {"row1.csv": b"id;name;price\n"})
+    assert run.files["audit.csv"] == b"source;batch\n"

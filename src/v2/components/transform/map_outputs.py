@@ -143,7 +143,8 @@ def projected(
             unreadable[made.name] = from_text(pl.col(made.name).fill_null(""), made)[1]
         declared.append(made)
         values.append(value.alias(made.name))
-    computed = rows.select(values)
+    # Added to the rows and then picked: an output made of constants alone still has a row for each of them.
+    computed = rows.with_columns(values).select([column.name for column in declared])
     if check is not None and unreadable:
         kinds = {column.name: column.type for column in declared if column.name in unreadable}
         check(

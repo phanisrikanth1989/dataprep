@@ -13,7 +13,7 @@ from src.v2 import load_job
 from src.v2 import run_job as run_on_v2
 from src.v2.components.context.context_load import ContextLoad
 from src.v2.errors import JobRefusedError
-from tests.v2.answer_key import REPO_ROOT, JobRun, differences, run_job, run_v1
+from tests.v2.answer_key import REPO_ROOT, JobRun, assert_matches_v1, differences, run_job, run_v1
 
 from .kit import columns, flow, job, reader, writer
 
@@ -57,7 +57,7 @@ class Seen:
     kept: List[str] = field(default_factory=list)
 
 
-def both(tmp_path, caplog, made, data, fails=False) -> Tuple[Seen, Seen]:
+def both(tmp_path, caplog, made, data, fails=False, other=b"x\n") -> Tuple[Seen, Seen]:
     """Run a job on v1 and on v2 and check they agree on the files, the messages and what was loaded."""
     state: Dict[str, Tuple[Dict[str, Any], Dict[str, Any]]] = {}
 
@@ -79,7 +79,7 @@ def both(tmp_path, caplog, made, data, fails=False) -> Tuple[Seen, Seen]:
 
     caplog.set_level(logging.INFO)
     caplog.clear()
-    inputs = {"in.csv": data, "data.csv": b"x\n"}
+    inputs = {"in.csv": data, "data.csv": other}
     v1 = Seen(run_job(made, inputs, tmp_path / "v1", on_v1), *state.get("v1", ({}, {})))
     v2 = Seen(run_job(made, inputs, tmp_path / "v2", on_v2), *state.get("v2", ({}, {})))
     for seen, name in ((v1, V1_LOGGER), (v2, V2_LOGGER)):
@@ -484,3 +484,41 @@ def test_the_whole_converter_sample_is_refused_only_for_its_java_component():
         load_job(path)
     found = [(refusal.where, refusal.key) for refusal in caught.value.report]
     assert found == [("component tJava_1 (JavaComponent)", "type")]
+
+
+@pytest.mark.parametrize(
+    "condition, data, runs",
+    [
+        ('((Integer)globalMap.get("load_NB_LINE_OK")) > 0', b"key;value\nname;new\nn;1\n", True),
+        ('((Integer)globalMap.get("load_NB_LINE_OK")) == 2', b"key;value\nname;new\nn;1\n", True),
+        ('((Integer)globalMap.get("load_NB_LINE")) == 2', b"key;value\nname;new\nname;newer\n;ignored\nn;1\n", True),
+        ('((Integer)globalMap.get("load_NB_LINE")) == 4', b"key;value\nname;new\nname;newer\n;ignored\nn;1\n", False),
+        ('((Integer)globalMap.get("load_NB_LINE_REJECT")) == 0', b"key;value\nname;new\n", True),
+    ],
+)
+def test_row_counts_are_the_variables_loaded_as_in_v1(tmp_path, condition, data, runs):
+    made = loading(path="out.csv")
+    made["triggers"] = [{"type": "RunIf", "from": "load", "to": "in2", "condition": condition}]
+    run = assert_matches_v1(made, {"in.csv": data, "data.csv": b"x\n"}, tmp_path)
+    assert run.succeeded and ("out.csv" in run.files) is runs
+
+
+def test_blank_type_leaves_the_variables_type_as_it_was(tmp_path, caplog):
+    # A row that names no type converts nothing and forgets nothing: a later load still reads the
+    # variable as the type it had.
+    typed, plain = "key:str, value:str, type:str", "key:str, value:str"
+    loads = [
+        {"id": name, "type": "ContextLoad", "config": {}, "schema": {"input": columns(schema), "output": []},
+         "inputs": [wire], "outputs": []}
+        for name, schema, wire in (("load", typed, "row1"), ("again", plain, "row2"))
+    ]
+    made = job(
+        [reader(typed, header_rows=1), loads[0],
+         reader(plain, component_id="in2", path="data.csv", header_rows=1, outputs=("row2",)), loads[1]],
+        [flow("row1", "in", "load"), flow("row2", "in2", "again")],
+        triggers=[{"type": "OnSubjobOk", "from": "in", "to": "in2"}],
+    )
+    made["context"] = {"Default": CONTEXT}
+    v1, v2 = both(tmp_path, caplog, made, b"key;value;type\nn;7;\n", other=b"key;value\nn;8\n")
+    same_values(v1, v2, "n")
+    assert v2.context["n"] == 8

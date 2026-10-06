@@ -353,3 +353,14 @@ def test_unite_needs_an_input():
     with pytest.raises(JobRefusedError) as caught:
         load_job(made)
     assert "component it (Unite):\n  - inputs: needs 1 input(s), but 0 flows arrive" in caught.value.report.format()
+
+
+@pytest.mark.parametrize(
+    "first_schema, second_schema, second_rows",
+    [("k:str, v:Decimal#2", "k:str, v:Decimal#4", b"k;v\nb;7.1250\nc;0.0050\nd;-7.1250\ne;7.1150\nf;2.6750\n"),
+     ("k:str, v:int", "k:str, v:Decimal#4", b"k;v\nb;7.1250\nc;0.0050\nd;-7.1250\n")],
+)
+def test_decimals_of_other_places_are_rounded_half_up_to_the_declared_ones(tmp_path, first_schema, second_schema, second_rows):
+    made = united([first_schema, second_schema], "k:str, v:Decimal#2")
+    run = same(tmp_path, made, files(b"k;v\na;1\n", second_rows))
+    assert b"b;7.13" in run.files["out.csv"] and b"c;0.01" in run.files["out.csv"]

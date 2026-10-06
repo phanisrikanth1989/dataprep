@@ -142,5 +142,8 @@ def _as_key(value: pl.Expr, dtype: pl.DataType, common: pl.DataType) -> pl.Expr:
     if dtype != common:
         if dtype == pl.String:
             value = value.str.strip_chars()
+        if dtype.is_decimal() and common.is_float():
+            # Through its text: Polars' own cast can land one step from the float the digits read as.
+            value = value.cast(pl.String)
         value = value.cast(common, strict=False)
     return value.fill_nan(None) if common.is_float() else value

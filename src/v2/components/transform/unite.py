@@ -39,7 +39,8 @@ class Unite(Transform):
         prepared: List[pl.LazyFrame] = []
         for frame, types in zip(frames, schemas):
             texts = [
-                to_text(pl.col(name), dtype, declared.get(name)).alias(name)
+                # A Decimal keeps every digit here: the declared places are applied after, rounding half up.
+                to_text(pl.col(name), dtype, None if dtype.is_decimal() else declared.get(name)).alias(name)
                 for name, dtype in types.items()
                 if name in as_text and dtype != pl.String
             ]
