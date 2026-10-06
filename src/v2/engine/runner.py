@@ -77,10 +77,12 @@ class JobResult:
 class _Failed(Exception):
     """A component could not be built or run."""
 
-    def __init__(self, component_id: Optional[str], reason: str) -> None:
+    def __init__(self, component_id: Optional[str], reason: str, read_again: bool = False) -> None:
         super().__init__(reason)
         self.component_id = component_id
         self.reason = reason
+        # The pass failed while a source let Polars parse numbers itself: the tolerant reader may succeed.
+        self.read_again = read_again
 
 
 @dataclass
@@ -186,8 +188,30 @@ class Runner:
     # ------------------------------------------------------------------
 
     def _run_subjob(self, component_ids: List[str]) -> Optional[_Failed]:
-        """Build and run one subjob. Returns the failure, or None when it finished."""
+        """Build and run one subjob. Returns the failure, or None when it finished.
+
+        Sources first let Polars parse numbers itself, which is the fast
+        way and fails on a value only the tolerant reader takes. The subjob
+        is then run once more with the tolerant reader. That is safe as long
+        as nothing in the subjob has acted on rows yet, so a subjob holding
+        a component that needs rows in hand starts with the tolerant reader.
+        """
+        repeatable = not any(self.job.components[component_id].cls.may_need_rows for component_id in component_ids)
+        self.run_context.fast_read = repeatable and not os.environ.get("V2_SAFE_READ")
+        failure = self._attempt(component_ids)
+        if failure is not None and failure.read_again:
+            logger.info(
+                f"[{self.job.name}] a file holds values the fast reader does not take ({failure.reason}); "
+                "reading again with the tolerant reader"
+            )
+            self.run_context.fast_read = False
+            failure = self._attempt(component_ids)
+        return failure
+
+    def _attempt(self, component_ids: List[str]) -> Optional[_Failed]:
+        """Build and run one subjob once."""
         state = _Subjob()
+        self.run_context.used_fast_read = False
         started = time.perf_counter()
         logger.info(f"[{self.job.name}] subjob starting: {', '.join(component_ids)}")
         try:
@@ -243,7 +267,9 @@ class Runner:
         )
         if refusals:
             raise ConfigurationError("; ".join(f"{refusal.key}: {refusal.reason}" for refusal in refusals))
-        return spec.cls(spec, config, self.run_context)
+        component = spec.cls(spec, config, self.run_context)
+        component.wired = {flow.port for flow in self.job.outgoing(spec.id)}
+        return component
 
     def _ready(self, spec: ComponentSpec) -> Component:
         """A component about to run: built, and with nothing wrong in its config."""
@@ -329,6 +355,8 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
             for temp in temps:
                 _remove(temp)
+            if self.run_context.fast_read and self.run_context.used_fast_read:
+                raise _Failed(None, _reason(exc), read_again=True) from exc
             blamed = None
             if time.perf_counter() - started <= BLAME_BUDGET_S:
                 blamed = self._blame(state.produced) or (writes[0][0] if len(writes) == 1 else None)

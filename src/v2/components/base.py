@@ -16,7 +16,7 @@ answer when the engine has run the subjob.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Mapping, Optional, Set, Tuple
 
 import polars as pl
 
@@ -59,6 +59,10 @@ class Component:
             columns, types, values that may not be missing), as v1 does
             after every component. A component that already produces
             exactly its schema turns this off.
+        may_need_rows: Whether ``needs_rows()`` can ever be true for the
+            class. A subjob holding such a component is never run a second
+            time (see ``RunContext.fast_read``), because what the component
+            did with the rows cannot be undone.
 
     An instance exists for one run of one subjob. It holds:
 
@@ -76,6 +80,7 @@ class Component:
     min_inputs: ClassVar[int] = 0
     max_inputs: ClassVar[Optional[int]] = 1
     conforms: ClassVar[bool] = True
+    may_need_rows: ClassVar[bool] = False
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -85,6 +90,8 @@ class Component:
         self.input_schema: List["Column"] = spec.input_schema
         self.run_context = run_context
         self.taps: List[Tap] = []
+        # The output ports a flow leaves by. The engine fills it in; a component may do less for a port nobody reads.
+        self.wired: Set[str] = set()
 
     def needs_rows(self) -> bool:
         """Whether this component must be handed real rows instead of a lazy frame."""
@@ -324,6 +331,8 @@ class Sink(Component):
 
 class Eager(Component):
     """A component that needs its input rows in hand."""
+
+    may_need_rows: ClassVar[bool] = True
 
     def needs_rows(self) -> bool:
         return True

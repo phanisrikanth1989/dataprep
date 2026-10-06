@@ -40,6 +40,11 @@ class RunContext:
         self._scratch: List[str] = []
         # Every text of the job config that could name a globalMap entry; None when the job is not known.
         self.job_text: Optional[str] = None
+        # Whether a source may let Polars parse numbers itself. That is faster and fails outright on a
+        # value only the tolerant reader takes (" 7 ", "1.0" for a whole number), so the engine allows
+        # it only where it can run the subjob again, and a source that uses it says so.
+        self.fast_read = False
+        self.used_fast_read = False
 
     def reads(self, key: str) -> bool:
         """Whether anything in the job reads a globalMap entry.

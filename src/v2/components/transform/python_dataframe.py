@@ -63,6 +63,7 @@ class PythonDataFrame(Transform):
     """
 
     names = ("python_dataframe", "PythonDataFrameComponent", "tPythonDataFrame")
+    may_need_rows = True
     keys = (
         Key("python_code", type=CODE, required=True, convert=_not_empty,
             doc="The Python to run. It is handed the flow as `df` and leaves its result in `df`."),

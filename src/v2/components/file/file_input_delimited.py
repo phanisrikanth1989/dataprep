@@ -150,28 +150,49 @@ class FileInputDelimited(Source):
         self.global_map[f"{self.id}_ENCODING"] = config["encoding"]
         names = [column.name for column in self.schema]
         source = as_utf8(path, config["encoding"], self.run_context)
-        frame = self._lines(source, names) if self._by_line() else self._fields(source, names)
+        native = self._native()
+        if native:
+            self.run_context.used_fast_read = True
+        frame = self._lines(source, names) if self._by_line() else self._fields(source, names, native)
 
         if config["remove_empty_row"]:
-            frame = frame.filter(~pl.all_horizontal([pl.col(name).str.strip_chars() == "" for name in names]))
+            blank = [pl.col(name).is_null() if name in native else pl.col(name).str.strip_chars() == "" for name in names]
+            frame = frame.filter(~pl.all_horizontal(blank))
         if self._by_line():
             frame = frame.with_row_index(_LINE, offset=1)
         trimmed = self._trimmed()
         if trimmed:
             frame = frame.with_columns([pl.col(name).str.strip_chars() for name in trimmed])
-        return self._typed(frame, names)
+        return self._typed(frame, names, native)
 
-    def _fields(self, source: str, names: List[str]) -> pl.LazyFrame:
-        """The file's fields as text columns, split by Polars."""
+    def _native(self) -> Dict[str, pl.DataType]:
+        """The columns Polars parses itself, with their types; the others arrive as text.
+
+        Polars reads a whole number or a float much faster than this
+        component can from text, and gives the same value wherever it gives
+        one. Where the tolerant reader would take a value Polars does not
+        (blanks around a number, ``1.0`` for a whole number, any text when
+        errors are not fatal), Polars fails, and the engine runs the subjob
+        again with every column read as text. Text is read from the start
+        when the engine cannot do that, and when the reject output is
+        wired: a rejected row carries its fields as they stand in the file.
+        """
+        if not self.run_context.fast_read or self._by_line() or "reject" in self.wired:
+            return {}
+        kinds = {"int": pl.Int64, "float": pl.Float64}
+        return {column.name: kinds[column.type] for column in self.schema if column.type in kinds}
+
+    def _fields(self, source: str, names: List[str], native: Dict[str, pl.DataType]) -> pl.LazyFrame:
+        """The file's fields as columns, split by Polars: text, except the columns it parses itself."""
         config = self.config
         csv = config["csv_option"]
 
-        def scan(rows: Optional[int]) -> pl.LazyFrame:
+        def scan(rows: Optional[int], types: Dict[str, pl.DataType]) -> pl.LazyFrame:
             return pl.scan_csv(
                 source,
                 separator=config["delimiter"][0] if csv else config["delimiter"],
                 has_header=False,
-                schema={name: pl.String for name in names},
+                schema={name: types.get(name, pl.String) for name in names},
                 quote_char=config["text_enclosure"] if csv else None,
                 skip_rows=config["header_rows"],
                 n_rows=rows,
@@ -185,9 +206,9 @@ class FileInputDelimited(Source):
         rows = config["limit"]
         if config["footer_rows"] > 0:
             # The footer is counted in lines from the end, so the file's length is needed first.
-            kept = max(scan(None).select(pl.len()).collect().item() - config["footer_rows"], 0)
+            kept = max(scan(None, {}).select(pl.len()).collect().item() - config["footer_rows"], 0)
             rows = kept if rows is None else min(rows, kept)
-        return scan(rows)
+        return scan(rows, native)
 
     def _lines(self, source: str, names: List[str]) -> pl.LazyFrame:
         """The file's fields as text columns, split here: slower, but any delimiter and the field count."""
@@ -220,37 +241,45 @@ class FileInputDelimited(Source):
     # Text to the declared types, and what could not be read
     # ------------------------------------------------------------------
 
-    def _typed(self, frame: pl.LazyFrame, names: List[str]) -> Dict[str, pl.LazyFrame]:
+    def _typed(
+        self, frame: pl.LazyFrame, names: List[str], native: Dict[str, pl.DataType]
+    ) -> Dict[str, pl.LazyFrame]:
         typed = [column for column in self.schema if column.type != "str"]
         counted = self.config["check_fields_num"] and not self.config["csv_option"]
         if not typed and not counted:
             return {"main": frame.select(names), "reject": self._no_rejects(names)}
 
-        # Each field is parsed once: the parsed column gives the value and tells an unreadable field.
-        frame = frame.with_columns(
-            [parse_text(pl.col(column.name), column).alias(_VALUE + column.name) for column in typed]
-        )
+        # Each field read as text is parsed once: the parsed column gives the value and tells an unreadable field.
+        frame = frame.with_columns([
+            parse_text(pl.col(column.name), column).alias(_VALUE + column.name)
+            for column in typed if column.name not in native
+        ])
+
+        def value(column: Column) -> pl.Expr:
+            parsed = pl.col(column.name) if column.name in native else pl.col(_VALUE + column.name)
+            return finish_value(parsed, pl.col(column.name), column)
+
         flags = []
         for column in typed:
-            parsed, text = pl.col(_VALUE + column.name), pl.col(column.name)
-            wrong = unreadable(parsed, text, column)
+            if column.name not in native:
+                flags.append(unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column))
             if not column.nullable:
-                wrong = wrong | finish_value(parsed, text, column).is_null()
-            flags.append(wrong)
+                flags.append(value(column).is_null())
         if counted:
             flags.append(pl.col(_FIELDS) != len(names))
-        flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
-
         held = {column.name: column for column in typed}
-        main = flagged.filter(~pl.col(_BAD)).select([
-            finish_value(pl.col(_VALUE + name), pl.col(name), held[name]).alias(name) if name in held else pl.col(name)
-            for name in names
-        ])
-        code, message = self._reasons(typed, counted, len(names))
+        values = [value(held[name]).alias(name) if name in held else pl.col(name) for name in names]
+        if not flags:
+            # Polars parsed every typed column and none may not be missing: no row can be rejected here.
+            return {"main": frame.select(values), "reject": self._no_rejects(names)}
+
+        flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
+        main = flagged.filter(~pl.col(_BAD)).select(values)
+        code, message = self._reasons(typed, counted, len(names), native)
         reason = {"errorCode": code.alias("errorCode"), "errorMessage": message.alias("errorMessage")}
         # A data column with one of the two names gives its place to the reason, as in v1.
         reject = flagged.filter(pl.col(_BAD)).select(
-            *[reason.get(name, pl.col(name)) for name in names],
+            *[reason.get(name, pl.col(name).cast(pl.String)) for name in names],
             *[expr for name, expr in reason.items() if name not in names],
         )
         if self.config["die_on_error"]:
@@ -266,7 +295,9 @@ class FileInputDelimited(Source):
         return {"main": pl.LazyFrame(schema=polars_schema(self.schema)), "reject": self._no_rejects(names)}
 
     @staticmethod
-    def _reasons(typed: List[Column], counted: bool, width: int) -> Tuple[pl.Expr, pl.Expr]:
+    def _reasons(
+        typed: List[Column], counted: bool, width: int, native: Dict[str, pl.DataType]
+    ) -> Tuple[pl.Expr, pl.Expr]:
         """Why a row was rejected: the first thing wrong with it, in v1's words."""
         cases: List[Tuple[pl.Expr, str, pl.Expr]] = []
         if counted:
@@ -276,13 +307,14 @@ class FileInputDelimited(Source):
                 pl.format(f"Field count mismatch: expected {width}, got {{}} - Line: {{}}", pl.col(_FIELDS), pl.col(_LINE)),
             ))
         for column in typed:
-            wrong = unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column)
-            cases.append((wrong, "TYPE_CONVERSION", pl.format(_unreadable_text(column), pl.col(column.name))))
+            if column.name not in native:
+                wrong = unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column)
+                cases.append((wrong, "TYPE_CONVERSION", pl.format(_unreadable_text(column), pl.col(column.name))))
         for column in typed:
             if not column.nullable:
-                value = finish_value(pl.col(_VALUE + column.name), pl.col(column.name), column)
+                parsed = pl.col(column.name) if column.name in native else pl.col(_VALUE + column.name)
                 cases.append((
-                    value.is_null(),
+                    finish_value(parsed, pl.col(column.name), column).is_null(),
                     "SCHEMA_VIOLATION",
                     pl.lit(f"Column '{column.name}': non-nullable column has null"),
                 ))

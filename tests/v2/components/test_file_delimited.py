@@ -592,3 +592,78 @@ def test_two_outputs_of_one_subjob_can_append_to_the_same_file(tmp_path):
     assert run.files["out.csv"] == (
         b"1;a\n2;c\nx;b;TYPE_CONVERSION;Column 'id': could not convert string to float: 'x'\n"
     )
+
+
+# ------------------------------------------------------------------
+# Numbers are read by Polars itself where that is safe, and as text where it is not
+# ------------------------------------------------------------------
+
+def schemas_scanned(monkeypatch):
+    """Record the column types every delimited scan is asked for."""
+    import polars as pl
+
+    seen = []
+    real = pl.scan_csv
+
+    def spy(source, **more):
+        if "schema" in more:
+            seen.append(list(more["schema"].values()))
+        return real(source, **more)
+
+    monkeypatch.setattr(pl, "scan_csv", spy)
+    return seen
+
+
+def test_clean_numbers_are_parsed_by_polars_directly(tmp_path, monkeypatch):
+    import polars as pl
+
+    seen = schemas_scanned(monkeypatch)
+    result, folder = v2(tmp_path, b"1;a;1.5\n2;b;2.5\n", "id:int, name:str, amt:float")
+    assert result.status == "success"
+    assert seen == [[pl.Int64, pl.String, pl.Float64]]
+    assert (folder / "out.csv").read_bytes() == b"id;name;amt\n1;a;1.5\n2;b;2.5\n"
+
+
+def test_file_that_needs_the_tolerant_reader_is_read_again_as_text(tmp_path, monkeypatch):
+    import polars as pl
+
+    seen = schemas_scanned(monkeypatch)
+    result, folder = v2(tmp_path, b"1;a;1.5\n 2 ;b;2,5\nx;c;3\n4.0;d;4\n", "id:int, name:str, amt:float")
+    assert result.status == "success"
+    assert seen == [[pl.Int64, pl.String, pl.Float64], [pl.String, pl.String, pl.String]]
+    assert (folder / "out.csv").read_bytes() == b"id;name;amt\n1;a;1.5\n4;d;4.0\n"
+
+
+def test_reader_with_its_reject_output_wired_reads_text_from_the_start(tmp_path, monkeypatch):
+    # The rejected rows carry the fields as they stand in the file, which only the text is.
+    import polars as pl
+
+    seen = schemas_scanned(monkeypatch)
+    result, folder = v2(tmp_path, b"007;a\nx;b\n", "id:int, name:str", reject_schema=True)
+    assert result.status == "success"
+    assert seen == [[pl.String, pl.String]]
+    assert (folder / "rej.csv").read_bytes().splitlines()[1].startswith(b"x;b;TYPE_CONVERSION")
+
+
+def test_tolerant_reader_can_be_asked_for_outright(tmp_path, monkeypatch):
+    import polars as pl
+
+    monkeypatch.setenv("V2_SAFE_READ", "1")
+    seen = schemas_scanned(monkeypatch)
+    result, _ = v2(tmp_path, b"1;a\n", "id:int, name:str")
+    assert result.status == "success" and seen == [[pl.String, pl.String]]
+
+
+def test_a_failure_that_is_not_about_reading_is_still_reported_after_the_second_read(tmp_path):
+    result, _ = v2(tmp_path, b"1;a\n", "id:int, name:str", write={"encoding": "ascii"}, read={"encoding": "UTF-8"})
+    assert result.status == "success"
+    (tmp_path / "in.csv").write_bytes("1;café\n".encode("utf-8"))
+    import os
+
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        failed = run_job(copy("id:int, name:str", write={"encoding": "ascii"}))
+    finally:
+        os.chdir(previous)
+    assert failed.status == "failed" and failed.failed_component == "out"
