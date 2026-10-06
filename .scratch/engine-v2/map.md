@@ -225,6 +225,9 @@ are designed.
   -- parked: `cache()` with a guard behind it does it and was about 40% faster
   on the payments job, but it holds more memory and leans on one Polars
   version; not built.
+- [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md)
+  -- INFO and DEBUG lines on stdout, warnings and errors on stderr; the JSON
+  summary last on stdout, and in a file with `--summary FILE`.
 
 ## Not yet specified
 
@@ -252,7 +255,6 @@ decide, not fog on the way there.
   on request;
   [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md);
   [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
-  [Log to stdout, warnings and errors to stderr](issues/35-log-to-stdout-warnings-and-errors-to-stderr.md);
   [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md);
   [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),
   to be researched before anything is built.

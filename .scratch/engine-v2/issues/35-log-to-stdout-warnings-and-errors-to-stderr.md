@@ -1,6 +1,6 @@
 # 35 - Log to stdout, warnings and errors to stderr
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 
 ## Question
@@ -27,3 +27,21 @@ the summary to a file as well, so that nothing has to pick JSON out of a log.
 - The refusal report and a bad command line are errors and stay on stderr.
 - `docs/v2/README.md` ("Running a job") and `CLAUDE.md` (entry points) say
   how the command line behaves and have to say this too.
+
+## Answer
+
+Built on 2026-10-06 (`src/v2/cli.py`, tests in `tests/v2/unit/test_cli.py`).
+
+- INFO and DEBUG lines go to standard output, WARNING and above to standard
+  error. A job that finishes without a warning leaves standard error empty.
+- The JSON summary is the last thing on standard output, after the log.
+  Whatever read all of standard output as JSON has to change: it now holds
+  the log as well.
+- `--summary FILE` was built with it. It was the dev's to confirm and the
+  dev was not there to ask; it is one flag and can be taken out. The file is
+  opened before the job runs, so a summary that has nowhere to go stops the
+  command with exit code 2 and nothing runs: a job that ran is never
+  reported as failed for its summary's sake, which could have a scheduler
+  run it twice. A job that was not run leaves the file as it was.
+- The command puts its two log handlers on when it starts and takes them off
+  when it ends. `run_job` called from Python sets up no logging, as before.

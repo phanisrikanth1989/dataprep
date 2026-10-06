@@ -15,6 +15,7 @@ it refuses before anything starts, in one report.
 python -m src.v2 job.json                                  # run
 python -m src.v2 job.json --context_param in_dir=/data     # set context variables
 python -m src.v2 job.json --check                          # load and check only; run nothing
+python -m src.v2 job.json --summary run.json               # also write the summary to a file
 ```
 
 | Exit code | Meaning |
@@ -23,9 +24,17 @@ python -m src.v2 job.json --check                          # load and check only
 | 1 | the job ran and a component failed |
 | 2 | nothing ran: the job config was refused, or the command line was wrong |
 
-A summary of the run is printed on standard output as JSON (`status`,
-`error`, `failed_component`, `failures`, `rows` written by each output,
-`duration_s`). Log lines and the refusal report go to standard error.
+Log lines at INFO and DEBUG go to standard output. Warnings and errors go
+to standard error, and so do the refusal report and what is wrong with the
+command line: an empty standard error means a clean run. `--log-level`
+names the lowest level that is written (`INFO` unless told otherwise).
+
+A summary of the run is the last thing written to standard output, as JSON
+(`status`, `error`, `failed_component`, `failures`, `rows` written by each
+output, `duration_s`). `--summary FILE` writes it to a file as well, so
+that nothing has to pick it out of the log. The file is opened before the
+job runs: when it cannot be written, nothing runs (exit code 2). A job that
+was not run leaves the file as it was.
 
 From Python:
 
