@@ -1,6 +1,6 @@
 # 34 - A debug level for the log
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 
 ## Question
@@ -26,3 +26,41 @@ reading the code:
 
 Nothing here may cost time when the level is INFO: a debug line is not put
 together unless it will be written.
+
+## Answer
+
+Built on 2026-10-06. Tests in `tests/v2/unit/test_debug_log.py` and at the
+end of `tests/v2/components/test_file_delimited.py`.
+
+What `--log-level DEBUG` adds, line by line:
+
+    [in] config: {"path": "in.csv", "delimiter": ";", ...}
+    [in] Polars parses the numbers of id, amt itself; every other column is read as text
+    [in] every column is read as text: <why>
+    [in] output main: id Int64, name String
+    [job] sources may let Polars parse numbers itself in this subjob: <why>
+    [job] sources read every column as text in this subjob: <why>
+    [out] writing to the temporary file /data/.out.csv.out.v2tmp123
+    [job] plan of output out:            (the plan follows, on lines of its own)
+    [job] plan of what <id> asked to know:
+    [job] plan of the rows <id> is handed:
+    [out] the written file is put in the encoding ISO-8859-15
+    [job] what the fast reader said, in full:
+
+- The config is the one the component runs with: context values put in,
+  defaults filled in, v2's names for the keys.
+- The plan is the one Polars is given, before Polars rearranges it. There is
+  one for each output, each thing a component asked to know (a check, a
+  count) and each set of rows a component is handed.
+- The reader's reasons for reading text: v2 splits the rows itself; the
+  engine asked for the tolerant reader; the reject output is wired; the
+  file has a footer; no column is declared int or float.
+- The line of a subjob that is read a second time was at INFO already, with
+  Polars' message cut to one line. DEBUG adds the message in full.
+- Every debug line is behind `logger.isEnabledFor(logging.DEBUG)`. A test
+  holds that Polars is not asked for a plan at INFO.
+- Lines are plain ASCII: any other character is written as its escape
+  (`ascii_only` in `src/v2/components/base.py`).
+
+Only the delimited reader chooses between the two ways of reading numbers,
+so only it has that line.

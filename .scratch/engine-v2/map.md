@@ -231,6 +231,10 @@ are designed.
 - [Log a line when a trigger fires](issues/33-log-a-line-when-a-trigger-fires.md)
   -- one INFO line for every trigger that fires, and for a `RunIf` one each
   time it is judged, with its condition and what it came to.
+- [A debug level for the log](issues/34-a-debug-level-for-the-log.md)
+  -- DEBUG adds each component's config and output columns, how a delimited
+  reader reads numbers and why, each subjob's plans, each output's temporary
+  file and encoding; nothing of it is put together at INFO.
 
 ## Not yet specified
 
@@ -256,7 +260,6 @@ decide, not fog on the way there.
 - Asked for by the dev in the review of 2026-10-06:
   [Row count of every component in the log](issues/32-row-count-of-every-component-in-the-log.md),
   on request;
-  [A debug level for the log](issues/34-a-debug-level-for-the-log.md);
   [The check reports every fault of a flow at once](issues/36-the-check-reports-every-fault-of-a-flow-at-once.md);
   [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),
   to be researched before anything is built.

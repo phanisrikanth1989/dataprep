@@ -173,6 +173,24 @@ At INFO:
   [job] trigger RunIf from rejects_out to rejects_in, judged when rejects_out was done: ((Integer)globalMap.get("rejects_out_NB_LINE")) > 0 is true: the subjob of rejects_in is set off
   ```
 
+`--log-level DEBUG` adds what a person needs when a job does not do what
+they expected:
+
+- for each component, its config with context values put in and defaults
+  filled in, and the columns of each of its outputs with their Polars types;
+- for each delimited file input, whether Polars parses the numbers itself or
+  every column is read as text, and why;
+- for each subjob, whether it may be read a second time, and the plan Polars
+  is given: one for every output, for everything a component asked to know
+  about the data, and for the rows a component is handed;
+- for each file output, the temporary file it is being written to (it can be
+  watched growing during a long run) and the encoding it is put in;
+- when a subjob is read a second time, what Polars said in full.
+
+None of this is put together unless the level is DEBUG: a run at INFO pays
+nothing for it. A plan takes many lines; the payments scenario's job logs
+about six hundred lines at DEBUG.
+
 ## Types and missing values
 
 Declared types are `str`, `int`, `float`, `bool`, `datetime`, `date` and

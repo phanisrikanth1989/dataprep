@@ -974,3 +974,68 @@ def test_negative_count_of_lines_is_refused_at_load(key):
     with pytest.raises(JobRefusedError) as caught:
         load_job(copy(TWO, read={key: -1}))
     assert "must not be negative" in caught.value.report.format()
+
+
+# ------------------------------------------------------------------
+# What the log says at DEBUG
+# ------------------------------------------------------------------
+
+def debug_lines(caplog, tmp_path, data, schema, **kwargs):
+    """Run file -> file on v2 at DEBUG; returns (the DEBUG lines, how the run ended)."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="src.v2")
+    caplog.clear()
+    result, _ = v2(tmp_path, data, schema, **kwargs)
+    return [record.getMessage() for record in caplog.records if record.levelno == logging.DEBUG], result
+
+
+def test_debug_says_when_polars_parses_the_numbers_itself(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("V2_SAFE_READ", raising=False)
+    lines, result = debug_lines(caplog, tmp_path, b"1;a;1.5\n", "id:int, name:str, amt:float")
+    assert result.status == "success"
+    assert "[in] Polars parses the numbers of id, amt itself; every other column is read as text" in lines
+
+
+@pytest.mark.parametrize("schema, changes, why", [
+    ("id:int, name:str", {"reject_schema": True},
+     "its reject output is wired, and a rejected row carries its fields as they stand in the file"),
+    ("id:int, name:str", {"read": {"footer_rows": 1}},
+     "the file has a footer, and Polars would parse its lines as numbers too"),
+    ("id:str, name:str", {}, "no column is declared int or float"),
+    ("id:int, name:str", {"read": {"check_fields_num": True}},
+     "v2 splits the rows itself (a field count, a delimiter of several bytes, a limit, or empty rows that are kept)"),
+])
+def test_debug_says_why_a_delimited_reader_reads_every_column_as_text(tmp_path, monkeypatch, caplog, schema, changes, why):
+    monkeypatch.delenv("V2_SAFE_READ", raising=False)
+    lines, result = debug_lines(caplog, tmp_path, b"1;a\n2;b\n", schema, **changes)
+    assert result.status == "success"
+    assert f"[in] every column is read as text: {why}" in lines
+
+
+def test_debug_says_when_the_engine_asked_for_the_tolerant_reader(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("V2_SAFE_READ", "1")
+    lines, result = debug_lines(caplog, tmp_path, b"1;a\n", "id:int, name:str")
+    assert result.status == "success"
+    assert "[in] every column is read as text: the engine asked for the tolerant reader in this subjob" in lines
+
+
+def test_debug_shows_in_full_what_made_a_subjob_be_read_a_second_time(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("V2_SAFE_READ", raising=False)
+    lines, result = debug_lines(caplog, tmp_path, b"1;a\n 2 ;b\n", "id:int, name:str")
+    assert result.status == "success"
+    (said,) = [line for line in lines if line.startswith("[t] what the fast reader said, in full:\n")]
+    # More than the one line the INFO level gives: Polars' own message with its line breaks.
+    assert len(said.splitlines()) > 2 and said.isascii()
+    # The reader says how it read, once for each time the subjob was read.
+    assert [line for line in lines if line.startswith("[in] ")
+            and ("Polars parses" in line or "read as text" in line)] == [
+        "[in] Polars parses the numbers of id itself; every other column is read as text",
+        "[in] every column is read as text: the engine asked for the tolerant reader in this subjob",
+    ]
+
+
+def test_debug_says_which_encoding_an_output_is_put_in(tmp_path, caplog):
+    lines, result = debug_lines(caplog, tmp_path, b"1;a\n", "id:int, name:str", write={"encoding": "ISO-8859-15"})
+    assert result.status == "success"
+    assert "[out] the written file is put in the encoding ISO-8859-15" in lines

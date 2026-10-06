@@ -151,6 +151,8 @@ class FileOutputDelimited(Sink):
             if config["append"] and config["include_header"] and columns:
                 line = pl.DataFrame(schema=out.collect_schema()).write_csv(include_header=True, **style)
                 settled["header"] = encoded(line, config["encoding"])
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"[{self.id}] the written file is put in the encoding {config['encoding']}")
             settled["mark"] = to_encoding(written, config["encoding"])
 
         def place(written: str, rows: int) -> None:

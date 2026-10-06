@@ -12,6 +12,7 @@ job-config order, and what a subjob triggers runs right after it.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
 import re
@@ -22,7 +23,7 @@ from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional
 
 import polars as pl
 
-from ..components.base import CheckFailed, Component, Sink, Source, Tap, Write
+from ..components.base import CheckFailed, Component, Sink, Source, Tap, Write, ascii_only
 from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place
 from ..job.graph import subjobs
@@ -280,8 +281,19 @@ class Runner:
         as nothing in the subjob has acted on rows yet, so a subjob holding
         a component that needs rows in hand starts with the tolerant reader.
         """
-        repeatable = not any(self.job.components[component_id].cls.may_need_rows for component_id in component_ids)
-        self.run_context.fast_read = repeatable and not os.environ.get("V2_SAFE_READ")
+        holding = [component_id for component_id in component_ids if self.job.components[component_id].cls.may_need_rows]
+        self.run_context.fast_read = not holding and not os.environ.get("V2_SAFE_READ")
+        if logger.isEnabledFor(logging.DEBUG):
+            if self.run_context.fast_read:
+                logger.debug(
+                    f"[{self.job.name}] sources may let Polars parse numbers itself in this subjob: "
+                    "nothing in it needs rows in hand, so it can be read a second time"
+                )
+            else:
+                why = "V2_SAFE_READ is set"
+                if holding:
+                    why = f"{', '.join(holding)} may need rows in hand, so the subjob cannot be read a second time"
+                logger.debug(f"[{self.job.name}] sources read every column as text in this subjob: {why}")
         try:
             failure = self._attempt(component_ids)
             if failure is not None and failure.read_again:
@@ -289,6 +301,9 @@ class Runner:
                     f"[{self.job.name}] a file holds values the fast reader does not take ({failure.reason}); "
                     "reading again with the tolerant reader"
                 )
+                if logger.isEnabledFor(logging.DEBUG):
+                    said = ascii_only(str(failure.__cause__))
+                    logger.debug(f"[{self.job.name}] what the fast reader said, in full:\n{said}")
                 self.run_context.fast_read = False
                 failure = self._attempt(component_ids)
         finally:
@@ -322,6 +337,8 @@ class Runner:
             spec = self.job.components[component_id]
             try:
                 component = self._ready(spec)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"[{component_id}] config: {json.dumps(component.config, default=str)}")
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 if isinstance(component, Sink):
                     heights: List[int] = []
@@ -331,7 +348,7 @@ class Runner:
                 elif isinstance(component, Source):
                     outputs = component.read()
                 elif component.needs_rows():
-                    collected = self._collect(list(inputs.values()), state)
+                    collected = self._collect(list(inputs.values()), state, component_id)
                     for name, frame in zip(inputs, collected):
                         self._share(name, frame.lazy(), frames)
                     results = component.run(dict(zip(inputs, collected))) or {}
@@ -341,8 +358,11 @@ class Runner:
                 else:
                     outputs = component.build(inputs)
                 outputs = self._conformed(component, outputs)
-                for frame in outputs.values():
-                    frame.collect_schema()
+                for port, frame in outputs.items():
+                    columns = frame.collect_schema()
+                    if logger.isEnabledFor(logging.DEBUG):
+                        shown = ", ".join(f"{name} {dtype}" for name, dtype in columns.items())
+                        logger.debug(f"[{component_id}] output {port}: {ascii_only(shown)}")
                 self._count(component, inputs, outputs)
             except _Failed:
                 raise
@@ -430,8 +450,16 @@ class Runner:
     # Collecting and placing files
     # ------------------------------------------------------------------
 
-    def _collect(self, wanted: List[pl.LazyFrame], state: _Subjob) -> List[pl.DataFrame]:
-        """Run pending writes and taps and collect wanted frames, all in one pass."""
+    def _collect(
+        self, wanted: List[pl.LazyFrame], state: _Subjob, handed_to: Optional[str] = None
+    ) -> List[pl.DataFrame]:
+        """Run pending writes and taps and collect wanted frames, all in one pass.
+
+        Args:
+            wanted: Frames to collect and return.
+            state: What the subjob has built so far.
+            handed_to: Id of the component the wanted frames are collected for.
+        """
         writes, taps = state.writes, state.taps
         state.writes, state.taps = [], []
         if not wanted and not writes and not taps:
@@ -442,6 +470,15 @@ class Runner:
         try:
             plans = [write.sink(temp) for (_, write, _), temp in zip(writes, temps)]
             plans += [tap.frame for _, tap in taps]
+            if logger.isEnabledFor(logging.DEBUG):
+                for (component_id, _, _), temp in zip(writes, temps):
+                    logger.debug(f"[{component_id}] writing to the temporary file {temp}")
+                named = [f"output {component_id}" for component_id, _, _ in writes]
+                named += [f"what {component_id} asked to know" for component_id, _ in taps]
+                named += [f"the rows {handed_to} is handed"] * len(wanted)
+                for name, plan in zip(named, plans + wanted):
+                    given = ascii_only(plan.explain(optimized=False))
+                    logger.debug(f"[{self.job.name}] plan of {name}:\n{given}")
             results = pl.collect_all(plans + wanted, engine=self.engine)
         except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
             if self.run_context.fast_read and self.run_context.used_fast_read:
@@ -620,8 +657,8 @@ def _counted(frame: pl.LazyFrame, heights: List[int]) -> pl.LazyFrame:
 
 
 def _one_line(text: str) -> str:
-    """A text as one line of plain ASCII, for the log: what is not ASCII is written as its escape."""
-    return " ".join(text.split()).encode("ascii", "backslashreplace").decode("ascii")
+    """A text as one line of plain ASCII, for the log."""
+    return ascii_only(" ".join(text.split()))
 
 
 def _discard(state: _Subjob) -> None:

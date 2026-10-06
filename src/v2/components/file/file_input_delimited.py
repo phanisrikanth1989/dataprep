@@ -16,7 +16,7 @@ from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import finish_value, parse_text, polars_schema, unreadable
-from ..base import Source
+from ..base import Source, ascii_only
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -169,9 +169,15 @@ class FileInputDelimited(Source):
         self.global_map[f"{self.id}_ENCODING"] = config["encoding"]
         names = [column.name for column in self.schema]
         source = as_utf8(path, config["encoding"], self.run_context, exact=self._by_line())
-        native = self._native()
+        native, why_text = self._native()
         if native:
             self.run_context.used_fast_read = True
+        if logger.isEnabledFor(logging.DEBUG):
+            if native:
+                parsed = ascii_only(", ".join(native))
+                logger.debug(f"[{self.id}] Polars parses the numbers of {parsed} itself; every other column is read as text")
+            else:
+                logger.debug(f"[{self.id}] every column is read as text: {why_text}")
         frame = self._lines(source, names) if self._by_line() else self._fields(source, names, native)
 
         if config["remove_empty_row"]:
@@ -187,7 +193,7 @@ class FileInputDelimited(Source):
             frame = frame.with_columns([pl.col(name).str.strip_chars() for name in trimmed])
         return self._typed(frame, names, native)
 
-    def _native(self) -> Dict[str, pl.DataType]:
+    def _native(self) -> Tuple[Dict[str, pl.DataType], str]:
         """The columns Polars parses itself, with their types; the others arrive as text.
 
         Polars reads a whole number or a float much faster than this
@@ -198,14 +204,26 @@ class FileInputDelimited(Source):
         again with every column read as text. Text is read from the start
         when the engine cannot do that, and when the reject output is
         wired: a rejected row carries its fields as they stand in the file.
+
+        Returns:
+            The columns, and when there are none, why every column is read
+            as text.
         """
-        if not self.run_context.fast_read or self._by_line() or "reject" in self.wired:
-            return {}
+        if self._by_line():
+            return {}, (
+                "v2 splits the rows itself (a field count, a delimiter of several bytes, a limit, "
+                "or empty rows that are kept)"
+            )
+        if not self.run_context.fast_read:
+            return {}, "the engine asked for the tolerant reader in this subjob"
+        if "reject" in self.wired:
+            return {}, "its reject output is wired, and a rejected row carries its fields as they stand in the file"
         if self.config["footer_rows"] > 0:
             # Polars parses the lines after the last row it is asked for: a footer would fail it every time.
-            return {}
+            return {}, "the file has a footer, and Polars would parse its lines as numbers too"
         kinds = {"int": pl.Int64, "float": pl.Float64}
-        return {column.name: kinds[column.type] for column in self.schema if column.type in kinds}
+        native = {column.name: kinds[column.type] for column in self.schema if column.type in kinds}
+        return native, "" if native else "no column is declared int or float"
 
     def _fields(self, source: str, names: List[str], native: Dict[str, pl.DataType]) -> pl.LazyFrame:
         """The file's fields as columns, split by Polars: text, except the columns it parses itself."""

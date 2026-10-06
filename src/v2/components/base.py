@@ -42,6 +42,11 @@ def is_on(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() == "true")
 
 
+def ascii_only(text: str) -> str:
+    """A text as plain ASCII, for the log: any other character is written as its escape."""
+    return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 class Component:
     """One step of a job.
 
