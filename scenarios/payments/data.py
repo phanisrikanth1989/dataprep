@@ -3,11 +3,21 @@
 Every value is worked out from the row's number, so a row count always
 gives the same files, on any machine. The files are written with a header
 line and ``;`` between fields, and hold plain ASCII.
+
+The file runs on its own and needs only Python and polars:
+
+    python data.py --rows 100000 --out data
+
+It writes ``payments.csv`` (45 columns, about 470 bytes a row) and the four
+small files the job reads beside it: ``branches.csv``, ``customers.csv``,
+``purposes.csv`` and ``settings.csv``.
 """
 from __future__ import annotations
 
+import argparse
+import sys
 from pathlib import Path
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 import polars as pl
 
@@ -189,6 +199,22 @@ def _payments(start: int, end: int) -> pl.DataFrame:
     return numbers.select([value.alias(name) for name, value in columns.items()])
 
 
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Make the files from the command line and say what was written."""
+    parser = argparse.ArgumentParser(description="Make the input files of the payments scenario.")
+    parser.add_argument("--rows", type=int, default=100_000, help="How many payments to write (default 100000).")
+    parser.add_argument("--out", default="data", help="The folder to write into (default: data).")
+    args = parser.parse_args(argv)
+    if args.rows < 1:
+        parser.error("--rows must be at least 1")
+    folder = Path(args.out)
+    generate(folder, args.rows)
+    print(f"{args.rows:,} payments written to {folder}/")
+    for path in sorted(folder.glob("*.csv")):
+        print(f"  {path.name:14} {path.stat().st_size / 1e6:10.1f} MB")
+    return 0
+
+
 def _digits(number: pl.Expr, width: int) -> pl.Expr:
     return number.cast(pl.String).str.zfill(width)
 
@@ -197,3 +223,7 @@ def _pick(index: pl.Expr, values: Sequence[str]) -> pl.Expr:
     """The value at a place in a short list."""
     places: List[int] = list(range(len(values)))
     return index.replace_strict(places, list(values), return_dtype=pl.String)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

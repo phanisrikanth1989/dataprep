@@ -120,3 +120,32 @@ def test_v1_run_that_passes_the_cap_is_stopped_and_said_to_be(tmp_path):
     assert code == 1
     assert runs["v1-pymap"]["status"] == "stopped at the cap"
     assert 1 <= runs["v1-pymap"]["reported_seconds"] < 4
+
+
+def test_data_script_runs_on_its_own(tmp_path):
+    # Handed to someone without the repository, the one file must be enough to make the inputs.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(data.__file__)
+    done = subprocess.run([sys.executable, str(script), "--rows", "50", "--out", "inputs"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    made = tmp_path / "inputs"
+    assert sorted(path.name for path in made.iterdir()) == [
+        "branches.csv", "customers.csv", "payments.csv", "purposes.csv", "settings.csv",
+    ]
+    assert len((made / "payments.csv").read_text().splitlines()) == 51
+    assert "50" in done.stdout and "payments.csv" in done.stdout
+
+
+def test_data_script_refuses_a_row_count_below_one(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    done = subprocess.run([sys.executable, str(Path(data.__file__)), "--rows", "0", "--out", "inputs"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert done.returncode == 2 and "at least 1" in done.stderr
+    assert not (tmp_path / "inputs").exists()
