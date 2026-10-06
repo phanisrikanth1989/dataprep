@@ -107,17 +107,46 @@ def test_debug_lines_are_plain_ascii(caplog, tmp_path):
     assert [line for line in lines if not line.isascii()] == []
 
 
+def test_debug_lines_are_plain_ascii_whatever_the_names_and_paths_hold(caplog, tmp_path):
+    folder = tmp_path / "caf\u00e9"
+    folder.mkdir()
+    components = [("in", "rows", {"data": {"n": [1]}}), ("s\u00fcd", "add", {}),
+                  ("out", "save", {"path": str(folder / "o.csv")})]
+    flows = [("r1", "in", "s\u00fcd", "flow"), ("r2", "s\u00fcd", "out", "flow")]
+    lines, result = debug_lines(caplog, job(components, flows))
+    assert result.status == "success"
+    assert any("writing to the temporary file" in line and "caf\\xe9" in line for line in lines)
+    assert any(line.startswith("[s\\xfcd] config: ") for line in lines)
+    assert [line for line in lines if not line.isascii()] == []
+
+
+def test_plan_polars_cannot_print_does_not_fail_the_job(caplog, tmp_path, monkeypatch):
+    def refuse(frame, *args, **kwargs):
+        raise RuntimeError("no plan for you")
+
+    monkeypatch.setattr(pl.LazyFrame, "explain", refuse)
+    lines, result = debug_lines(caplog, added(tmp_path))
+    assert result.status == "success"
+    assert "[t] plan of output out: Polars could not print it (no plan for you)" in lines
+
+
 def test_nothing_is_put_together_for_debug_lines_when_the_level_is_info(caplog, tmp_path, monkeypatch):
+    from src.v2.engine import runner
+
     asked = []
-    explain = pl.LazyFrame.explain
 
-    def spy(frame, *args, **kwargs):
-        asked.append(1)
-        return explain(frame, *args, **kwargs)
+    def spied(real, name):
+        def spy(*args, **kwargs):
+            asked.append(name)
+            return real(*args, **kwargs)
+        return spy
 
-    monkeypatch.setattr(pl.LazyFrame, "explain", spy)
+    # What a debug line is made with: Polars printing a plan, a config as JSON, text made plain ASCII.
+    monkeypatch.setattr(pl.LazyFrame, "explain", spied(pl.LazyFrame.explain, "plan"))
+    monkeypatch.setattr(runner.json, "dumps", spied(runner.json.dumps, "config"))
+    monkeypatch.setattr(runner, "ascii_only", spied(runner.ascii_only, "text"))
     lines, result = debug_lines(caplog, added(tmp_path), level=logging.INFO)
     assert result.status == "success" and lines == [] and asked == []
-    # The same run at DEBUG does ask Polars for its plans: the spy sees what INFO was spared.
+    # The same run at DEBUG does all three: the spies see what INFO was spared.
     lines, _ = debug_lines(caplog, added(tmp_path))
-    assert lines and asked
+    assert lines and {"plan", "config", "text"} <= set(asked)

@@ -1058,3 +1058,16 @@ def test_fault_after_a_reader_whose_config_has_one_is_reported_with_it(tmp_path)
     assert found[1][0] == "it" and "nam" in found[1][2]
     assert found[1][2].endswith("(checked against the columns 'in' declares, because 'in' has a fault of its own)")
     assert len(found) == 2
+
+
+def test_what_follows_a_reader_that_declares_no_columns_stays_unchecked(tmp_path):
+    # The reader's fault is that it has no columns. There is nothing to check the filter against,
+    # and a filter held against no columns at all would be reported for every column it names.
+    from .kit import through
+
+    made = through({"type": "FilterRows", "config": {"conditions": [
+        {"column": "name", "operator": "==", "function": "", "value": "x"}]}}, "id:int, name:str")
+    made["components"][0]["schema"] = {"input": [], "output": []}
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    assert [(refusal.where.split()[1], refusal.key) for refusal in caught.value.report] == [("in", "schema")]

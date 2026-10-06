@@ -1,6 +1,6 @@
 """Command line of the v2 engine.
 
-    python -m src.v2 job.json [--context_param KEY=VALUE ...] [--check] [--row-counts]
+    python -m src.v2 job.json [--context_param KEY=VALUE ...] [--check] [--row-counts] [--summary FILE]
 
 Exit code 0 when the job finished, 1 when it ran and failed, 2 when it was
 not run at all: the job config was refused, or the command line was wrong.
@@ -49,6 +49,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _run(args)
 
 
+def _writable(text: str, stream: object) -> str:
+    """A text as a stream can write it: what its encoding cannot hold becomes an escape.
+
+    Standard error does that by itself. Standard output does not: there
+    such a character raises.
+    """
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    return text.encode(encoding, "backslashreplace").decode(encoding)
+
+
+class _Lenient(logging.StreamHandler):
+    """A handler that loses no line to its stream's encoding.
+
+    Without it a line standard output cannot write is dropped, and logging
+    reports that on standard error.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _writable(super().format(record), self.stream)
+
+
 @contextmanager
 def _log_streams(level: str) -> Iterator[None]:
     """Send log lines to the two standard streams for as long as the command runs.
@@ -57,9 +78,9 @@ def _log_streams(level: str) -> Iterator[None]:
     standard error. Logging is left as it was found.
     """
     layout = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
-    quiet = logging.StreamHandler(sys.stdout)
+    quiet = _Lenient(sys.stdout)
     quiet.addFilter(lambda record: record.levelno < logging.WARNING)
-    loud = logging.StreamHandler(sys.stderr)
+    loud = _Lenient(sys.stderr)
     loud.setLevel(logging.WARNING)
     root = logging.getLogger()
     before = root.level
@@ -94,10 +115,11 @@ def _run(args: argparse.Namespace) -> int:
         print(f"{args.job_config}: {exc}", file=sys.stderr)
         return 2
     if args.check:
-        print(f"Job '{job.name}': nothing refused.")
+        print(_writable(f"Job '{job.name}': nothing refused.", sys.stdout))
         return 0
 
     # Opened before the job runs: a job is not run only to find that its summary has nowhere to go.
+    # The file is empty while the job runs, so an earlier run's summary is never taken for this one's.
     summary_file = None
     if args.summary:
         try:
@@ -117,8 +139,12 @@ def _run(args: argparse.Namespace) -> int:
         "counts": result.counts,
         "duration_s": round(result.duration_s, 3),
     }, indent=2)
-    if summary_file is not None:
-        with summary_file:
-            summary_file.write(summary + "\n")
     print(summary)
+    if summary_file is not None:
+        try:
+            with summary_file:
+                summary_file.write(summary + "\n")
+        except OSError as exc:
+            # The job has run, and how it ended stands: this is said, and is not made a failure of the job.
+            print(f"--summary {args.summary}: {exc}", file=sys.stderr)
     return 0 if result.status == "success" else 1

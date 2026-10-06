@@ -12,7 +12,7 @@ from ...files import encoded, put_in_place, to_encoding
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import fixed_text, to_text
-from ..base import Sink, Write
+from ..base import Sink, Write, ascii_only
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, unescape
 
@@ -152,7 +152,7 @@ class FileOutputDelimited(Sink):
                 line = pl.DataFrame(schema=out.collect_schema()).write_csv(include_header=True, **style)
                 settled["header"] = encoded(line, config["encoding"])
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"[{self.id}] the written file is put in the encoding {config['encoding']}")
+                logger.debug(ascii_only(f"[{self.id}] the written file is put in the encoding {config['encoding']}"))
             settled["mark"] = to_encoding(written, config["encoding"])
 
         def place(written: str, rows: int) -> None:

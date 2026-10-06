@@ -28,14 +28,19 @@ python -m src.v2 job.json --row-counts                     # log the row counts 
 Log lines at INFO and DEBUG go to standard output. Warnings and errors go
 to standard error, and so do the refusal report and what is wrong with the
 command line: an empty standard error means a clean run. `--log-level`
-names the lowest level that is written (`INFO` unless told otherwise).
+names the lowest level that is written (`INFO` unless told otherwise). A
+character a stream's encoding cannot write is written as an escape, on
+either stream, so no line is lost on a server whose locale is not UTF-8.
 
 A summary of the run is the last thing written to standard output, as JSON
 (`status`, `error`, `failed_component`, `failures`, `rows` written by each
-output, `counts`, `duration_s`). `--summary FILE` writes it to a file as well, so
-that nothing has to pick it out of the log. The file is opened before the
-job runs: when it cannot be written, nothing runs (exit code 2). A job that
-was not run leaves the file as it was.
+output, `counts`, `duration_s`). `--summary FILE` writes it to a file as
+well, so that nothing has to pick it out of the log. The file is opened
+before the job runs: when it cannot be opened, nothing runs (exit code 2).
+It is empty while the job runs, so the summary of an earlier run is never
+taken for this one's. If it cannot be written once the job has run (a disk
+that filled up), that is said on standard error and the exit code stays
+the job's. A job that was not run leaves the file as it was.
 
 `--row-counts` is for looking into a job: it counts the rows of every
 component and logs them, one line a component (see "What the log says").
@@ -67,10 +72,12 @@ when they hold more than ASCII).
    everything that stops the job, component by component. A component with
    a fault does not hide the faults of what it feeds: the check goes on
    down the flow with the columns the component declares, and a fault found
-   that way says so. Two things are still left for a second look: what
-   follows a faulty component that declares no columns (a map, for one), and
-   what follows a component that waits for a value the job sets while it
-   runs (a context variable a context load sets, a row count).
+   that way says so. Three things are still left for a second look: what
+   follows a faulty component that declares no columns (a map, for one, or
+   a reader with no schema), what follows a component whose config values
+   cannot be read at all, and what follows a component that waits for a
+   value the job sets while it runs (a context variable a context load
+   sets, a row count).
 2. Rewrite every Java expression (`{{java}}...`) in Python. See
    "Expressions" below.
 3. Replace or remove components v2 does not have. v2 has sixteen: delimited
@@ -214,7 +221,8 @@ they expected:
 
 None of this is put together unless the level is DEBUG: a run at INFO pays
 nothing for it. A plan takes many lines; the payments scenario's job logs
-about six hundred lines at DEBUG.
+about six hundred lines at DEBUG. A plan Polars cannot print is said to be
+so in the log; it does not fail the job.
 
 ## Types and missing values
 

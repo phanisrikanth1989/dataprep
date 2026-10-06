@@ -242,6 +242,16 @@ def test_subjob_trigger_that_fires_when_the_subjob_is_done_is_logged(caplog):
     assert order == ["root", "b1", "b2"]
 
 
+def test_error_trigger_that_fires_when_the_subjob_is_done_is_logged(caplog):
+    # As above, with b1 failing: its error trigger points at a subjob root has set off already.
+    components = [*marks("root"), ("b1", "boom", {"why": "it broke"}), *marks("b2")]
+    triggers = [trigger("OnSubjobOk", "root", "b1"), trigger("OnSubjobOk", "root", "b2"),
+                trigger("OnSubjobError", "b1", "b2")]
+    lines, order = trigger_lines(caplog, job(components, [], triggers=triggers))
+    assert lines[-1] == "[t] trigger OnSubjobError from b1 to b2 fired: the subjob of b2 is set off"
+    assert order == ["root", "b2"]
+
+
 def test_trigger_line_is_one_line_of_plain_ascii(caplog):
     condition = "(context.go == 'caf\u00e9'\n    or True)"
     lines, order = trigger_lines(caplog, job(marks("a", "b"), [], triggers=[trigger("RunIf", "a", "b", condition=condition)],
@@ -249,3 +259,10 @@ def test_trigger_line_is_one_line_of_plain_ascii(caplog):
     assert lines == ["[t] trigger RunIf from a to b, judged when a was done: (context.go == 'caf\\xe9' or True) is true: "
                      "the subjob of b is set off"]
     assert order == ["a", "b"]
+
+
+def test_trigger_line_is_plain_ascii_whatever_the_component_ids_hold(caplog):
+    made = job(marks("s\u00fcd", "nord"), [], triggers=[trigger("OnSubjobOk", "s\u00fcd", "nord")])
+    lines, order = trigger_lines(caplog, made)
+    assert lines == ["[t] trigger OnSubjobOk from s\\xfcd to nord fired: the subjob of nord is set off"]
+    assert order == ["s\u00fcd", "nord"]

@@ -113,7 +113,8 @@ class Component:
         outputs for a component with no input; OK is the main output and
         REJECT the reject output. A component whose v1 counterpart counts
         differently says so here. Counting happens only when something in
-        the job reads the count.
+        the job reads the count, or when the run asks for the counts of
+        every component.
         """
         accepted = [outputs[port] for port in ("main",) if port in outputs]
         rejected = [outputs[port] for port in ("reject",) if port in outputs]

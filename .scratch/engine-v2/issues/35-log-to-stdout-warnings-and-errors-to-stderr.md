@@ -40,8 +40,16 @@ Built on 2026-10-06 (`src/v2/cli.py`, tests in `tests/v2/unit/test_cli.py`).
 - `--summary FILE` was built with it. It was the dev's to confirm and the
   dev was not there to ask; it is one flag and can be taken out. The file is
   opened before the job runs, so a summary that has nowhere to go stops the
-  command with exit code 2 and nothing runs: a job that ran is never
+  command with exit code 2 and nothing runs. A job that ran is never
   reported as failed for its summary's sake, which could have a scheduler
-  run it twice. A job that was not run leaves the file as it was.
+  run it twice: if the file cannot be written once the job has run (a disk
+  that filled up), that is said on standard error and the exit code stays
+  the job's. The file is empty while the job runs, so a run that is stopped
+  leaves no summary of an earlier run behind. A job that was not run leaves
+  the file as it was.
+- A character standard output cannot write (a server whose locale is not
+  UTF-8) is written as an escape, as standard error does by itself. Without
+  that the line was dropped and logging complained on standard error; when
+  every line went to standard error this could not happen.
 - The command puts its two log handlers on when it starts and takes them off
   when it ends. `run_job` called from Python sets up no logging, as before.

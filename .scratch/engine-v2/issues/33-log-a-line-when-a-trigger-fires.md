@@ -40,9 +40,13 @@ A `RunIf`, each time it is judged:
   points at; the "subjob starting" line that follows lists its components.
 - A `RunIf` that is true the first time is not judged again, so it has one
   line. One that is false the first time has two.
-- A trigger that does not fire has no line, except a `RunIf`. Neither has a
-  trigger whose subjob was set off already by another one.
-- The condition is written as one line of plain ASCII: line breaks become
-  blanks and any other character is written as its escape.
+- A trigger that does not fire has no line, except a `RunIf`.
+- A trigger whose subjob another trigger has set off already has no line
+  when its component is done. When its subjob is done and that other subjob
+  has still not run, it does fire, which moves that subjob to the front,
+  and it has its line then.
+- The whole line is one line of plain ASCII: line breaks in the condition
+  become blanks, and any character that is not ASCII, in the condition or
+  in an id, is written as its escape.
 - The line gives what the condition came to, not the values it read. That
   would be the next thing to add if support asks why a count was what it was.

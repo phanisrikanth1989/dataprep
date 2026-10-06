@@ -75,8 +75,9 @@ The job of this ticket now gets one report:
   nowhere.
 - Left unchecked, as before: what follows a faulty component that declares
   no columns (a map: its outputs are in its config, and a column typed `str`
-  there keeps whatever type its expression gives), what follows a component
-  whose config values cannot be read at all, and what follows a component
-  that waits for a context value or a globalMap entry.
+  there keeps whatever type its expression gives; a reader whose fault is
+  that it has no schema), what follows a component whose config values
+  cannot be read at all, and what follows a component that waits for a
+  context value or a globalMap entry.
 - One fault is one line: a component built on declared columns reports only
   what is wrong with itself.

@@ -118,6 +118,22 @@ def test_asking_for_row_counts_changes_no_file(on_v2, v2_counted):
     assert differing(on_v2, v2_counted[0]) == []
 
 
+def test_job_runs_the_same_at_the_debug_level(work, on_v2, caplog):
+    # Every debug line is made inside the run: none of them may get in its way, for any component.
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="src.v2")
+    out = work / "v2_debug"
+    out.mkdir()
+    result = run_job(jobs.build("python", work / "data", out), row_counts=True)
+    assert result.status == "success", result.error
+    assert differing(on_v2, written(out)) == []
+    said = [record.getMessage() for record in caplog.records if record.levelno == logging.DEBUG]
+    for component_id in result.counts:
+        assert any(line.startswith(f"[{component_id}] config: ") for line in said), component_id
+    assert [line for line in said if not line.isascii()] == []
+
+
 # ------------------------------------------------------------------
 # Two faults on one flow
 # ------------------------------------------------------------------

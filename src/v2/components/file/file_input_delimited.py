@@ -173,11 +173,10 @@ class FileInputDelimited(Source):
         if native:
             self.run_context.used_fast_read = True
         if logger.isEnabledFor(logging.DEBUG):
+            how = f"every column is read as text: {why_text}"
             if native:
-                parsed = ascii_only(", ".join(native))
-                logger.debug(f"[{self.id}] Polars parses the numbers of {parsed} itself; every other column is read as text")
-            else:
-                logger.debug(f"[{self.id}] every column is read as text: {why_text}")
+                how = f"Polars parses the numbers of {', '.join(native)} itself; every other column is read as text"
+            logger.debug(ascii_only(f"[{self.id}] {how}"))
         frame = self._lines(source, names) if self._by_line() else self._fields(source, names, native)
 
         if config["remove_empty_row"]:
@@ -352,6 +351,8 @@ class FileInputDelimited(Source):
         return pl.LazyFrame(schema={name: pl.String for name in names + ["errorCode", "errorMessage"]})
 
     def declared_outputs(self) -> Dict[str, pl.LazyFrame]:
+        if not self.schema:
+            return {}
         names = [column.name for column in self.schema]
         return {"main": pl.LazyFrame(schema=polars_schema(self.schema)), "reject": self._no_rejects(names)}
 

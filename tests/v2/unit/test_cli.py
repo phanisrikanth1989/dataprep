@@ -103,6 +103,43 @@ def test_log_level_decides_which_lines_are_written(tmp_path, capsys):
     assert captured.err == ""
 
 
+def test_debug_lines_go_to_standard_output_too(tmp_path, capsys):
+    assert main([job_file(tmp_path), "--log-level", "debug"]) == 0
+    captured = capsys.readouterr()
+    assert " DEBUG src.v2.engine.runner - [in] config: " in captured.out
+    assert captured.err == ""
+    assert summary_of(captured.out)["status"] == "success" and captured.out.splitlines()[-1] == "}"
+
+
+def test_log_line_standard_output_cannot_hold_is_written_with_escapes_and_not_lost(tmp_path, capsys, monkeypatch):
+    # Standard error writes what its encoding cannot hold as an escape, by itself. Standard output
+    # does not: without help, such a line is dropped and a traceback lands on standard error.
+    import io
+    import sys
+
+    held = io.BytesIO()
+    plain = io.TextIOWrapper(held, encoding="ascii", errors="strict")
+    monkeypatch.setattr(sys, "stdout", plain)
+    assert main([job_file(tmp_path, job_name="Z\u00fcrich")]) == 0
+    plain.flush()
+    written = held.getvalue().decode("ascii")
+    assert "[Z\\xfcrich] starting" in written and "[Z\\xfcrich] success" in written
+    assert capsys.readouterr().err == ""
+
+
+def test_check_says_nothing_refused_also_where_standard_output_cannot_hold_the_job_name(tmp_path, capsys, monkeypatch):
+    import io
+    import sys
+
+    held = io.BytesIO()
+    plain = io.TextIOWrapper(held, encoding="ascii", errors="strict")
+    monkeypatch.setattr(sys, "stdout", plain)
+    assert main([job_file(tmp_path, job_name="Z\u00fcrich"), "--check"]) == 0
+    plain.flush()
+    assert held.getvalue().decode("ascii") == "Job 'Z\\xfcrich': nothing refused.\n"
+    assert capsys.readouterr().err == ""
+
+
 def test_command_leaves_logging_as_it_found_it(tmp_path, capsys):
     root = logging.getLogger()
     handlers, level = list(root.handlers), root.level
@@ -160,6 +197,38 @@ def test_summary_file_that_cannot_be_written_stops_the_command_before_the_job_ru
     assert main([job_file(tmp_path), "--summary", str(target)]) == 2
     assert "--summary" in capsys.readouterr().err
     assert not (tmp_path / "out.csv").exists()
+
+
+def test_summary_file_that_fails_after_the_job_ran_does_not_change_how_the_job_ended(tmp_path, capsys, monkeypatch):
+    # A disk that fills up while the job runs: the file opened, and cannot be written.
+    target = tmp_path / "run.json"
+
+    class Full:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def write(self, text):
+            raise OSError(28, "No space left on device")
+
+        def close(self):
+            self.handle.close()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *problem):
+            self.close()
+
+    def opened(path, *args, **kwargs):
+        handle = open(path, *args, **kwargs)
+        return Full(handle) if str(path) == str(target) else handle
+
+    monkeypatch.setattr("src.v2.cli.open", opened, raising=False)
+    assert main([job_file(tmp_path), "--summary", str(target)]) == 0
+    captured = capsys.readouterr()
+    assert summary_of(captured.out)["status"] == "success"
+    assert "--summary" in captured.err and "No space left on device" in captured.err
+    assert (tmp_path / "out.csv").read_text() == "1;x\n2;y\n"
 
 
 def test_job_that_was_not_run_leaves_the_summary_file_alone(tmp_path):

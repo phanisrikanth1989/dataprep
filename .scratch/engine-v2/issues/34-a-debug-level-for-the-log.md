@@ -59,8 +59,12 @@ What `--log-level DEBUG` adds, line by line:
   Polars' message cut to one line. DEBUG adds the message in full.
 - Every debug line is behind `logger.isEnabledFor(logging.DEBUG)`. A test
   holds that Polars is not asked for a plan at INFO.
-- Lines are plain ASCII: any other character is written as its escape
-  (`ascii_only` in `src/v2/components/base.py`).
+- Every one of these lines is plain ASCII as a whole, ids and paths
+  included: any other character is written as its escape (`ascii_only` in
+  `src/v2/components/base.py`).
+- A debug line cannot fail a job. The one call in them that is not the
+  engine's own, Polars printing a plan, is caught: the log then says the
+  plan could not be printed.
 
 Only the delimited reader chooses between the two ways of reading numbers,
 so only it has that line.

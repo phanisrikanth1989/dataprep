@@ -278,10 +278,10 @@ class Runner:
         ends = f"[{self.job.name}] trigger {trigger.kind} from {trigger.source} to {trigger.target}"
         sets_off = f"the subjob of {trigger.target} is set off"
         if judged is not None:
-            came_to = f"{ends}, judged when {judged}: {_one_line(trigger.condition or '')} is {str(fires).lower()}"
-            logger.info(f"{came_to}: {sets_off}" if fires else came_to)
+            came_to = f"{ends}, judged when {judged}: {trigger.condition or ''} is {str(fires).lower()}"
+            logger.info(_one_line(f"{came_to}: {sets_off}" if fires else came_to))
         elif fires:
-            logger.info(f"{ends} fired: {sets_off}")
+            logger.info(_one_line(f"{ends} fired: {sets_off}"))
 
     def _record(self, result: JobResult, component_id: Optional[str], reason: str) -> None:
         logger.error(f"[{self.job.name}] failed at {component_id}: {reason}")
@@ -306,16 +306,18 @@ class Runner:
         holding = [component_id for component_id in component_ids if self.job.components[component_id].cls.may_need_rows]
         self.run_context.fast_read = not holding and not os.environ.get("V2_SAFE_READ")
         if logger.isEnabledFor(logging.DEBUG):
-            if self.run_context.fast_read:
-                logger.debug(
-                    f"[{self.job.name}] sources may let Polars parse numbers itself in this subjob: "
-                    "nothing in it needs rows in hand, so it can be read a second time"
+            how = (
+                "sources may let Polars parse numbers itself in this subjob: "
+                "nothing in it needs rows in hand, so it can be read a second time"
+            )
+            if holding:
+                how = (
+                    f"sources read every column as text in this subjob: {', '.join(holding)} may need rows "
+                    "in hand, so the subjob cannot be read a second time"
                 )
-            else:
-                why = "V2_SAFE_READ is set"
-                if holding:
-                    why = f"{', '.join(holding)} may need rows in hand, so the subjob cannot be read a second time"
-                logger.debug(f"[{self.job.name}] sources read every column as text in this subjob: {why}")
+            elif not self.run_context.fast_read:
+                how = "sources read every column as text in this subjob: V2_SAFE_READ is set"
+            logger.debug(ascii_only(f"[{self.job.name}] {how}"))
         try:
             failure = self._attempt(component_ids)
             if failure is not None and failure.read_again:
@@ -324,8 +326,8 @@ class Runner:
                     "reading again with the tolerant reader"
                 )
                 if logger.isEnabledFor(logging.DEBUG):
-                    said = ascii_only(str(failure.__cause__))
-                    logger.debug(f"[{self.job.name}] what the fast reader said, in full:\n{said}")
+                    said = f"[{self.job.name}] what the fast reader said, in full:\n{failure.__cause__}"
+                    logger.debug(ascii_only(said))
                 self.run_context.fast_read = False
                 failure = self._attempt(component_ids)
         finally:
@@ -361,10 +363,10 @@ class Runner:
         for component_id in component_ids:
             counted = {stat: global_map[f"{component_id}_{stat}"] for stat in _STATS}
             self.counts[component_id] = counted
-            logger.info(
+            logger.info(ascii_only(
                 f"[{component_id}] NB_LINE:{counted['NB_LINE']} OK:{counted['NB_LINE_OK']} "
                 f"REJECT:{counted['NB_LINE_REJECT']}"
-            )
+            ))
 
     def _build(self, component_ids: List[str], state: _Subjob) -> None:
         frames: Dict[str, pl.LazyFrame] = {}
@@ -373,7 +375,7 @@ class Runner:
             try:
                 component = self._ready(spec)
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"[{component_id}] config: {json.dumps(component.config, default=str)}")
+                    logger.debug(ascii_only(f"[{component_id}] config: {json.dumps(component.config, default=str)}"))
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 if isinstance(component, Sink):
                     heights: List[int] = []
@@ -397,7 +399,7 @@ class Runner:
                     columns = frame.collect_schema()
                     if logger.isEnabledFor(logging.DEBUG):
                         shown = ", ".join(f"{name} {dtype}" for name, dtype in columns.items())
-                        logger.debug(f"[{component_id}] output {port}: {ascii_only(shown)}")
+                        logger.debug(ascii_only(f"[{component_id}] output {port}: {shown}"))
                 self._count(component, inputs, outputs)
             except _Failed:
                 raise
@@ -469,7 +471,7 @@ class Runner:
         return outputs
 
     def _count(self, component: Component, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]) -> None:
-        """Count the rows of a component whose counts something in the job reads."""
+        """Count the rows of a component whose counts something in the job reads, or the run asked for."""
         wanted = self._wanted.get(component.id)
         if not wanted or isinstance(component, Sink):
             return
@@ -507,13 +509,12 @@ class Runner:
             plans += [tap.frame for _, tap in taps]
             if logger.isEnabledFor(logging.DEBUG):
                 for (component_id, _, _), temp in zip(writes, temps):
-                    logger.debug(f"[{component_id}] writing to the temporary file {temp}")
+                    logger.debug(ascii_only(f"[{component_id}] writing to the temporary file {temp}"))
                 named = [f"output {component_id}" for component_id, _, _ in writes]
                 named += [f"what {component_id} asked to know" for component_id, _ in taps]
                 named += [f"the rows {handed_to} is handed"] * len(wanted)
                 for name, plan in zip(named, plans + wanted):
-                    given = ascii_only(plan.explain(optimized=False))
-                    logger.debug(f"[{self.job.name}] plan of {name}:\n{given}")
+                    logger.debug(ascii_only(f"[{self.job.name}] plan of {name}:{_given(plan)}"))
             results = pl.collect_all(plans + wanted, engine=self.engine)
         except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
             if self.run_context.fast_read and self.run_context.used_fast_read:
@@ -707,6 +708,18 @@ def _counted(frame: pl.LazyFrame, heights: List[int]) -> pl.LazyFrame:
 def _one_line(text: str) -> str:
     """A text as one line of plain ASCII, for the log."""
     return ascii_only(" ".join(text.split()))
+
+
+def _given(plan: pl.LazyFrame) -> str:
+    """A plan as Polars is given it, on lines of its own, for the log.
+
+    Printing a plan is for the reader of the log only: where Polars cannot
+    print one, the log says so and the job goes on.
+    """
+    try:
+        return "\n" + plan.explain(optimized=False)
+    except Exception as exc:  # noqa: BLE001 -- whatever stops the printing must not stop the job
+        return f" Polars could not print it ({_reason(exc)})"
 
 
 def _discard(state: _Subjob) -> None:
