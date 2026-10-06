@@ -243,6 +243,10 @@ are designed.
   -- the check goes on past a faulty component with the columns it declares,
   and a fault found that way says so; nothing is guessed where no columns
   are declared.
+- [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md)
+  -- research: no tool names the input row of a failure in a later step, and
+  Polars names none at all; a reader can name its own rows for nothing, and
+  a failure Polars raises needs a second look at the data.
 
 ## Not yet specified
 
@@ -265,9 +269,8 @@ decide, not fog on the way there.
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
-- Asked for by the dev in the review of 2026-10-06 and still open:
-  [How to point at the input row that failed a job](issues/37-how-to-point-at-the-input-row-that-failed-a-job.md),
-  to be researched before anything is built.
+- Being settled with the dev, after the research of 2026-10-06:
+  [How v2 points at the input row that failed a job](issues/38-how-v2-points-at-the-input-row-that-failed-a-job.md).
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).

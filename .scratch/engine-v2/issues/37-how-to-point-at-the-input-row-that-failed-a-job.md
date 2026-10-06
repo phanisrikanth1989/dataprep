@@ -1,6 +1,6 @@
 # 37 - How to point at the input row that failed a job
 
-Status: claimed
+Status: resolved
 Type: research
 
 ## Question
@@ -58,3 +58,45 @@ way.
 
 The findings go in `.scratch/engine-v2/research/`. A ticket to build it
 follows them.
+
+## Answer
+
+Researched on 2026-10-06 from primary sources only. The findings are in
+[`research/2026-10-06-pointing-at-the-failed-row.md`](../research/2026-10-06-pointing-at-the-failed-row.md):
+twelve sentences under "In short", then a section for each point above, a
+table comparing eighteen tools, four options, twelve try-outs and what could
+not be verified. Nothing was run for it.
+
+What it comes to:
+
+- No tool read says where in the input a row came from when it fails in a
+  later step. A position is known only where the row is read. Talend,
+  Spark, DuckDB and Polars are all alike in this.
+- Talend gives less than it seems to: " - Line: N" on a rejected row is a
+  count of rows handled so far, from 0, not a line of the file, and with
+  die on error there is no line at all. (Read from the code templates of a
+  fork of Talend Open Studio, not from a running job.)
+- Polars names no row in any release, 2.0.0 of 2026-10-06 included. A
+  request for line numbers is open without an answer; an earlier one was
+  closed because the parallel reader does not know the line.
+- The loaders that do it best (DuckDB, Snowflake, Redshift) give the file, a
+  record or line number, the column, the value and the raw record, and keep
+  them in a store of rejects, not only in the message.
+- Where v2 finds the bad row itself (a reader's rejects, a missing value
+  where none is allowed, text a map cannot read as a number) it can name the
+  row in the same pass at no measured cost. An error Polars raises in the
+  middle of a pass needs a second look at the data, on any Polars version.
+- "Line" is the wrong word for the general case. What every reader can give
+  is a record number; the position is the reader's own (a line, a sheet and
+  a row, a path in JSON or XML). Published shapes for this exist (SARIF, the
+  W3C model for CSV).
+- For a wide row the others show the failed column and its value, cut to a
+  length, add identifying columns only where the user names them, and send
+  the whole record to the store of rejects. v2 today writes the bad value
+  into the log with no limit, sets nothing in globalMap for an error, and
+  never reads the schema's key flag.
+
+The four options (readers report with a record number; the number travels
+with the row; look again only after a failure; a failing row is a flagged
+row and not an exception) are not decided here. That is
+[How v2 points at the input row that failed a job](38-how-v2-points-at-the-input-row-that-failed-a-job.md).
