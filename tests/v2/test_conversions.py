@@ -11,7 +11,7 @@ from tests.v2.answer_key import assert_matches_v1
 
 from .components.kit import columns, flow, writer
 from .components.test_filter_rows import filter_job
-from .components.test_map import config, lookup, mapping, out, same, v2
+from .components.test_map import config, lookup, mapping, out, pair, same, v2
 
 CODES = "id:int, code:str"
 # Row 2 (line 3 of the file) holds a code that is no number; row 4 an empty one.
@@ -74,6 +74,61 @@ def test_output_filter_is_not_worked_out_for_a_row_an_inner_join_turned_away(tmp
                    {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int", "lost": "id:int"})
     run = same(tmp_path, made, {"row1.csv": DATA, "names.csv": b"id;name\n1;a\n3;c\n5;e\n"})
     assert lines_of(run)[1:] == ["1", "3"] and lines_of(run, "lost.csv")[1:] == ["2", "4"]
+
+
+NAMES = {"row1.csv": DATA, "names.csv": b"id;name\n1;a\n3;c\n5;e\n"}
+BY_ID = lookup("names", [("id", "row1.id")], join_mode="INNER_JOIN")
+LOST = out("lost", [("id", "row1.id", "int")], inner_join_reject=True)
+
+
+def test_variable_is_not_worked_out_for_a_row_an_inner_join_turned_away(tmp_path):
+    # Rows 2 and 4 find no name. As in v1 they have left before the variables are worked out.
+    outputs = [out("o", [("id", "row1.id", "int"), ("n", "Var['n'] + 1", "int")]), LOST]
+    made = mapping(config(outputs, lookups=[BY_ID], variables=[("n", "int(row1.code)")]),
+                   {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int, n:int", "lost": "id:int"})
+    run = same(tmp_path, made, NAMES)
+    assert lines_of(run)[1:] == ["1;11", "3;31", "5;8"] and lines_of(run, "lost.csv")[1:] == ["2", "4"]
+
+
+def test_variable_nothing_reads_is_not_worked_out_for_a_row_an_inner_join_turned_away_either(tmp_path):
+    outputs = [out("o", [("id", "row1.id", "int")])]
+    made = mapping(config(outputs, lookups=[BY_ID], variables=[("n", "int(row1.code)")]),
+                   {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int"})
+    assert lines_of(same(tmp_path, made, NAMES))[1:] == ["1", "3", "5"]
+
+
+def test_variable_is_not_worked_out_for_a_row_an_inner_join_turned_away_in_v1s_java_map(tmp_path):
+    def made(number):
+        return config([out("o", [("id", "row1.id", "int"), ("n", "Var.n + 1", "int")]), LOST],
+                      lookups=[BY_ID], variables=[("n", number)])
+
+    files = pair(tmp_path, made("Integer.parseInt(row1.code)"), made("int(row1.code)"),
+                 {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int, n:int", "lost": "id:int"}, NAMES)
+    assert files["o.csv"] == b"id;n\n1;11\n3;31\n5;8\n" and files["lost.csv"] == b"id\n2\n4\n"
+
+
+def test_lookup_key_is_not_worked_out_for_a_row_an_earlier_inner_join_turned_away(tmp_path):
+    # A row that has left is looked up nowhere, so its key is never worked out. v1's PyMap has no computed keys.
+    def made(number):
+        return config([out("o", [("id", "row1.id", "int"), ("size", "sizes.size", "str")]), LOST],
+                      lookups=[BY_ID, lookup("sizes", [("n", number)])])
+
+    files = pair(tmp_path, made("Integer.parseInt(row1.code)"), made("int(row1.code)"),
+                 {"row1": CODES, "names": "id:int, name:str", "sizes": "n:int, size:str"},
+                 {"o": "id:int, size:str", "lost": "id:int"},
+                 dict(NAMES, **{"sizes.csv": b"n;size\n10;ten\n30;thirty\n"}))
+    assert files["o.csv"] == b"id;size\n1;ten\n3;thirty\n5;\n" and files["lost.csv"] == b"id\n2\n4\n"
+
+
+def test_variable_an_inner_join_reject_output_reads_is_worked_out_for_the_rows_it_takes(tmp_path):
+    # v1 gives an output of this kind no variables to read; v2 does, so it has to work them out there.
+    outputs = [out("o", [("id", "row1.id", "int")]),
+               out("lost", [("id", "row1.id", "int"), ("n", "Var.n", "int")], inner_join_reject=True)]
+    made = mapping(config(outputs, lookups=[BY_ID], variables=[("n", "int(row1.code)")]),
+                   {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int", "lost": "id:int, n:int"})
+    result, files = v2(tmp_path, made, NAMES)
+    assert result.status == "failed" and not files
+    assert result.error.startswith("variables[0].expression: int() could not read 'x320' (in: int(row1.code)); ")
 
 
 def test_conversion_guarded_in_an_output_filter(tmp_path):

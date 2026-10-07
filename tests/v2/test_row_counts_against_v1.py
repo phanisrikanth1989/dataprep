@@ -16,6 +16,7 @@ from .components.kit import through
 from .components.test_file_delimited import copy
 from .components.test_file_input_excel import book, excel
 from .components.test_file_input_fullrow import read_lines
+from .components.test_file_input_json import ODD, ODD_PATHS, ODD_SCHEMA, as_bytes, json_job
 from .components.test_file_input_positional import cut
 from .components.test_log_row import logged
 from .components.test_map import (BY_CODE, INNER, JOINED, JOINED_COLUMNS, MISSED, MISSES, TWO, TWO_DATA, config,
@@ -73,6 +74,11 @@ def test_excel_reader_counts_the_rows_it_reads(tmp_path):
     sheet = book({"Sheet1": [["a", "n"], ["a", 1], ["b", 2], ["c", 3]]})
     found = same_counts(made, {"in.xlsx": sheet}, tmp_path)
     assert found["in"] == counts(3, 3, 0)
+
+
+def test_json_reader_counts_the_records_it_passes_on_and_the_ones_it_turns_away(tmp_path):
+    found = same_counts(json_job(ODD_SCHEMA, ODD_PATHS), {"in.json": as_bytes(ODD)}, tmp_path)
+    assert found["in"] == counts(4, 2, 2) and found["out"] == counts(2, 2, 0)
 
 
 # v1's full-row input counts as read every line the file splits into: the header and footer it skips,

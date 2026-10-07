@@ -9,7 +9,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...types import polars_type
-from ...rows import without
+from ...rows import hidden, without
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -166,7 +166,8 @@ class Join(Transform):
         absent = [
             pl.lit(None, dtype=polars_type(column)).alias(column.name) for column in declared if column.name not in have
         ]
-        return unmatched.with_columns(absent).select(named)
+        # The row's number goes on with it, as on every output.
+        return unmatched.with_columns(absent).select(named + hidden(have.names()))
 
 
 def _sides(inputs: Dict[str, pl.LazyFrame]) -> Tuple[pl.LazyFrame, pl.LazyFrame]:

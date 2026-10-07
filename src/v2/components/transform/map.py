@@ -7,6 +7,7 @@ many outputs there are. The joins are in ``map_joins``, the outputs in
 """
 from __future__ import annotations
 
+import ast
 from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
@@ -18,7 +19,7 @@ from ...job.model import TYPE_NAMES
 from ...rows import visible, without
 from ..base import Transform, is_on
 from ..registry import REGISTRY
-from .map_joins import joined_with
+from .map_joins import MISSED, joined_with
 from .map_outputs import condition, projected, routed, translated, type_of
 
 # Working columns that hold the variables, one per entry of `variables`.
@@ -228,13 +229,17 @@ class Map(Transform):
             where = f"inputs.lookups[{index}]"
             # A lookup's own row numbers are left behind: the row that goes on is the main input's.
             frame = without(self._filtered(self._input(inputs, lookup["name"], f"{where}.name"), lookup, where))
-            keys = self._keys(lookup, rows, where, joined)
+            keys = self._keys(lookup, rows, where, joined, missed)
             joined = joined_with(joined, frame, lookup, keys, missed, self.config["enable_auto_convert_type"], where)
             missed = missed or lookup["join_mode"] == "INNER_JOIN"
             rows[lookup["name"]] = _own(frame)
         scope = self._scope(rows)
-        joined = self._with_variables(joined, scope)
         outputs = self.config["outputs"]
+        # As in v1, a row an inner join turned away has left before the variables are worked out. v1 gives
+        # the output that takes such rows no variables to read; here it may read them, and then they are
+        # worked out for every row.
+        everywhere = not missed or any(_reads_variables(output) for output in outputs if output["inner_join_reject"])
+        joined = self._with_variables(joined, scope, None if everywhere else ~pl.col(MISSED))
         taken = routed(joined, outputs, scope, missed)
         # The variables and the outputs' filters are worked out on the joined rows.
         self.check_conversions(joined, scope)
@@ -276,7 +281,8 @@ class Map(Transform):
         return frame.filter(kept)
 
     def _keys(
-        self, lookup: Dict[str, Any], rows: Dict[str, Dict[str, pl.DataType]], where: str, joined: pl.LazyFrame
+        self, lookup: Dict[str, Any], rows: Dict[str, Dict[str, pl.DataType]], where: str, joined: pl.LazyFrame,
+        missed: bool,
     ) -> List[Tuple[pl.Expr, pl.DataType]]:
         """A lookup's key values on the main side, which may read the lookups joined before it.
 
@@ -285,20 +291,29 @@ class Map(Transform):
             rows: The rows joined so far, by name, with their columns.
             where: The lookup's place in the config, for messages.
             joined: The rows joined so far, which the key expressions are worked out on.
+            missed: Whether a lookup joined before this one is an inner join.
         """
         scope = self._scope(rows)
+        # A row an earlier inner join turned away is looked up no more, so its key is never worked out.
+        looked_up = ~pl.col(MISSED) if missed else None
         keys = []
         for index, key in enumerate(lookup["join_keys"]):
-            value = translated(key["expression"], scope, f"{where}.join_keys[{index}].expression")
+            value = translated(key["expression"], scope, f"{where}.join_keys[{index}].expression", looked_up)
             keys.append((value, type_of(value, scope)))
         self.check_conversions(joined, scope)
         return keys
 
-    def _with_variables(self, joined: pl.LazyFrame, scope: Scope) -> pl.LazyFrame:
-        """Compute each variable once, as a working column that later expressions read."""
+    def _with_variables(self, joined: pl.LazyFrame, scope: Scope, worked_out: Optional[pl.Expr]) -> pl.LazyFrame:
+        """Compute each variable once, as a working column that later expressions read.
+
+        Args:
+            joined: The joined rows.
+            scope: What a variable may refer to; each variable is added to it.
+            worked_out: True for the rows a variable is worked out for; None for every row.
+        """
         for index, variable in enumerate(self.config["variables"]):
             text = variable["expression"].strip()
-            value = translated(text, scope, f"variables[{index}].expression") if text else pl.lit(None)
+            value = translated(text, scope, f"variables[{index}].expression", worked_out) if text else pl.lit(None)
             column = f"{_VARIABLE_COLUMN}{index}"
             dtype = type_of(value, scope)
             joined = joined.with_columns(value.alias(column))
@@ -313,6 +328,23 @@ class Map(Transform):
         )
         self.scopes.append(scope)
         return scope
+
+
+def _reads_variables(output: Dict[str, Any]) -> bool:
+    """Whether an output's columns or its filter read a variable."""
+    texts = [column["expression"] for column in output["columns"]]
+    if output["activate_filter"]:
+        texts.append(output["filter"])
+    return any(_names(text.strip(), "Var") for text in texts)
+
+
+def _names(text: str, name: str) -> bool:
+    """Whether an expression holds a name; one that cannot be read holds none, and is refused where it is translated."""
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return False
+    return any(isinstance(node, ast.Name) and node.id == name for node in ast.walk(tree))
 
 
 def _own(frame: pl.LazyFrame) -> Dict[str, pl.DataType]:

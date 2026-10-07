@@ -16,6 +16,8 @@ from .components.test_file_input_json import json_job
 from .components.test_file_input_fullrow import read_lines
 from .components.test_file_input_positional import cut
 from .components.test_map import config as map_config
+from .components.test_map import lookup as map_lookup
+from .components.test_map import mapping
 from .components.test_map import out as map_out
 
 IDS = "id:int, amount:int"
@@ -249,6 +251,18 @@ def test_map_names_the_row_whose_text_it_cannot_read(tmp_path):
                      "; the row is line 3 of in.csv (id=2)")
 
 
+def test_map_names_the_value_and_the_row_of_one_and_the_same_failure(tmp_path):
+    # The first text that cannot be read is on line 3, in the second of the two columns; the first column's
+    # is a line further down.
+    pairs = "id:int, a:str, b:str"
+    kept = [("id", "row1.id", "int"), ("a", "row1.a", "int"), ("b", "row1.b", "int")]
+    made = keyed(through({"type": "PyMap", "config": map_config([map_out("row2", kept)]),
+                          "schema": {"inputs": {"row1": columns(pairs)}}}, pairs, "id:int, a:int, b:int"))
+    error = failed(tmp_path, made, {"in.csv": b"id;a;b\n1;7;8\n2;7;x\n3;y;8\n"})
+    assert error == ("output 'row2' column 'b': 'x' cannot be read as int (2 rows of the output hold such a value)"
+                     "; the row is line 3 of in.csv (id=2)")
+
+
 def test_row_of_a_group_is_named_by_the_first_row_that_went_into_it(tmp_path):
     # The highest age of each name; the two rows called cy have none, so their group has none either.
     data = b"id;name;age\n1;ann;30\n2;cy;\n3;ann;5\n4;cy;\n"
@@ -259,6 +273,91 @@ def test_row_of_a_group_is_named_by_the_first_row_that_went_into_it(tmp_path):
     error = failed(tmp_path, made, {"in.csv": data})
     assert error == ("Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv, "
                      "the first of 2 rows that were combined (id=2)")
+
+
+# ------------------------------------------------------------------
+# Where two inputs meet
+# ------------------------------------------------------------------
+
+def needing_age(arriving, declared=PEOPLE):
+    """A sort that needs every age, and the file it writes: where a row without one fails the job."""
+    by_id = {"criteria": [{"column": "id", "sort_type": "num", "order": "asc"}]}
+    return [{"id": "needs", "type": "SortRow", "config": by_id,
+             "schema": {"input": columns(declared), "output": columns(NEEDS_AGE)},
+             "inputs": [arriving], "outputs": ["sorted"]},
+            writer(NEEDS_AGE, inputs=("sorted",))], [flow("sorted", "needs", "out")]
+
+
+@pytest.mark.parametrize("declared", [None, PEOPLE + ", errorCode:str, errorMessage:str"],
+                         ids=["no reject schema", "a reject schema"])
+def test_number_travels_through_the_reject_output_of_a_join(tmp_path, declared):
+    # cy and di are in no list of names, and cy has no age.
+    join = {"id": "it", "type": "Join", "config": {"join_key": [{"input_column": "name", "lookup_column": "name"}]},
+            "schema": {"input": columns("name:str"), "output": columns(PEOPLE)},
+            "inputs": ["row1", "row2"], "outputs": ["hit", "miss"]}
+    if declared:
+        join["schema"]["reject"] = columns(declared)
+    last, sorted_flow = needing_age("miss")
+    made = keyed(job(
+        [reader(PEOPLE, header_rows=1), reader("name:str", "names", "names.csv", ("row2",), header_rows=1), join,
+         writer(PEOPLE, "hits", "hits.csv", ("hit",))] + last,
+        [flow("row1", "in", "it"), flow("row2", "names", "it"), flow("hit", "it", "hits"),
+         flow("miss", "it", "needs", "reject")] + sorted_flow,
+    ))
+    assert failed(tmp_path, made, {"in.csv": PEOPLE_DATA, "names.csv": b"name\nann\nbob\n"}) == NAMED
+
+
+def united(*more):
+    """in.csv and more.csv -> a unite -> the steps -> a sort that needs every age -> file."""
+    made = chain(("Unite", {}, PEOPLE), *more)
+    made["components"].insert(1, reader(PEOPLE, "more", "more.csv", ("extra",), header_rows=1))
+    made["components"][2]["inputs"].append("extra")
+    made["flows"].append(flow("extra", "more", "s1"))
+    return keyed(made, "more")
+
+
+def test_row_is_named_by_the_input_it_came_from_after_a_unite(tmp_path):
+    files = {"in.csv": b"id;name;age\n1;ann;30\n", "more.csv": b"id;name;age\n7;bob;41\n8;cy;\n"}
+    assert failed(tmp_path, united(), files) == (
+        "Column 'age' has NULL values but is not nullable; the row is line 3 of more.csv (id=8)")
+
+
+def test_group_of_united_rows_names_the_first_row_of_each_input_that_is_in_it(tmp_path):
+    # The highest age of each name. cy is in both files without an age; di, with none either, in the second alone.
+    grouped = {"groupbys": [{"input_column": "name", "output_column": "name"}],
+               "operations": [{"output_column": "age", "function": "max", "input_column": "age"},
+                              {"output_column": "id", "function": "min", "input_column": "id"}]}
+    made = united(("AggregateRow", grouped, "id:int, name:str, age:int"))
+    files = {"in.csv": b"id;name;age\n1;ann;30\n2;cy;\n", "more.csv": b"id;name;age\n7;cy;\n8;ann;3\n9;cy;\n"}
+    assert failed(tmp_path, made, files) == (
+        "Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv (id=2) "
+        "and line 2 of more.csv, the first of 2 rows that were combined (id=7)")
+    files["in.csv"] = b"id;name;age\n1;ann;30\n"
+    assert failed(tmp_path, made, files) == (
+        "Column 'age' has NULL values but is not nullable; the row is line 2 of more.csv, "
+        "the first of 2 rows that were combined (id=7)")
+
+
+def test_row_of_a_lookup_is_named_when_the_lookups_own_filter_fails_on_it(tmp_path):
+    names = map_lookup("names", [("id", "row1.id")], filter="int(names.code) > 0", activate_filter=True)
+    kept = [("id", "row1.id", "int"), ("code", "names.code", "str")]
+    made = mapping(map_config([map_out("o", kept)], lookups=[names]), {"row1": IDS, "names": "id:int, code:str"},
+                   {"o": "id:int, code:str"})
+    files = {"row1.csv": b"id;amount\n1;10\n", "names.csv": b"id;code\n1;5\n2;x\n"}
+    assert failed(tmp_path, keyed(made, "in_names"), files) == (
+        "inputs.lookups[0].filter: int() could not read 'x' (in: int(names.code) > 0); 1 row failed; "
+        "the row is line 3 of names.csv (id=2)")
+
+
+def test_row_a_map_fails_on_is_the_main_inputs_and_not_the_lookups(tmp_path):
+    names = map_lookup("names", [("id", "row1.id")])
+    kept = [("id", "row1.id", "int"), ("n", "int(names.code)", "int")]
+    made = mapping(map_config([map_out("o", kept)], lookups=[names]), {"row1": IDS, "names": "id:int, code:str"},
+                   {"o": "id:int, n:int"})
+    files = {"row1.csv": b"id;amount\n1;10\n2;20\n", "names.csv": b"id;code\n9;5\n2;x\n1;7\n"}
+    assert failed(tmp_path, keyed(keyed(made, "in_names"), "in_row1"), files) == (
+        "outputs[0].columns[1].expression: int() could not read 'x' (in: int(names.code)); 1 row failed; "
+        "the row is line 3 of row1.csv (id=2)")
 
 
 def test_every_row_a_normalize_makes_carries_the_number_of_the_row_it_came_from(tmp_path):

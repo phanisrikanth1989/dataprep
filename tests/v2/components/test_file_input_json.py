@@ -27,7 +27,10 @@ FIELDS = ("id", "name", "amt", "ok", "tags", "who", "day")
 
 
 def json_job(schema, mapping, loop="$.items[*]", reject=False, **config):
-    """document -> file, optionally with the reader's reject output written to rej.csv."""
+    """document -> file, optionally with the reader's reject output written to rej.csv.
+
+    ``reject`` is True, or the columns the writer of rej.csv declares.
+    """
     made = {"filename": "in.json", "json_loop_query": loop, "encoding": "UTF-8",
             "mapping": [{"column": column, "jsonpath": path} for column, path in mapping]}
     made.update(config)
@@ -37,7 +40,8 @@ def json_job(schema, mapping, loop="$.items[*]", reject=False, **config):
     flows = [flow("row1", "in", "out")]
     if reject:
         source["outputs"].append("bad")
-        components.append(writer(None, component_id="rej", path="rej.csv", inputs=("bad",)))
+        declared = reject if isinstance(reject, str) else None
+        components.append(writer(declared, component_id="rej", path="rej.csv", inputs=("bad",)))
         flows.append(flow("bad", "in", "rej", "reject"))
     return job(components, flows)
 
@@ -288,3 +292,53 @@ def test_converted_sample_job_is_refused_only_for_what_its_paths_lack():
         load_job(json.loads(SAMPLE.read_text()))
     ours = [refusal for refusal in caught.value.report if "tFileInputJSON_1" in refusal.where]
     assert ours and all(refusal.key.endswith(".jsonpath") for refusal in ours)
+
+
+# ---------------------------------------------------------------------------
+# A record a path cannot be followed on
+# ---------------------------------------------------------------------------
+
+# `$.tags[0]` asks for the first item of a list. On a number or an object the library raises instead of
+# finding nothing, and v1 turns the record away for it.
+ODD = {"items": [
+    {"id": 1, "tags": ["a"], "name": "ann"},
+    {"id": 2, "tags": 5, "name": "bob"},
+    {"id": 3, "tags": {"x": 1}, "name": "cy"},
+    {"id": 4, "tags": ["d"], "name": "di"},
+]}
+ODD_SCHEMA = "id:int, tag:str, name:str"
+ODD_PATHS = [("id", "$.id"), ("tag", "$.tags[0]"), ("name", "$.name")]
+
+
+def test_record_a_path_cannot_be_followed_on_is_left_out(tmp_path):
+    run = same(tmp_path, ODD, ODD_SCHEMA, ODD_PATHS)
+    assert rows(run) == ["1;a;ann", "4;d;di"]
+
+
+def test_record_turned_away_is_written_with_what_the_library_said(tmp_path):
+    # Both paths fill one column, so that v1's reject output has the columns v2's has (see the next test).
+    run = same(tmp_path, ODD, "tag:str", [("tag", "$.name"), ("tag", "$.tags[0]")], reject=True)
+    assert rows(run) == ["a", "d"]
+    assert rows(run, "rej.csv") == ["bob;PARSE_ERROR;object of type 'int' has no len()", "cy;PARSE_ERROR;0"]
+
+
+def test_record_turned_away_keeps_every_column_with_those_not_read_empty(tmp_path):
+    # v1 writes these two rows with the columns read before the path that failed and no others: here, id alone.
+    result, out = v2(tmp_path, ODD, ODD_SCHEMA, ODD_PATHS, reject=True)
+    assert result.status == "success" and out == ["1;a;ann", "4;d;di"]
+    assert (tmp_path / "rej.csv").read_text().splitlines() == [
+        "id;tag;name;errorCode;errorMessage",
+        "2;;;PARSE_ERROR;object of type 'int' has no len()",
+        "3;;;PARSE_ERROR;0",
+    ]
+
+
+def test_record_turned_away_is_turned_away_whatever_die_on_error_says(tmp_path):
+    assert rows(same(tmp_path, ODD, ODD_SCHEMA, ODD_PATHS, die_on_error=False)) == ["1;a;ann", "4;d;di"]
+
+
+def test_records_turned_away_are_counted_in_a_later_records_number(tmp_path):
+    document = {"items": [{"id": 1, "tags": ["a"]}, {"id": 2, "tags": 5}, {"id": None, "tags": ["c"]}]}
+    result, _ = v2(tmp_path, document, "id:int!, tag:str", [("id", "$.id"), ("tag", "$.tags[0]")])
+    assert result.error == ("Column 'id' has NULL values but is not nullable; "
+                            "the row is record 3 ($.items[2]) of in.json")

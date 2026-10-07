@@ -177,10 +177,12 @@ def projected(
     if check is not None and unreadable:
         kinds = {column.name: column.type for column in declared if column.name in unreadable}
         any_unreadable = pl.any_horizontal(list(unreadable.values()))
+        # The first row that holds any such text gives the value shown and the row named: one and the same row.
         check(
             computed.select(
                 any_unreadable.sum().alias(_ROWS),
-                *[pl.col(name).filter(flag).first().alias(name) for name, flag in unreadable.items()],
+                *[pl.when(flag).then(pl.col(name)).filter(any_unreadable).first().alias(name)
+                  for name, flag in unreadable.items()],
                 *[pl.col(name).filter(any_unreadable).first().alias(name) for name in carried],
             ),
             lambda found: _unreadable_problem(found, output["name"], kinds, row_named(found) if row_named else ""),
