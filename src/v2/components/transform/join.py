@@ -8,7 +8,7 @@ import polars as pl
 
 from ...errors import ConfigurationError
 from ...job.keys import Key
-from ...types import polars_type
+from ...column_types import polars_type
 from ...rows import hidden, without
 from ..base import Transform
 from ..registry import REGISTRY

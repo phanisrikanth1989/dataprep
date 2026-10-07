@@ -109,6 +109,7 @@ def test_full_row_file_is_picked_from_by_line(tmp_path):
     result = ran(tmp_path, made, {"in.txt": b"numbers\n10\n20\n30\n"})
     assert result.status == "success", result.error
     assert result.summary()["only"]["rows"] == ["line 3 of in.txt"]
+    assert out(tmp_path) == ["20"]
 
 
 def test_json_document_is_picked_from_by_record_or_by_value(tmp_path):
@@ -399,3 +400,201 @@ def test_command_line_says_what_is_wrong_with_the_rows_it_was_given(tmp_path, ca
     assert main([job_on_disk(tmp_path), "--only", asked]) == 2
     assert said in capsys.readouterr().err
     assert not (tmp_path / "out.csv").exists()
+
+
+# ------------------------------------------------------------------
+# Readers of text alone, and a run that is read once
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("picked", [{"where": {"name": "bob"}}, {"lines": [3]}], ids=["by value", "by line"])
+def test_reader_whose_columns_are_all_text_is_picked_from(tmp_path, picked):
+    result = ran(tmp_path, only(copying("id:str, name:str", header_rows=1), **picked),
+                 {"in.csv": b"id;name\n1;ann\n2;bob\n3;cy\n"})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;name", "2;bob"]
+
+
+def test_positional_reader_whose_columns_are_all_text_is_picked_from(tmp_path):
+    made = only(cut(schema="a:str, b:str", pattern="3,3", header_rows=1), where={"a": "def"})
+    result = ran(tmp_path, made, {"in.txt": b"nam  n\nabc  1\ndef  2\n"})
+    assert result.status == "success", result.error
+    assert out(tmp_path)[-1] == "def;2"
+
+
+def test_run_for_picked_rows_of_a_clean_file_is_not_read_again_with_the_tolerant_reader(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="src.v2")
+    result = ran(tmp_path, only(copying(header_rows=1), where={"id": 3}), {"in.csv": DATA})
+    assert result.status == "success"
+    assert not [record.getMessage() for record in caplog.records if "reading again" in record.getMessage()]
+    assert len([record for record in caplog.records if "subjob starting" in record.getMessage()]) == 1
+
+
+# ------------------------------------------------------------------
+# What a second reader of this work found
+# ------------------------------------------------------------------
+
+def read_after_a_context_load():
+    """Stage one loads `in_name` into the context; stage two reads the file it names, and is the one picked from."""
+    load = {"id": "load", "type": "ContextLoad", "config": {}, "inputs": ["row1"], "outputs": [],
+            "schema": {"input": columns("key:str, value:str"), "output": []}}
+    return job(
+        [reader("key:str, value:str", "settings", "settings.csv", ("row1",), header_rows=1), load,
+         reader(IDS, "in", "${context.in_name}.csv", ("row2",), header_rows=1), writer(IDS, inputs=("row2",))],
+        [flow("row1", "settings", "load"), flow("row2", "in", "out")],
+        triggers=[{"type": "OnSubjobOk", "from": "settings", "to": "in"}],
+    )
+
+
+LOADED = {"settings.csv": b"key;value\nin_name;in\n", "in.csv": DATA}
+
+
+def test_reader_whose_config_waits_for_a_loaded_value_is_picked_from(tmp_path):
+    result = ran(tmp_path, only(read_after_a_context_load(), where={"id": 3}), LOADED)
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;amount", "3;30"]
+
+
+def test_column_and_value_are_checked_before_the_run_also_when_the_readers_config_waits_for_a_value():
+    assert refusals(only(read_after_a_context_load(), where={"nope": 1})) == [
+        ("run.only.where", "'in' has no column 'nope'; its columns are: id, amount")]
+    assert refusals(only(read_after_a_context_load(), where={"id": "abc"})) == [
+        ("run.only.where", "column 'id' is int; 'abc' cannot be read as that")]
+
+
+def test_kind_of_place_that_only_the_built_reader_can_tell_stops_the_run_when_it_is_built(tmp_path):
+    result = ran(tmp_path, only(read_after_a_context_load(), records=[3]), LOADED)
+    assert result.status == "failed" and result.failed_component == "in"
+    assert result.error == "'in' is read line by line: pick its rows with `lines`"
+    assert not (tmp_path / "out.csv").exists()
+
+
+def test_context_variable_is_not_read_in_what_names_the_rows():
+    assert refusals(only(copying(header_rows=1), where={"id": "${context.wanted}"})) == [
+        ("run.only", "a context variable is not read in a run setting")]
+
+
+@pytest.mark.parametrize("rows, ended", [(5, "success"), (6, "failed")])
+def test_five_rows_are_the_most_a_run_can_be_for(tmp_path, rows, ended):
+    by_value = ran(tmp_path, only(copying(header_rows=1), where={"id": list(range(1, rows + 1))}), {"in.csv": DATA})
+    assert by_value.status == ended
+    data = b"id;amount\n" + b"".join(b"9;%d\n" % n for n in range(rows))
+    one_value = ran(tmp_path, only(copying(header_rows=1), where={"id": 9}), {"in.csv": data})
+    assert one_value.status == ended
+    if rows == 5:
+        assert ran(tmp_path, only(copying(header_rows=1), lines=[2, 3, 4, 5, 6]), {"in.csv": DATA}).status == "success"
+
+
+def test_reader_that_declares_no_columns_is_picked_from_by_the_columns_it_hands_on(tmp_path):
+    lines = read_lines(schema=None, write_schema="line:str", header_rows=1)
+    result = ran(tmp_path, only(lines, where={"line": "20"}), {"in.txt": b"numbers\n10\n20\n30\n"})
+    assert result.status == "success", result.error
+    assert result.summary()["only"]["rows"] == ["line 3 of in.txt"] and out(tmp_path) == ["20"]
+
+    document = json.dumps({"items": [{"id": 1, "n": "a"}, {"id": 2, "n": "b"}]}).encode()
+    records = json_job("id:str, n:str", [("id", "$.id"), ("n", "$.n")])
+    records["components"][0]["schema"]["output"] = []
+    result = ran(tmp_path, only(records, where={"id": "2"}), {"in.json": document})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;n", "2;b"]
+
+
+def test_column_a_reader_that_declares_none_does_not_hand_on_refuses_the_job():
+    lines = read_lines(schema=None, write_schema="line:str")
+    assert refusals(only(lines, where={"nope": "x"})) == [
+        ("run.only.where", "'in' has no column 'nope'; its columns are: line")]
+
+
+def test_row_past_the_positional_readers_own_limit_is_not_there_to_be_picked(tmp_path):
+    made = only(cut(schema="a:str, n:int", pattern="3,3", header_rows=1, limit=1), where={"a": "def"})
+    result = ran(tmp_path, made, {"in.txt": b"nam  n\nabc  1\ndef  2\n"})
+    assert result.status == "failed" and result.error == "no row of 'in' has a=def"
+
+
+def separated(schema="a:str, amt:Decimal#2", pattern="3,9"):
+    """A positional reader of a file that writes 2,000.5 as 2.000,5."""
+    return cut(schema=schema, pattern=pattern, header_rows=1, advanced_separator=True, thousands_separator=".",
+               decimal_separator=",")
+
+
+def test_number_is_asked_for_as_the_file_writes_it_or_as_the_number_it_is(tmp_path):
+    data = {"in.txt": b"nam      amt\nabc     1,50\ndef 2.000,00\n"}
+    # As a failure shows the row's key: the text of the file.
+    result = ran(tmp_path, only(separated(), where={"amt": "2.000,00"}), data)
+    assert result.status == "success", result.error
+    assert out(tmp_path)[-1] == "def;2000.00"
+    # A number is the value itself, whatever the file's separators.
+    ran(tmp_path, only(separated(), where={"amt": 1.5}), data)
+    assert out(tmp_path)[-1] == "abc;1.50"
+
+
+def test_row_the_reader_turns_away_is_found_by_a_number_the_file_writes_its_own_way(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    data = {"in.txt": b"nam      amt n\nabc     1,50 1\ndef 2.000,00 x\n"}
+    result = ran(tmp_path, only(separated("a:str, amt:Decimal#2, n:int", "3,9,2"), where={"amt": 2000}), data)
+    assert result.status == "success", result.error
+    assert result.summary()["only"]["rows"] == ["line 3 of in.txt"] and out(tmp_path) == ["a;amt;n"]
+    assert "1 row was dropped" in caplog.text and "line 3 of in.txt" in caplog.text
+
+
+def test_value_no_picked_row_holds_stops_the_run_whatever_the_number_of_columns(tmp_path):
+    made = only(copying(header_rows=1), where={"id": [1, 99], "amount": [10, 20]})
+    result = ran(tmp_path, made, {"in.csv": DATA})
+    assert result.status == "failed" and result.error == "no row of 'in' has id=99 and amount=10,20"
+    assert not (tmp_path / "out.csv").exists()
+
+
+def test_output_that_appends_adds_the_picked_row_to_what_its_file_holds(tmp_path):
+    made = only(copying(header_rows=1), where={"id": 3})
+    made["components"][1]["config"]["append"] = True
+    result = ran(tmp_path, made, {"in.csv": DATA, "out.csv": b"id;amount\n9;90\n"})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;amount", "9;90", "3;30"]
+
+
+def test_one_sheet_workbook_needs_no_sheet_named(tmp_path):
+    sheets = book({"only": [["id", "n"], [1, 10], [2, 20]]})
+    result = ran(tmp_path, only(excel("id:int, n:int", header=1), rows=[3]), {"in.xlsx": sheets})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["2;20"]
+
+
+@pytest.mark.parametrize("made, picked, said", [
+    (excel("id:int, n:int", header=1), {"rows": [2]}, "'in' has no row at row 2: no row was read from the workbook"),
+    (excel("id:int, n:int", header=1), {"where": {"id": 1}}, "no row of 'in' has id=1"),
+    (json_job("id:int, n:str", [("id", "$.id"), ("n", "$.n")], die_on_error=False), {"where": {"id": 1}},
+     "no row of 'in' has id=1"),
+    (cut(schema="a:str, n:int", pattern="3,3"), {"where": {"a": "abc"}}, "no row of 'in' has a=abc"),
+], ids=["workbook by row", "workbook by value", "document by value", "positional by value"])
+def test_file_that_is_not_there_has_no_row_to_pick(tmp_path, made, picked, said):
+    result = ran(tmp_path, only(made, **picked), {})
+    assert result.status == "failed" and result.error == said
+
+
+def test_columns_of_a_reader_that_declares_none_and_waits_for_a_value_are_judged_when_it_is_built(tmp_path):
+    # Its columns are known from its config, and its config waits for the file name a context load sets.
+    made = read_after_a_context_load()
+    made["components"][2] = {"id": "in", "type": "FileInputFullRow", "inputs": [], "outputs": ["row2"],
+                             "config": {"filename": "${context.in_name}.csv", "encoding": "UTF-8"},
+                             "schema": {"input": [], "output": []}}
+    made["components"][3] = writer("line:str", inputs=("row2",), include_header=False)
+    result = ran(tmp_path, only(made, where={"nope": "x"}), LOADED)
+    assert result.status == "failed" and result.failed_component == "in"
+    assert result.error == "'in' has no column 'nope'; its columns are: line"
+    result = ran(tmp_path, only(made, where={"line": "3;30"}), LOADED)
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["3;30"]
+
+
+def test_value_written_the_files_own_way_is_judged_when_the_reader_that_waits_for_a_value_is_built(tmp_path):
+    # Only the built reader knows the file's separators, and its config waits for the name a context load sets.
+    made = read_after_a_context_load()
+    waiting = separated()["components"][0]
+    waiting["config"]["filepath"] = "${context.in_name}.txt"
+    waiting["outputs"] = ["row2"]
+    made["components"][2:] = [waiting, writer("a:str, amt:Decimal#2", inputs=("row2",))]
+    files = {"settings.csv": LOADED["settings.csv"], "in.txt": b"nam      amt\nabc     1,50\ndef 2.000,00\n"}
+    result = ran(tmp_path, only(made, where={"amt": "2.000,00"}), files)
+    assert result.status == "success", result.error
+    assert out(tmp_path)[-1] == "def;2000.00"
+    result = ran(tmp_path, only(made, where={"amt": "two"}), files)
+    assert result.status == "failed" and result.error == "column 'amt' is Decimal; 'two' cannot be read as that"

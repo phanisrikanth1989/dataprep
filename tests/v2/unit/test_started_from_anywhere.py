@@ -62,8 +62,8 @@ def test_engine_started_as_a_module_from_the_projects_folder_still_runs(tmp_path
 
 
 def test_started_by_its_path_the_engines_own_files_are_not_taken_for_the_standard_librarys(tmp_path, monkeypatch):
-    # The engine's folder holds a types.py. Run in this process, as `python <path>` runs it: afterwards
-    # Python must look for modules in the project's folder and no longer in the engine's.
+    # Run in this process, as `python <path>` runs it: afterwards Python must look for modules in the
+    # project's folder and no longer in the engine's, whose files have names of their own (errors, rows).
     monkeypatch.setattr(sys, "argv", [str(ENGINE), job_at(tmp_path)])
     monkeypatch.setattr(sys, "path", [str(ENGINE)] + [entry for entry in sys.path if entry != str(REPO)])
     with pytest.raises(SystemExit) as stopped:
@@ -112,3 +112,29 @@ def test_request_with_a_run_setting_that_is_not_known_is_refused_before_anything
         run_job(made, context={}, run={"row_count": True})
     assert "run.row_count" in caught.value.report.format() and "did you mean 'row_counts'" in caught.value.report.format()
     assert not (tmp_path / "out.csv").exists()
+
+
+@pytest.mark.parametrize("linked", [False, True], ids=["by its folder", "by a link to its folder"])
+def test_engine_started_on_an_interpreter_that_loads_nothing_at_its_start(tmp_path, linked):
+    # With -S Python runs no start-up hooks of installed packages, as on a plain install. Started with a
+    # folder, it then looks for the standard library's modules in that folder first: none of the engine's
+    # own files may be named like one. And the project is found from where the engine's files really are,
+    # not from where a link to them is. The packages are found through PYTHONPATH here.
+    packages = next(entry for entry in sys.path if entry.endswith("site-packages"))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    engine = ENGINE
+    if linked:
+        engine = tmp_path / "engine"
+        engine.symlink_to(ENGINE, target_is_directory=True)
+    env = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
+    env["PYTHONPATH"] = packages
+    done = subprocess.run([sys.executable, "-S", str(engine), job_at(tmp_path)], cwd=elsewhere, env=env,
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "out.csv").read_bytes() == b"id;amount\n1;10\n2;20\n"
+
+
+def test_no_file_of_the_engines_folder_is_named_like_a_module_of_the_standard_library():
+    named = sorted(path.stem for path in ENGINE.glob("*.py") if path.stem in sys.stdlib_module_names)
+    assert named == [], f"python <the engine's folder> would take {named} for the standard library's"

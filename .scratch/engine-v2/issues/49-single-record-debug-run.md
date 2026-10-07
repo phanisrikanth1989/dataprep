@@ -185,3 +185,31 @@ Built:
 
 Not built: a map's expression beside each value (the frontend has the job
 config), and the lookup row behind a match.
+
+## Corrected after a second review (2026-10-07)
+
+An independent read of the build found these. Each is held by a test now
+(35 tests in `tests/v2/test_trace.py`).
+
+- Asking for a trace failed a run whose user code hands on a list, a time
+  span or bytes. Such a column is shown as Python prints it.
+- Values: a file output's are what its file holds (`Write.as_text`), which
+  was not so for a date with a pattern or a Decimal without declared
+  places. Any other component's are written the same way, by the columns it
+  declares.
+- A file output has `written`: false when its stage failed. Its entry used
+  to read as if the file were there. The log says "1 row for <path>".
+- A traced run printed its lines twice when a file needed the tolerant
+  reader. It now starts with the tolerant reader and is never read twice.
+- A file this run wrote from picked rows is no longer taken for the picked
+  rows once another output of the same run has put other rows in it.
+- The summary holds the components of the stages that ran (19 of the
+  payments job's 24), not "every component of the job"; and in a later
+  stage a row's place is its place in the file that stage read.
+- Measured again at 1,000,000 rows: 0.9 s for one traced row; 33 KB of JSON
+  (71 KB as the command prints it, indented).
+
+Known limit, left as it is on the dev's word ("people will take care of
+things"): a file an output appends to, or one left by an earlier run to
+which this run added no row, is taken to hold what this run wrote. A later
+stage that reads it is then listed with whatever the file holds.

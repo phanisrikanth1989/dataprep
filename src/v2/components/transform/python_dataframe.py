@@ -16,7 +16,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import CODE, Key
 from ...job.model import Column
-from ...types import polars_schema
+from ...column_types import polars_schema
 from ..base import Transform
 from ..registry import REGISTRY
 

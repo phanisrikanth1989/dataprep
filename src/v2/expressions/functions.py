@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import polars as pl
 
-from ..types import BLANKS
+from ..column_types import BLANKS
 from .translate import NOT_CONSTANT
 
 if TYPE_CHECKING:

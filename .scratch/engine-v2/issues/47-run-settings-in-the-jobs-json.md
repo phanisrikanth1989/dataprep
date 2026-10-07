@@ -137,3 +137,22 @@ Built:
   config)".
 - `run.log_level` in `run_job` is put in force on the logger `src.v2` while
   the job runs: two jobs run at once in one process share it.
+
+## Corrected after a second review (2026-10-07)
+
+An independent read of the build found these. Each is held by a test now.
+
+- The block's `log_level` was not in force while the job loaded: a "Loaded
+  routine" line at INFO came out under WARNING. It is in force from the
+  moment the job config is read, on the command line and in `run_job`
+  (`load_job` takes a `log_level` for the caller's).
+- Two runs at once in one process left the engine's logger at the first
+  one's level for good. While runs overlap, the logger writes from the
+  lower of their levels; when the last ends it is as it was.
+- A context variable written inside `only` (`${context.id}`) was taken as
+  text. It refuses the job, as in any other run setting.
+- `run_job(run=...)` with something that is no object raised a bare
+  `ValueError`; it is refused. `--summary ''` turns the block's summary
+  file off, and no longer leaves "summary file  (command line)" in the log.
+- Two tests could not fail (the block's log level on the command line, the
+  `row_counts` argument winning). Both can now.

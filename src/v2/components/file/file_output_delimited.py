@@ -11,7 +11,7 @@ from ...errors import ConfigurationError
 from ...files import encoded, put_in_place, to_encoding
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import fixed_text, to_text
+from ...column_types import fixed_text, to_text
 from ..base import Sink, Write, ascii_only
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, unescape
@@ -164,9 +164,12 @@ class FileOutputDelimited(Sink):
             held = header and bool(settled["header"])
             put_in_place(written, path, config["append"], settled["mark"], settled["header"], held)
 
+        def as_text(rows: pl.DataFrame) -> pl.DataFrame:
+            return rows.select([column.cast(pl.String) for column in columns])
+
         return Write(
             path=path, sink=sink, append=config["append"], ready=ready, place=place,
-            refuses_existing=refuses_existing, empty_leaves_none=keeps_nothing,
+            refuses_existing=refuses_existing, empty_leaves_none=keeps_nothing, as_text=as_text,
         )
 
 

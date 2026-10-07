@@ -21,7 +21,9 @@ python -m src.v2 job.json --only payments_in:txn_id=654321 # run for one row (se
 ```
 
 That is from the project's folder. From any other folder, start the engine
-by its own path; nothing has to be installed for it:
+by its own path, or by a link to its folder. The engine itself needs no
+installing for it; the packages it runs on (Polars and the others) do, as
+for any run:
 
 ```bash
 python /opt/dataprep/src/v2 /data/jobs/pay.json
@@ -96,18 +98,21 @@ A job config can say how it is run, in a `run` block at its top level:
 | `trace` | `--trace` (next section) |
 
 The command line wins over the block, and the block over the default:
-`--log-level INFO` quietens a job whose block says `DEBUG`, and
-`--no-row-counts` and `--no-trace` turn off what the block turned on. A run
-says at its start which settings are in force and who asked for each:
+`--log-level INFO` quietens a job whose block says `DEBUG`,
+`--no-row-counts` and `--no-trace` turn off what the block turned on, and
+`--summary ''` writes no summary file. The log level is in force from the
+moment the job config is read, while the job loads as well. A run says at
+its start which settings are in force and who asked for each:
 
 ```
 [payments] run settings: log level INFO (command line), row counts (job config)
 ```
 
 A key the block does not know refuses the job, and so does a context
-variable in one of its values. v1 runs a job that has the block and takes
-no notice of it. The settings that belong to a machine and not to a job
-(`V2_ENGINE`, `V2_TEMP_DIR`) are not in the block.
+variable in one of its values (`${context.name}`; what picks the rows under
+`only` is data and is taken as written otherwise). v1 runs a job that has
+the block and takes no notice of it. The settings that belong to a machine
+and not to a job (`V2_ENGINE`, `V2_TEMP_DIR`) are not in the block.
 
 ### From a service
 
@@ -125,8 +130,9 @@ reply = result.summary()        # plain values, ready to be sent as JSON
 block, key by key. `summary()` is what the command prints last. What is
 wrong with the job config or with `run` raises `JobRefusedError` before
 anything runs. `run.log_level` is put in force on the engine's own logger
-(`src.v2`) while the job runs, so two jobs run at once in one process share
-it.
+(`src.v2`) while the job loads and runs. That logger is one for the
+process: while two jobs run at once, its lines are written from the lower
+of their two levels, and it is as it was before once both have ended.
 
 ## Running a job for a few rows
 
@@ -151,28 +157,42 @@ on the picked rows and no others. Every other reader is read whole, so a
 lookup finds its match, and a later stage reads what this run wrote.
 
 - **The reader** is named by its component id. Only a reader can be named.
-- **By value**: any column of the reader's schema, key or not. The value is
-  read as the column's type, so `007` finds 7 and a date is read by the
-  column's pattern. With two columns in `where`, a row has to hold both.
+- **By value**: any column of the reader's schema, key or not. (A reader
+  that declares no columns is picked by the ones it hands on: `line` for a
+  full-row file, the names its paths give for a JSON document.) The value
+  is read as the column's type, the way the reader reads the column in its
+  file: `007` finds 7, a date is read by the column's pattern, and where a
+  positional file writes two thousand as `2.000,00`, so can the asking, as
+  the failure shows it. A number written as a number in the block
+  (`{"amt": 2000}`) is the number itself. With two columns in `where`, a
+  row has to hold both.
 - **By place**: the reader's own kind of place, as its failures name it.
   `lines` for a text file; `records` for a JSON document and for a
   delimited file read with `csv_option`; `rows` with `sheet` for a
-  workbook. On the command line `line=`, `record=` and `row=`; a sheet, or
-  two columns, are said as the block itself: `--only '{"source": "book_in",
-  "sheet": "Q1", "rows": [3]}'`.
-- **At most 5 rows.** A value or a place that has no row stops the run with
-  a message, and so do more than 5 rows. What is wrong with the asking
-  itself (no such reader, no such column, a value that is not the column's
-  type, the wrong kind of place) refuses the job before anything runs.
+  workbook (a workbook read from one sheet needs no `sheet`). On the
+  command line `line=`, `record=` and `row=`; a sheet, two columns, or a
+  value with a comma in it are said as the block itself:
+  `--only '{"source": "book_in", "sheet": "Q1", "rows": [3]}'`.
+- **At most 5 rows.** Every value and every place named has to pick a row:
+  one that picks none stops the run with a message, and so do more than 5
+  rows. What is wrong with the asking itself (no such reader, no such
+  column, a value that is not the column's type, the wrong kind of place)
+  refuses the job before anything runs. One case waits: where the reader's
+  config needs a value the job sets as it runs (a context load), what only
+  the built reader can tell, its kind of place for one, stops the run when
+  the run gets to that reader.
 - **A row that is wrong elsewhere in the file does not matter**: the reader
   keeps to the picked rows before it reads any value. A picked row that is
-  wrong fails the job, or is turned away, exactly as in the full run.
+  wrong fails the job, or is turned away, exactly as in the full run. A
+  file the reader cannot get through is another matter, and fails this run
+  as it fails any: an enclosure that is never closed under `csv_option`, a
+  byte that is not of the file's encoding in a full-row file.
 - What depends on the other rows sees only the picked ones: a unique row
   finds no repeat, an aggregate makes a group of the picked rows, a row
   count and a `RunIf` on one count them.
 
 The reader is read twice: once to find the rows, once to run them. On the
-payments scenario at 1,000,000 rows a run for one row takes 1.3 to 1.6 s.
+payments scenario at 1,000,000 rows a run for one row takes 1.4 to 1.6 s.
 The summary says which rows were picked:
 
 ```json
@@ -195,22 +215,29 @@ summary also holds what every component did with the picked rows:
   {"id": "branches_in", "type": "FileInputDelimited", "outputs": null,
    "why": "its rows do not come from the picked rows"},
   {"id": "enriched_out", "type": "FileOutputDelimited", "path": "/data/out/enriched.csv",
-   "rows": 1, "columns": [], "data": [], "from": []}
+   "written": true, "rows": 1, "columns": [], "data": [], "from": []}
 ]
 ```
 
-- Every component of the job is there, in the order it ran, through all the
-  stages.
+- Every component of every stage that ran is there, in the order it ran.
 - A component whose rows come from the picked rows has each of its outputs:
   how many rows, the columns with their types, the rows, and for each row
-  where the picked row it came from is. A file output has the same for
-  what it wrote, and its path.
-- Values are text, as a file output that declares the column's type writes
-  them; a missing value is `null`.
+  where it came from: the picked row's place, or, in a later stage, its
+  place in the file that stage read. A file output has the same for the
+  rows it was handed, its path, and `written`: false when its stage failed,
+  so that the file was not written.
+- Values are text. A file output's are what its file holds. Any other
+  component's are written the same way, by the columns it declares (a date
+  by its pattern, a Decimal to its places). A column of a kind only code
+  can make (a list, a time span) is shown as Python prints it. A missing
+  value is `null`.
 - An output lists its first 50 rows and says how many it has.
 - A component whose rows do not come from the picked rows is not listed row
   by row: a lookup, or a stage that reads another file. It runs as ever. A
-  later stage that reads a file this run wrote from picked rows is listed.
+  later stage that reads a file this run wrote from picked rows is listed,
+  unless rows that were not picked went to that file in this run as well.
+  (A file an output appends to is taken to hold what this run wrote, so
+  start such a run from a file that is not there.)
 - A row the job fails on: the trace goes as far as the failing component,
   which has `"error"` in place of its outputs.
 - After user Python a row no longer says where it came from (`null`).
@@ -222,12 +249,14 @@ columns at most; the summary has them all).
 ```
 [branch_join] trace: main 1 row, reject 0 rows; added region=EMEA-N, cost_centre=CC0260
 [prepare] trace: prepared 1 row; added amount_usd=960081.2000, purpose_code=GJQO; changed narrative: SALARY   TRANSFER -> SALARY TRANSFER
-[enriched_out] trace: 1 row to /data/out/enriched.csv
+[enriched_out] trace: 1 row for /data/out/enriched.csv
 ```
 
-A traced run takes each such flow's rows in hand between two components.
-On the payments scenario at 1,000,000 rows one traced row takes 0.84 s and
-its summary is 34 KB for the job's 19 components. A printed row holds what
+A traced run takes each such flow's rows in hand between two components,
+and reads every file with the tolerant reader from the start. On the
+payments scenario at 1,000,000 rows one traced row takes 0.9 s; its summary
+holds the 19 components of the stages that ran, in 33 KB of JSON (71 KB as
+the command prints it, indented). A printed row holds what
 the row holds, account numbers and names among it: that is in the log and
 in the summary of a run that asked for it, and of no other.
 

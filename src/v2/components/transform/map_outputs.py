@@ -13,7 +13,7 @@ from ...errors import ExpressionError
 from ...expressions import Scope, translate, translate_condition
 from ...job.model import TYPE_NAMES, Column
 from ...rows import hidden, shown
-from ...types import conform, from_text, polars_type
+from ...column_types import conform, from_text, polars_type
 from .map_joins import MISSED
 
 # Working columns: whether an output takes the row, and whether no ordinary output took it.

@@ -183,7 +183,7 @@ class Component:
         component that needs rows is not run. Returns nothing when no schema
         is declared, and what follows the component is then left unchecked.
         """
-        from ..types import polars_schema  # late: types reads the job model only
+        from ..column_types import polars_schema  # late: column_types reads the job model only
 
         if not self.schema:
             return {}
@@ -446,7 +446,9 @@ class Source(Component):
     A run may be for a few rows of a source and no others (``run.only``).
     The engine then names them by their numbers in ``only_rows``, and the
     source keeps to them with ``picked``, called where it has numbered its
-    rows and before it types or turns away any.
+    rows and before it types or turns away any. Rows can be picked by what
+    a column holds; a source that reads a column's text in a way of its own
+    says how in ``as_read``.
     """
 
     max_inputs: ClassVar[Optional[int]] = 0
@@ -485,6 +487,21 @@ class Source(Component):
     def place_why(self) -> str:
         """Why its rows have that kind of place, to follow the source's id in a message."""
         return "is read line by line"
+
+    def as_read(self, column: "Column", text: pl.Expr) -> pl.Expr:
+        """The text of one of the source's columns as the text its value is read from.
+
+        The engine asks when rows are picked by what a column holds: it
+        reads the value that is asked for, and the text of a row the source
+        turned away, the way the source reads the column. A source that
+        writes a number its own way (separators, say) takes that way out
+        here; any other leaves the text as it is.
+
+        Args:
+            column: The declared column.
+            text: The text, as the file holds it.
+        """
+        return text
 
     def number_at(self, place: int, sheet: Optional[str] = None) -> int:
         """The number of the row at a place: ``locate`` the other way round. Called once the source is read.
@@ -557,6 +574,10 @@ class Write:
             the sink's own to refuse, in ``write``.
         empty_leaves_none: Whether no file is left at ``path`` when no row
             was written.
+        as_text: Given rows the sink is handed, the same rows with every
+            column as the text the file holds for it. The engine asks when
+            it lists picked rows (``run.trace``); without it a value is
+            shown the way ``column_types.to_text`` writes it.
     """
 
     path: str
@@ -567,6 +588,7 @@ class Write:
     finish: Optional[Callable[[int], None]] = None
     refuses_existing: Optional[str] = None
     empty_leaves_none: bool = False
+    as_text: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None
 
 
 class Sink(Component):

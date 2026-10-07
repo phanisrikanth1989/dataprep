@@ -17,7 +17,7 @@ from src.v2.errors import JobRefusedError
 from .components.kit import columns, flow, job, reader, through, writer
 from .components.test_map import config as map_config
 from .components.test_map import out as map_out
-from .components.test_python_dataframe import coded
+from .components.test_python_dataframe import chained, coded
 from .test_only import DATA, IDS, only
 from .test_row_numbers import copying, keyed, ran
 
@@ -50,8 +50,8 @@ def test_trace_holds_every_output_of_every_component_the_row_went_through(tmp_pa
                 {"name": "id", "type": "str"}, {"name": "amount", "type": "str"},
                 {"name": "errorCode", "type": "str"}, {"name": "errorMessage", "type": "str"}]},
         }},
-        {"id": "out", "type": "FileOutputDelimited", "path": "out.csv", "rows": 1, "columns": INT_COLUMNS,
-         "data": [["3", "30"]], "from": ["line 4 of in.csv"]},
+        {"id": "out", "type": "FileOutputDelimited", "path": "out.csv", "written": True, "rows": 1,
+         "columns": INT_COLUMNS, "data": [["3", "30"]], "from": ["line 4 of in.csv"]},
     ]
     assert json.loads(json.dumps(result.summary())) == result.summary()
     assert (tmp_path / "out.csv").read_bytes() == b"id;amount\n3;30\n"
@@ -71,7 +71,7 @@ def test_values_are_the_text_a_file_would_hold_and_a_missing_one_is_null(tmp_pat
         {"name": "id", "type": "int"}, {"name": "amt", "type": "Decimal"}, {"name": "day", "type": "datetime"},
         {"name": "ok", "type": "bool"}, {"name": "f", "type": "float"}, {"name": "name", "type": "str"}]
     assert rows_of(trace["in"]) == [
-        ["1", "10.50", "2024-01-31 00:00:00", "true", "2.5", "ann"],
+        ["1", "10.50", "2024-01-31", "true", "2.5", "ann"],
         ["2", None, None, "false", None, ""],
     ]
 
@@ -257,7 +257,7 @@ def test_command_line_asks_for_a_trace_and_the_log_has_its_short_version(tmp_pat
     assert said == [
         "[in] trace: main 1 row, reject 0 rows",
         "[it] trace: row2 1 row; added who=n3; changed amount: 30 -> 31",
-        f"[out] trace: 1 row to {tmp_path / 'out.csv'}",
+        f"[out] trace: 1 row for {tmp_path / 'out.csv'}",
     ]
 
 
@@ -309,6 +309,7 @@ def test_types_and_text_of_every_kind_of_column():
     import polars as pl
 
     from src.v2.engine.tracing import as_text, type_name
+    from src.v2.job.model import Column
 
     rows = pl.DataFrame({
         "f": [2.5, None], "d": [datetime.date(2024, 1, 31), None], "t": [datetime.time(9, 30), None],
@@ -316,6 +317,9 @@ def test_types_and_text_of_every_kind_of_column():
     }, schema={"f": pl.Float64, "d": pl.Date, "t": pl.Time, "m": pl.Decimal(38, 2)})
     assert [type_name(dtype) for dtype in rows.dtypes] == ["float", "date", "Time", "Decimal"]
     assert as_text(rows).rows() == [("2.5", "2024-01-31", "09:30:00", "1.50"), (None, None, None, None)]
+    # A component that declares the columns writes a date by its pattern and a Decimal to its places.
+    declared = [Column(name="d", type="date", date_pattern="%d/%m/%Y"), Column(name="m", type="Decimal")]
+    assert as_text(rows, declared).rows()[0] == ("2.5", "31/01/2024", "09:30:00", "1.5")
 
 
 def test_log_says_nothing_of_a_row_that_was_not_among_those_that_came_in(tmp_path, caplog):
@@ -333,3 +337,141 @@ def test_log_says_nothing_of_a_row_that_was_not_among_those_that_came_in(tmp_pat
     # Of the first row it says the two columns the unite gave it from the reject flow; of the second, nothing.
     assert said == ["[it] trace: main 2 rows; line 2 of in.csv: added errorCode_user=(nothing), "
                     "errorMessage_user=(nothing)"]
+
+
+# ------------------------------------------------------------------
+# What a second reader of this work found
+# ------------------------------------------------------------------
+
+def test_file_another_stage_wrote_over_with_other_rows_is_no_longer_the_picked_rows(tmp_path):
+    # Stage one writes the picked row to out.csv, stage two writes 300 other rows over it, stage three reads it.
+    made = job(
+        [reader(IDS, header_rows=1), writer(IDS, inputs=("row1",)),
+         reader(IDS, "other", "other.csv", ("row5",), header_rows=1), writer(IDS, "over", "out.csv", ("row5",)),
+         reader(IDS, "again", "out.csv", ("row9",), header_rows=1), writer(IDS, "last", "last.csv", ("row9",))],
+        [flow("row1", "in", "out"), flow("row5", "other", "over"), flow("row9", "again", "last")],
+        triggers=[{"type": "OnSubjobOk", "from": "in", "to": "other"},
+                  {"type": "OnSubjobOk", "from": "other", "to": "again"}],
+    )
+    other = b"id;amount\n" + b"".join(b"%d;1\n" % n for n in range(300))
+    result, trace = traced(tmp_path, made, {"in.csv": DATA, "other.csv": other}, where={"id": 5})
+    assert result.status == "success" and result.rows == {"out": 1, "over": 300, "last": 300}
+    assert trace["again"]["outputs"] is None and trace["last"]["outputs"] is None
+
+
+def test_file_this_run_wrote_is_known_by_whatever_path_a_later_stage_reads_it_by(tmp_path):
+    # The second stage reads the file through a link to its folder.
+    (tmp_path / "link").symlink_to(tmp_path, target_is_directory=True)
+    made = two_stages(str(tmp_path / "link" / "out.csv"))
+    result, trace = traced(tmp_path, made, {"in.csv": DATA}, where={"id": 5})
+    assert result.status == "success", result.error
+    assert rows_of(trace["again"]) == [["5", "50"]]
+
+
+def test_columns_of_kinds_only_code_can_make_are_shown_as_python_prints_them():
+    import datetime
+
+    import polars as pl
+
+    from src.v2.engine.tracing import as_text
+
+    rows = pl.DataFrame({"tags": [["a", "b"], None], "took": [datetime.timedelta(seconds=90), None], "raw": [b"\xff", None]})
+    assert as_text(rows).rows() == [("['a', 'b']", "0:01:30", "b'\\xff'"), (None, None, None)]
+
+
+def test_file_output_shows_its_rows_as_the_file_holds_them(tmp_path):
+    made = copying("id:int, day:datetime@%d/%m/%Y, amt:Decimal", header_rows=1)
+    _, trace = traced(tmp_path, made, {"in.csv": b"id;day;amt\n1;31/01/2024;1.5\n"}, where={"id": 1})
+    assert (tmp_path / "out.csv").read_bytes().splitlines()[1] == b"1;31/01/2024;1.5"
+    assert trace["out"]["data"] == [["1", "31/01/2024", "1.5"]]
+    assert rows_of(trace["in"]) == [["1", "31/01/2024", "1.5"]]
+
+
+def test_lookup_of_a_map_is_not_listed_and_what_it_gave_is_in_the_maps_output(tmp_path):
+    from .components.test_map import lookup as map_lookup
+    from .components.test_map import mapping
+
+    kept = [("id", "row1.id", "int"), ("name", "names.name", "str")]
+    made = mapping(map_config([map_out("o", kept)], lookups=[map_lookup("names", [("id", "row1.id")])]),
+                   {"row1": IDS, "names": "id:int, name:str"}, {"o": "id:int, name:str"})
+    files = {"row1.csv": DATA, "names.csv": b"id;name\n3;cy\n4;di\n"}
+    made = only(made, source="in_row1", where={"id": 3})
+    made["run"]["trace"] = True
+    result = ran(tmp_path, made, files)
+    trace = {entry["id"]: entry for entry in result.summary()["trace"]}
+    assert result.status == "success", result.error
+    assert trace["in_names"]["outputs"] is None
+    assert trace["map"]["outputs"]["o"]["data"] == [["3", "cy"]]
+
+
+def test_failure_of_a_component_that_is_not_listed_takes_the_place_of_its_entry(tmp_path):
+    # The lookup holds a name where a number belongs and stops the job; it was noted as not listed before.
+    made = joined_with_names()
+    made["components"][1]["config"]["die_on_error"] = True
+    result, trace = traced(tmp_path, made, {"in.csv": DATA, "names.csv": b"id;name\nx;ann\n3;cy\n"}, where={"id": 3})
+    assert result.status == "failed" and result.failed_component == "names"
+    assert trace["names"] == {"id": "names", "type": "FileInputDelimited", "error": result.error}
+    assert [entry["id"] for entry in result.summary()["trace"]].count("names") == 1
+
+
+def test_file_output_of_a_stage_that_failed_says_its_file_was_not_written(tmp_path, caplog):
+    failing = {"id": "it", "type": "PyMap", "inputs": ["row1"], "outputs": ["row3"],
+               "config": map_config([map_out("row3", [("id", "row1.id", "int"), ("n", "int(row1.code)", "int")])]),
+               "schema": {"inputs": {"row1": columns("id:int, code:str")}}}
+    made = job([reader("id:int, code:str", outputs=("row1", "row2"), header_rows=1),
+                writer("id:int, code:str", inputs=("row2",)), failing,
+                writer("id:int, n:int", "second", "second.csv", ("row3",))],
+               [flow("row2", "in", "out"), flow("row1", "in", "it"), flow("row3", "it", "second")])
+    caplog.set_level(logging.INFO, logger="src.v2")
+    result, trace = traced(tmp_path, made, {"in.csv": b"id;code\n1;10\n2;x\n"}, where={"id": 2})
+    assert result.status == "failed" and not (tmp_path / "out.csv").exists()
+    assert trace["out"]["rows"] == 1 and trace["out"]["written"] is False
+    assert "[out] trace: 1 row for out.csv" in [record.getMessage() for record in caplog.records]
+
+
+def test_file_output_of_a_stage_that_finished_says_its_file_was_written(tmp_path):
+    _, trace = traced(tmp_path, copying(header_rows=1), {"in.csv": DATA}, where={"id": 3})
+    assert trace["out"]["written"] is True
+
+
+def test_traced_run_says_each_thing_once_when_a_file_holds_what_the_fast_reader_does_not_take(tmp_path, caplog):
+    # The lookup holds 3.0 where a whole number is declared: the fast reader fails on it, the tolerant one reads it.
+    caplog.set_level(logging.INFO, logger="src.v2")
+    result, trace = traced(tmp_path, joined_with_names(),
+                           {"in.csv": DATA, "names.csv": b"id;name\n1;ann\n3.0;cy\n"}, where={"id": 3})
+    assert result.status == "success", result.error
+    said = [record.getMessage() for record in caplog.records]
+    assert len([line for line in said if line.startswith("[in] trace:")]) == 1
+    assert not [line for line in said if "reading again" in line]
+    assert rows_of(trace["it"]) == [["3", "30", "cy"]]
+
+
+def test_command_line_can_turn_off_the_trace_the_job_config_asks_for(tmp_path, capsys):
+    (tmp_path / "in.csv").write_bytes(DATA)
+    made = job([reader(IDS, path=str(tmp_path / "in.csv"), header_rows=1),
+                writer(IDS, path=str(tmp_path / "out.csv"), inputs=("row1",))], [flow("row1", "in", "out")],
+               run={"only": {"source": "in", "where": {"id": 3}}, "trace": True})
+    (tmp_path / "job.json").write_text(json.dumps(made))
+    assert main([str(tmp_path / "job.json"), "--no-trace"]) == 0
+    printed = capsys.readouterr().out
+    assert "trace" not in json.loads(printed[printed.index("\n{"):]) and " trace: " not in printed
+
+
+def test_trace_of_a_run_whose_code_hands_on_a_list_is_made_all_the_same(tmp_path):
+    first = 'df = df.with_columns(pl.col("tags").str.split(",").alias("parts"))'
+    second = 'df = df.with_columns(pl.col("parts").list.len().alias("n")).drop("parts")'
+    made = chained(first, second, "id:int, tags:str", out="id:int, tags:str, n:int", dataframe="polars")
+    made["components"][1]["config"]["dataframe"] = "polars"
+    result, trace = traced(tmp_path, made, {"in.csv": b"id;tags\n1;a,b\n2;c\n"}, where={"id": 1})
+    assert result.status == "success", result.error
+    handed_on = trace["one"]["outputs"]["main"]
+    assert handed_on["columns"][-1] == {"name": "parts", "type": "List(String)"}
+    assert handed_on["data"] == [["1", "a,b", "['a', 'b']"]]
+    assert (tmp_path / "out.csv").read_bytes() == b"id;tags;n\n1;a,b;2\n"
+
+
+def test_debug_says_why_a_traced_run_reads_every_column_as_text(tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="src.v2")
+    traced(tmp_path, copying(header_rows=1), {"in.csv": DATA}, where={"id": 3})
+    assert ("[t] sources read every column as text in this subjob: the run is traced, which takes rows in hand, "
+            "so the subjob cannot be read a second time") in [record.getMessage() for record in caplog.records]

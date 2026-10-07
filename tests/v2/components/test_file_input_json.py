@@ -345,3 +345,10 @@ def test_records_turned_away_are_counted_in_a_later_records_number(tmp_path):
     result, _ = v2(tmp_path, document, "id:int!, tag:str", [("id", "$.id"), ("tag", "$.tags[0]")])
     assert result.error == ("Column 'id' has NULL values but is not nullable; "
                             "the row is record 3 ($.items[2]) of in.json")
+
+
+def test_column_named_like_a_reject_column_is_read_as_any_other(tmp_path):
+    # v1's base class renames such a column on the main flow; the reader itself has to hand it on.
+    document = {"items": [{"id": 1, "errorCode": "E7", "errorMessage": "m1"}, {"id": 2, "errorCode": "E9", "errorMessage": "m2"}]}
+    run = same(tmp_path, document, "id:int, errorCode:str, errorMessage:str", paths("id", "errorCode", "errorMessage"))
+    assert run.files["out.csv"] == b"id;errorCode_user;errorMessage_user\n1;E7;m1\n2;E9;m2\n"

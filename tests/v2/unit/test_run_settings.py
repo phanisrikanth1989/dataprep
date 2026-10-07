@@ -11,6 +11,7 @@ import pytest
 
 from src.v2 import load_job, run_job
 from src.v2.cli import main
+from src.v2.engine import logging_from
 from src.v2.errors import ConfigurationError, JobRefusedError
 from tests.v2.answer_key import run_v1
 from tests.v2.components.kit import flow, job, reader, writer
@@ -92,10 +93,17 @@ def test_setting_the_caller_leaves_out_is_the_job_configs(tmp_path):
 
 def test_row_counts_argument_still_works_and_wins(tmp_path):
     assert run_job(copying(tmp_path), row_counts=True).counts == COUNTS
+    assert run_job(copying(tmp_path, row_counts=False), row_counts=True, run={"row_counts": False}).counts == COUNTS
+    assert run_job(copying(tmp_path, row_counts=True), row_counts=False, run={"row_counts": True}).counts == {}
 
 
 def test_key_the_caller_gives_that_is_not_known_refuses_the_job(tmp_path):
     assert refusals(copying(tmp_path), run={"loud": True}) == [("run.loud", "unknown config key")]
+
+
+def test_run_settings_of_the_caller_that_are_no_object_refuse_the_job(tmp_path):
+    assert refusals(copying(tmp_path), run="row_counts") == [("run", "expected an object, got 'row_counts'")]
+    assert not (tmp_path / "out.csv").exists()
 
 
 def test_log_level_is_in_force_while_the_job_runs_and_put_back_after(tmp_path, caplog):
@@ -112,6 +120,56 @@ def test_log_level_is_in_force_while_the_job_runs_and_put_back_after(tmp_path, c
         assert not any(record.name.startswith("src.v2") and record.levelno < logging.WARNING for record in caplog.records)
     finally:
         engine_log.setLevel(before)
+
+
+def test_runs_at_once_share_the_lowest_level_and_leave_the_logger_as_it_was(tmp_path):
+    engine_log = logging.getLogger("src.v2")
+    before = engine_log.level
+    first, second = logging_from("DEBUG"), logging_from("WARNING")
+    first.__enter__()
+    second.__enter__()
+    assert engine_log.level == logging.DEBUG
+    # The first to start is the first to end: the other's level is then in force, not the first one's.
+    first.__exit__(None, None, None)
+    assert engine_log.level == logging.WARNING
+    second.__exit__(None, None, None)
+    assert engine_log.level == before
+
+
+def test_logger_is_put_back_when_what_ran_under_a_level_raises():
+    engine_log = logging.getLogger("src.v2")
+    before = engine_log.level
+    with pytest.raises(RuntimeError):
+        with logging_from("DEBUG"):
+            raise RuntimeError("stopped")
+    assert engine_log.level == before
+
+
+def test_level_that_is_none_is_said_when_a_job_is_loaded_with_it(tmp_path):
+    with pytest.raises(ConfigurationError, match="'LOUD' is not a log level"):
+        load_job(copying(tmp_path), log_level="LOUD")
+
+
+def with_a_routine(tmp_path, made):
+    """A job config that loads one routine, which the engine says at INFO as it loads the job."""
+    folder = tmp_path / "routines"
+    folder.mkdir(exist_ok=True)
+    (folder / "fees.py").write_text("def twice(value):\n    return value * 2\n")
+    made["python_config"] = {"enabled": True, "routines_dir": str(folder)}
+    return made
+
+
+def test_job_configs_level_is_in_force_while_the_job_loads_too(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    run_job(with_a_routine(tmp_path, copying(tmp_path)))
+    assert "Loaded routine Fees" in caplog.text
+    caplog.clear()
+    run_job(with_a_routine(tmp_path, copying(tmp_path, log_level="WARNING")))
+    assert not [record for record in caplog.records if record.name.startswith("src.v2")]
+    caplog.clear()
+    # What the caller asks wins while the job loads as well.
+    run_job(with_a_routine(tmp_path, copying(tmp_path, log_level="WARNING")), run={"log_level": "INFO"})
+    assert "Loaded routine Fees" in caplog.text
 
 
 def test_run_job_writes_the_summary_file_it_is_asked_for(tmp_path):
@@ -151,9 +209,31 @@ def block(tmp_path, **run):
     return job_file(tmp_path, run=run)
 
 
+def levels_of(standard_output):
+    """The level of every log line on standard output."""
+    return {line.split()[2] for line in standard_output.splitlines() if line[:4].isdigit() and " - " in line}
+
+
 def test_command_reads_the_log_level_from_the_job_config(tmp_path, capsys):
     assert main([block(tmp_path, log_level="DEBUG")]) == 0
-    assert " DEBUG " in capsys.readouterr().out
+    assert "DEBUG" in levels_of(capsys.readouterr().out)
+    assert main([block(tmp_path)]) == 0
+    assert levels_of(capsys.readouterr().out) == {"INFO"}
+
+
+def test_command_writes_from_the_job_configs_level_while_it_loads_the_job_too(tmp_path, capsys):
+    def loading(**run):
+        path = block(tmp_path, **run)
+        made = with_a_routine(tmp_path, json.loads((tmp_path / "job.json").read_text()))
+        (tmp_path / "job.json").write_text(json.dumps(made))
+        return path
+
+    assert main([loading()]) == 0
+    assert "Loaded routine Fees" in capsys.readouterr().out
+    assert main([loading(log_level="WARNING")]) == 0
+    assert levels_of(capsys.readouterr().out) == set()
+    assert main([loading(log_level="WARNING"), "--log-level", "INFO"]) == 0
+    assert "Loaded routine Fees" in capsys.readouterr().out
 
 
 def test_command_lines_log_level_wins(tmp_path, capsys):
@@ -179,6 +259,14 @@ def test_command_lines_summary_file_wins(tmp_path, capsys):
     named, given = tmp_path / "from_config.json", tmp_path / "from_flag.json"
     assert main([block(tmp_path, summary_file=str(named)), "--summary", str(given)]) == 0
     assert given.exists() and not named.exists()
+
+
+def test_command_line_that_names_no_summary_file_turns_off_the_job_configs(tmp_path, capsys):
+    named = tmp_path / "from_config.json"
+    assert main([block(tmp_path, summary_file=str(named), row_counts=True), "--summary", ""]) == 0
+    assert not named.exists()
+    said = [line.split(" - ", 1)[1] for line in capsys.readouterr().out.splitlines() if "run settings" in line]
+    assert said == ["[cli] run settings: row counts (job config)"]
 
 
 def test_summary_file_of_the_job_config_that_cannot_be_opened_is_said_as_such(tmp_path, capsys):

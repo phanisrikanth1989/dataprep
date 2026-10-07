@@ -156,9 +156,10 @@ class FileInputJSON(Source):
         rows = self.picked(rows.with_columns(
             pl.Series(_WHY, turned_away, dtype=pl.String), pl.Series(_TOLD, told, dtype=pl.String)
         ))
-        reject = rows.filter(pl.col(_WHY).is_not_null()).select(
-            pl.exclude(_WHY, _TOLD), pl.lit("PARSE_ERROR").alias("errorCode"), pl.col(_WHY).alias("errorMessage")
-        )
+        # A data column with one of the two names gives its place to the reason, as in the other readers.
+        reject = rows.filter(pl.col(_WHY).is_not_null()).with_columns(
+            pl.lit("PARSE_ERROR").alias("errorCode"), pl.col(_WHY).alias("errorMessage")
+        ).drop(_WHY, _TOLD)
         reject = reject.select(visible(reject.columns) + hidden(reject.columns))
         # Turned away whatever die_on_error says, so told whatever it says.
         main = self.tell_dropped(rows.drop(_WHY).lazy(), pl.col(_TOLD).is_not_null(), pl.col(_TOLD))

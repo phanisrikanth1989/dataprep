@@ -215,9 +215,9 @@ converted, and run it on v1.
 Python's own blanks differ by what asks: `str.strip()` strips the four
 separators from `\x1c` to `\x1f`, `int()` and `float()` do not read past
 them. Polars' `strip_chars()` with nothing named is the second set; the
-first is `types.BLANKS`.
+first is `column_types.BLANKS`.
 
-## Types (`src/v2/types.py`)
+## Types (`src/v2/column_types.py`)
 
 Declared column types are `str`, `int`, `float`, `bool`, `datetime`, `date`,
 `Decimal`. Helpers:
@@ -237,7 +237,7 @@ values are written as empty fields.
 ## What the engine does for you
 
 After `read`/`build`/`run`, for the `main` output, the engine applies v1's
-base-class behaviour (`types.conform`), unless the class sets
+base-class behaviour (`column_types.conform`), unless the class sets
 `conforms = False`:
 
 - declared columns first, in declared order; other columns kept after them;
@@ -373,11 +373,22 @@ component:
   row's number (`number_at`, the other way round from `locate`). Where
   Polars parses values for the whole file, it does not when `only_rows` is
   set (`_native` in `file_input_delimited.py`).
+- Rows are picked by what a column holds, read the way the source reads the
+  column. A source that reads a column's text in a way of its own (the
+  positional reader takes a file's own number separators out) does it in
+  `as_read(column, text)` and reads its own fields through it, so that the
+  engine reads the value asked for, and the text of a row the source turned
+  away, the same way.
+- An output that can hold a row carries the row number. One that never can
+  (the reject output of a reader that turns no row away) may go without.
 - A component that looks things up in some of its inputs says which
   (`lookup_inputs`): the engine lists a component's rows when every input
   that is not a lookup comes from the picked rows.
+- A sink gives the text its file holds for each column (`Write.as_text`),
+  so that the list of what it was handed shows what the file holds.
 - Nothing else. The engine takes the rows of such a flow in hand between
-  two components and lists them.
+  two components and lists them, each value written as a file output that
+  declares the component's columns would write it.
 
 A check that fails on rows names the first. Ask for the hidden columns of
 the first failing row beside the count, and end the message with
@@ -422,7 +433,8 @@ tap.
 counts the rows it hands you as they pass. When the whole subjob has
 succeeded, it calls `ready(temp_path, rows)` for every file of the subjob,
 and then `place(temp_path, rows)` for each, in the order the components
-run.
+run. `as_text(rows)` gives a few rows in hand as the text the file holds
+for each column; a run that lists picked rows (`run.trace`) asks for it.
 
 Do in `ready` whatever the rows can still fail: putting the file in the
 job's encoding, say. Do nothing in `place` but move bytes
@@ -496,9 +508,11 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
 - the row numbers kept, by the table in "Row numbers", and a test of it;
 - rows it drops for a fault told in the log (`tell_dropped`), and a test of
   it in `tests/v2/test_dropped_rows.py`;
-- for a source: picked rows (`picked`, `place_kind`, `number_at`) with a
-  test in `tests/v2/test_only.py`; for a component with lookups:
-  `lookup_inputs`, with a test in `tests/v2/test_trace.py`;
+- for a source: picked rows (`picked`, `place_kind`, `number_at`, and
+  `as_read` where it reads text in a way of its own) with a test in
+  `tests/v2/test_only.py`; for a component with lookups: `lookup_inputs`,
+  and for a sink: `Write.as_text`, each with a test in
+  `tests/v2/test_trace.py`;
 - answer-key tests for every supported key, unit tests for refusals;
 - the whole `tests/v2` suite green;
 - a short report: keys supported / ignored / refused (with reasons), every

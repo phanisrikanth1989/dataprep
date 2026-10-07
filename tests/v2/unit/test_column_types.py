@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from src.v2.job.model import Column
-from src.v2.types import chrono_format, conform, from_text, polars_type, to_text
+from src.v2.column_types import chrono_format, conform, from_text, polars_type, to_text
 
 
 def read(texts, column):
@@ -366,7 +366,7 @@ def test_floats_and_decimals_are_turned_into_each_other_through_their_digits():
 def test_fixed_text_is_what_python_writes_for_any_float(places):
     import random
 
-    from src.v2.types import fixed_text
+    from src.v2.column_types import fixed_text
 
     random.seed(places)
     values = [0.0, -0.0, 0.5, 1.5, 2.5, -2.5, 0.125, 0.375, 2.675, 1.115, 1.005, 0.285, 1e-7, -1e-7, 123456789.125,
@@ -380,14 +380,14 @@ def test_fixed_text_is_what_python_writes_for_any_float(places):
 
 
 def test_fixed_text_of_a_missing_value_is_missing():
-    from src.v2.types import fixed_text
+    from src.v2.column_types import fixed_text
 
     frame = pl.DataFrame({"v": [None, float("nan"), 1.0]}, schema={"v": pl.Float64})
     assert frame.select(fixed_text(pl.col("v"), 2)).to_series().to_list() == [None, None, "1.00"]
 
 
 def test_fixed_text_beyond_the_places_a_float_holds_is_the_float_as_it_prints():
-    from src.v2.types import fixed_text
+    from src.v2.column_types import fixed_text
 
     frame = pl.DataFrame({"v": [1.5]}, schema={"v": pl.Float64})
     assert frame.select(fixed_text(pl.col("v"), 20)).to_series().to_list() == ["1.5"]

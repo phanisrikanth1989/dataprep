@@ -17,7 +17,7 @@ from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...rows import REASON, first_of, shown
-from ...types import finish_value, parse_text, polars_schema, unreadable
+from ...column_types import finish_value, parse_text, polars_schema, unreadable
 from ..base import Source, ascii_only
 from ..registry import REGISTRY
 

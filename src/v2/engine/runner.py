@@ -29,12 +29,12 @@ from ..files import put_in_place
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
-from .picking import MOST, holds, in_words
-from .tracing import NOT_PICKED, captured, changes, counted
+from ..column_types import VIOLATION, conform
 from ..rows import first_of, shown, visible, without
-from ..types import VIOLATION, conform
 from .conditions import evaluate
 from .context import RunContext
+from .picking import MOST, check_only, columns_of, holds, in_words
+from .tracing import NOT_PICKED, captured, changes, counted
 
 logger = logging.getLogger(__name__)
 
@@ -129,11 +129,14 @@ class _Subjob:
     taps: List[Tuple[str, Tap]] = field(default_factory=list)
     noticed: List[Tuple[str, Noticed]] = field(default_factory=list)
     # In a run that is traced: the flows whose rows all come from the picked rows, those rows in hand, what
-    # is noted of each component, and the files written from such flows.
+    # is noted of each component (and of each file output, by its id), the files written from such flows,
+    # and the files written from any other.
     traced: Set[str] = field(default_factory=set)
     in_hand: Dict[str, pl.DataFrame] = field(default_factory=dict)
     trace: List[Dict[str, Any]] = field(default_factory=list)
+    filed: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     small: List[str] = field(default_factory=list)
+    other: List[str] = field(default_factory=list)
     produced: List[Tuple[str, pl.LazyFrame]] = field(default_factory=list)
     written: List[Tuple[str, Write, str, int]] = field(default_factory=list)
     temps: List[str] = field(default_factory=list)
@@ -217,7 +220,7 @@ class Runner:
         said = {
             "log_level": f"log level {settings.log_level}",
             "row_counts": "row counts" if settings.row_counts else "",
-            "summary_file": f"summary file {settings.summary_file}",
+            "summary_file": f"summary file {settings.summary_file}" if settings.summary_file else "",
             "only": f"only {_picked(settings.only)}" if settings.only else "",
             "trace": "trace" if settings.trace else "",
         }
@@ -378,9 +381,12 @@ class Runner:
         is then run once more with the tolerant reader. That is safe as long
         as nothing in the subjob has acted on rows yet, so a subjob holding
         a component that needs rows in hand starts with the tolerant reader.
+        So does every subjob of a run that is traced: such a run takes rows
+        in hand, and says what it sees in them, as each component is built.
         """
         holding = [component_id for component_id in component_ids if self.job.components[component_id].cls.may_need_rows]
-        self.run_context.fast_read = not holding and not os.environ.get("V2_SAFE_READ")
+        traced = self.trace is not None
+        self.run_context.fast_read = not holding and not traced and not os.environ.get("V2_SAFE_READ")
         if logger.isEnabledFor(logging.DEBUG):
             how = (
                 "sources may let Polars parse numbers itself in this subjob: "
@@ -389,6 +395,11 @@ class Runner:
             if holding:
                 how = (
                     f"sources read every column as text in this subjob: {', '.join(holding)} may need rows "
+                    "in hand, so the subjob cannot be read a second time"
+                )
+            elif traced:
+                how = (
+                    "sources read every column as text in this subjob: the run is traced, which takes rows "
                     "in hand, so the subjob cannot be read a second time"
                 )
             elif not self.run_context.fast_read:
@@ -423,7 +434,7 @@ class Runner:
             self._place(state)
         except _Failed as failure:
             _discard(state)
-            if self.trace is not None and not failure.read_again:
+            if self.trace is not None:
                 # The trace goes as far as the failure, and holds it.
                 if failure.component_id in self.job.components:
                     failed = {"id": failure.component_id, "type": self.job.components[failure.component_id].type,
@@ -437,7 +448,9 @@ class Runner:
             raise
         if self.trace is not None:
             self.trace += state.trace
+            # A file is the picked rows for a later stage until rows that are not picked go to it as well.
             self._small.update(state.small)
+            self._small.difference_update(state.other)
         self._say_dropped(state)
         if self.row_counts:
             self._say_counts(component_ids)
@@ -500,10 +513,16 @@ class Runner:
                     outputs: Dict[str, pl.LazyFrame] = {}
                     if traced:
                         rows = state.in_hand[next(iter(inputs))]
-                        state.trace.append({"id": component_id, "type": spec.type, "path": write.path,
-                                            **captured(rows, self.run_context.sources)})
+                        listed = captured(rows, self.run_context.sources, component.input_schema, write.as_text)
+                        # The file is written when the whole subjob has finished: until then it is not.
+                        state.filed[component_id] = {
+                            "id": component_id, "type": spec.type, "path": write.path, "written": False, **listed
+                        }
+                        state.trace.append(state.filed[component_id])
                         state.small.append(os.path.realpath(write.path))
-                        logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} to {write.path}"))
+                        logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} for {write.path}"))
+                    elif self.trace is not None:
+                        state.other.append(os.path.realpath(write.path))
                 elif isinstance(component, Source):
                     only = self.settings.only
                     if only is not None and only.source == component_id:
@@ -590,13 +609,13 @@ class Runner:
         said = f"the rows {component.id} hands on"
         rows = self._collect([outputs[port] for port in ports], state, said=said) if ports else []
         held = dict(zip(ports, rows))
-        sources = self.run_context.sources
+        sources, declared = self.run_context.sources, component.spec.schema
         state.trace.append({
             "id": component.id, "type": component.spec.type,
-            "outputs": {port: captured(frame, sources) for port, frame in held.items()},
+            "outputs": {port: captured(frame, sources, declared) for port, frame in held.items()},
         })
         before = next((state.in_hand[name] for name in names if name in state.traced), None)
-        by_port = {port: changes(before, frame, sources) for port, frame in held.items()}
+        by_port = {port: changes(before, frame, sources, declared) for port, frame in held.items()}
         several = sum(bool(notes) for notes in by_port.values()) > 1
         noted = [f"{port}: {note}" if several else note for port, notes in by_port.items() for note in notes]
         counts = ", ".join(f"{port} {counted(frame.height)}" for port, frame in held.items()) or "no output"
@@ -613,13 +632,23 @@ class Runner:
 
         Raises:
             _Failed: When a value or a place has no row, or more rows are
-                picked than a run can be for.
+                picked than a run can be for; and when the asking is wrong
+                in a way only the built reader can tell.
         """
         probe = self._ready(spec)
         if not isinstance(probe, Source):  # pragma: no cover -- refused before the run
             raise _Failed(spec.id, f"'{spec.id}' is not a reader")
-        read = self._conformed(probe, probe.read())
+        # Judged before the run where it could be. Where the reader's config waited for a value, it is judged now.
+        wrong = check_only(self.job, only, probe)
+        if wrong:
+            raise _Failed(spec.id, wrong[0].reason)
+        columns = columns_of(spec, probe) or []
         number = probe.row_number
+        # An output that can hold no row (the reject output of a reader that turns none away) has no numbers.
+        read = {
+            port: frame for port, frame in self._conformed(probe, probe.read()).items()
+            if number in frame.collect_schema().names()
+        }
         wanted: Dict[int, int] = {}
         if only.places is not None:
             kind, places = only.places
@@ -631,9 +660,9 @@ class Runner:
                     raise _Failed(spec.id, f"'{spec.id}' has no row at {at} {place}: {exc}") from None
             matching = [frame.filter(pl.col(number).is_in(list(wanted))).select(number) for frame in read.values()]
         else:
-            columns = [pl.col(name) for name in only.where]
             matching = [
-                frame.filter(holds(frame, probe.schema, only.where)).select(number, *columns) for frame in read.values()
+                frame.filter(holds(frame, columns, only.where, probe)).select(number, *only.where)
+                for frame in read.values()
             ]
         try:
             found = pl.collect_all(matching, engine=self.engine)
@@ -647,15 +676,14 @@ class Runner:
             for value, place in wanted.items():
                 if value not in numbers:
                     raise _Failed(spec.id, f"'{spec.id}' has no row at {at} {place}")
-        elif len(only.where) == 1:
-            # Each value named has to pick a row: one that picks none is most likely mistyped.
-            (name, values), = only.where.items()
-            for value in values:
-                picks = [frame.filter(holds(frame.lazy(), probe.schema, {name: [value]})).height for frame in found]
-                if not sum(picks):
-                    raise _Failed(spec.id, f"no row of '{spec.id}' has {in_words({name: [value]})}")
-        elif not numbers:
-            raise _Failed(spec.id, f"no row of '{spec.id}' has {in_words(only.where)}")
+        else:
+            # Each value named has to be held by a picked row: one that none holds is most likely mistyped.
+            for name, values in only.where.items():
+                for value in values:
+                    alone = {name: [value]}
+                    picks = [frame.filter(holds(frame.lazy(), columns, alone, probe)).height for frame in found]
+                    if not sum(picks):
+                        raise _Failed(spec.id, f"no row of '{spec.id}' has {in_words({**only.where, **alone})}")
         if len(numbers) > MOST:
             raise _Failed(
                 spec.id,
@@ -818,6 +846,8 @@ class Runner:
                     write.place(temp, rows)
                 else:
                     put_in_place(temp, write.path, write.append)
+                if component_id in state.filed:
+                    state.filed[component_id]["written"] = True
                 self.rows[component_id] = self.rows.get(component_id, 0) + rows
                 self.run_context.global_map[f"{component_id}_NB_LINE"] = self.rows[component_id]
                 for stat in self._wanted.get(component_id, ()):

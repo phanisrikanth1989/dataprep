@@ -15,7 +15,7 @@ from ...errors import ConfigurationError
 from ...files import as_utf8
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import from_text
+from ...column_types import from_text
 from ...rows import first_of, hidden
 from ..base import Source
 from ..registry import REGISTRY
@@ -174,9 +174,9 @@ class FileInputPositional(Source):
             start += width or 0
         return fields
 
-    def _number_text(self, column: Column) -> pl.Expr:
-        """A field as the text its number is read from."""
-        config, text = self.config, pl.col(column.name)
+    def as_read(self, column: Column, text: pl.Expr) -> pl.Expr:
+        """A field as the text its number is read from: without the separators the file writes numbers with."""
+        config = self.config
         if not config["advanced_separator"] or column.type not in _SEPARATED_TYPES:
             return text
         if config["thousands_separator"]:
@@ -198,7 +198,7 @@ class FileInputPositional(Source):
         unreadable: List[Tuple[pl.Expr, str, pl.Expr]] = []
         missing: List[Tuple[pl.Expr, str, pl.Expr]] = []
         for column in typed:
-            value, wrong = from_text(self._number_text(column), column)
+            value, wrong = from_text(self.as_read(column, pl.col(column.name)), column)
             values.append(value.alias(_VALUE + column.name))
             unreadable.append((wrong, "TYPE_CONVERSION", pl.format(unreadable_text(column), pl.col(column.name))))
             if not column.nullable:

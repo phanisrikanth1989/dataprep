@@ -124,3 +124,16 @@ Built:
 
 For whoever changes the API: choosing v2 is the API's own switch; the call
 above is all v2 needs.
+
+## Corrected after a second review (2026-10-07)
+
+- `python /opt/dataprep/src/v2 job.json` crashed on an interpreter whose
+  start-up had not already loaded the standard library's `types`. Started
+  with a folder, Python looks in that folder first for what it loads to get
+  going, and found the engine's own `types.py`. It worked here only because
+  the development install loads `types` earlier. The file is now
+  `src/v2/column_types.py`, and a test holds that no file of the engine's
+  folder is named like a module of the standard library.
+- Held by a test that starts Python with `-S` (no start-up hooks of
+  installed packages). A real RHEL host was not tried.
+- A link to the engine's folder starts the engine as well.

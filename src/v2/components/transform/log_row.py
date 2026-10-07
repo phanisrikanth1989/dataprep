@@ -8,7 +8,7 @@ import polars as pl
 
 from ...job.keys import Key, Kind
 from ...rows import visible
-from ...types import to_text
+from ...column_types import to_text
 from ..base import Transform
 from ..registry import REGISTRY
 

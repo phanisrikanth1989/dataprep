@@ -10,7 +10,7 @@ from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...rows import KEY, ROW, hidden, rows_column
-from ...types import to_text
+from ...column_types import to_text
 from ..base import Transform
 from ..registry import REGISTRY
 

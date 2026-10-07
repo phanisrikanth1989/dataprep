@@ -59,7 +59,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as stop:
         return 0 if stop.code == 0 else 2
-    # What the command line says wins over the job config's `run` block; the block is known once the job is loaded.
+    # What the command line says wins over the job config's `run` block. The block is known once the job is
+    # read: from then on, loading included, the engine's lines are written from the level that is in force.
     with _log_streams(args.log_level or "INFO"):
         return _run(args)
 
@@ -122,7 +123,7 @@ def _run(args: argparse.Namespace) -> int:
         context[key.strip()] = value.strip()
 
     try:
-        job = load_job(args.job_config, context=context)
+        job = load_job(args.job_config, context=context, log_level=args.log_level)
     except JobRefusedError as refused:
         print(refused.report.format(), file=sys.stderr)
         return 2

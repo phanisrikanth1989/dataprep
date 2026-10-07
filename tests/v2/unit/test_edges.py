@@ -17,7 +17,7 @@ from src.v2.files import as_utf8, codec_name
 from src.v2.job.keys import Key, normalize_config
 from src.v2.job.loader import load_job as read_job
 from src.v2.job.model import Column
-from src.v2.types import conform, to_text
+from src.v2.column_types import conform, to_text
 
 from .kit import REGISTRY, job, lines, run, schema_of
 

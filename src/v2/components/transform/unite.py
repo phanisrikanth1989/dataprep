@@ -5,7 +5,7 @@ from typing import Dict, List, Set
 
 import polars as pl
 
-from ...types import to_text
+from ...column_types import to_text
 from ..base import Transform
 from ..registry import REGISTRY
 

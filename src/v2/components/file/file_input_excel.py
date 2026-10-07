@@ -18,7 +18,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import from_text, polars_type, to_text
+from ...column_types import from_text, polars_type, to_text
 from ...rows import hidden, visible
 from ..base import Source
 from ..registry import REGISTRY
@@ -177,6 +177,9 @@ class FileInputExcel(Source):
     # ------------------------------------------------------------------
 
     def read(self) -> Dict[str, pl.LazyFrame]:
+        # Each sheet's share of the row numbers, to find a row by: no sheet has any until a workbook is read.
+        self._sheet_rows: List[Tuple[int, str]] = []
+        self._rows_read = 0
         path = self.config["path"].strip()
         if len(path) > 1 and path[0] == path[-1] and path[0] in "'\"":
             path = path[1:-1]
@@ -198,8 +201,8 @@ class FileInputExcel(Source):
         except fastexcel.FastExcelError as exc:
             return self._nothing(f"Error reading Excel file {path}: {str(exc).splitlines()[0]}")
         self.global_map[f"{self.id}_CURRENT_SHEET"] = sheets[-1]
-        # Rows are numbered through all the sheets, and each sheet's share of the numbers is kept to find a row by.
-        self._path, self._sheet_rows, numbered, read = path, [], [], 0
+        # Rows are numbered through all the sheets, and each sheet's share of the numbers is kept.
+        self._path, numbered, read = path, [], 0
         for sheet, frame in zip(sheets, frames):
             frame = frame.with_row_index(self.row_number, offset=read + 1).with_columns(self.key_copies())
             # The declared columns stay in front, as they were.
@@ -227,10 +230,12 @@ class FileInputExcel(Source):
     def number_at(self, place: int, sheet: Optional[str] = None) -> int:
         """The number of the row a sheet shows at a row of its own."""
         with_rows = [name for _, name in self._sheet_rows]
+        if not with_rows:
+            raise ValueError("no row was read from the workbook")
         if sheet is None and len(with_rows) != 1:
-            raise ValueError(f"say which sheet; those with rows are: {', '.join(with_rows) or 'none'}")
+            raise ValueError(f"say which sheet; those with rows are: {', '.join(with_rows)}")
         if sheet is not None and sheet not in with_rows:
-            raise ValueError(f"no sheet '{sheet}' was read with rows; those with rows are: {', '.join(with_rows) or 'none'}")
+            raise ValueError(f"no sheet '{sheet}' was read with rows; those with rows are: {', '.join(with_rows)}")
         at = with_rows.index(sheet) if sheet is not None else 0
         first = self._sheet_rows[at][0]
         last = self._sheet_rows[at + 1][0] - 1 if at + 1 < len(self._sheet_rows) else self._rows_read

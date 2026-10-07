@@ -16,7 +16,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...expressions import translate_condition
 from ...job.keys import EXPRESSION, Key, Kind
-from ...types import BLANKS, to_text
+from ...column_types import BLANKS, to_text
 from ..base import Transform, is_on
 from ..registry import REGISTRY
 

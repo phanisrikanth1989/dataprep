@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
@@ -47,6 +48,7 @@ def _some(value: list) -> list:
 
 
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+_WRITTEN_REFERENCE = re.compile(r"\$\{context\.\w+\}")
 # The kinds of place a row can be picked by, as a failure names a row's place.
 PLACES = ("lines", "records", "rows")
 
@@ -226,7 +228,7 @@ def run_settings(block: Optional[Dict[str, Any]], written: Any = None) -> Tuple[
     written_only = written.get("only") if isinstance(written, dict) else None
     refusals: List[Refusal] = []
     for name, value in block.items():
-        if has_context_reference(value):
+        if has_context_reference(value) or _asks_for_context(value):
             refusals.append(Refusal("job", f"run.{name}", "a context variable is not read in a run setting"))
     settings = RunSettings(
         log_level=block.get("log_level"), row_counts=block.get("row_counts"),
@@ -251,8 +253,23 @@ def run_settings(block: Optional[Dict[str, Any]], written: Any = None) -> Tuple[
     return settings, refusals
 
 
+def _asks_for_context(value: Any) -> bool:
+    """Whether a text inside a setting that holds several values is written as ``${context.name}``.
+
+    What rows are picked by is data, and data may hold any text: there only
+    the spelling that can be nothing but a reference is taken for one.
+    """
+    if isinstance(value, dict):
+        return any(_asks_for_context(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_asks_for_context(item) for item in value)
+    return isinstance(value, str) and bool(_WRITTEN_REFERENCE.search(value))
+
+
 def caller_settings(asked: Optional[Mapping[str, Any]]) -> Tuple[RunSettings, List[Refusal]]:
     """Run settings as a caller of the engine hands them over: checked like a job config's ``run`` block."""
+    if asked is not None and not isinstance(asked, Mapping):
+        return RunSettings(), [Refusal("job", "run", f"expected an object, got {asked!r}")]
     block, refusals = normalize_config(dict(asked or {}), RUN_KEYS, "job", _prefix="run.")
     settings, more = run_settings(block, asked)
     return settings, refusals + more

@@ -7,7 +7,7 @@ import polars as pl
 
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
-from ...types import BLANKS, to_text
+from ...column_types import BLANKS, to_text
 from ..base import Transform
 from ..registry import REGISTRY
 

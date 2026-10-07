@@ -8,7 +8,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...types import from_text
+from ...column_types import from_text
 from ..base import Transform
 from ..registry import REGISTRY
 

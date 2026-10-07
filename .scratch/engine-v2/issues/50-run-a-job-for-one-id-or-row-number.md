@@ -158,3 +158,34 @@ Built:
 
 Not built: a run that writes its files somewhere else and leaves the real
 ones alone. The dev's answer was that the files are backed up first.
+
+## Corrected after a second review (2026-10-07)
+
+An independent read of the build found these. Each is held by a test now
+(74 tests in `tests/v2/test_only.py`).
+
+- An ordinary run, with no `only`, failed for a JSON reader with a column
+  named `errorCode` or `errorMessage`: its reject output named the column
+  twice.
+- A run for picked rows failed on any delimited or positional reader whose
+  columns are all text. On typed ones it worked only through a second
+  reading, which the log took for a file the fast reader could not read.
+  The search for the rows now leaves out an output that carries no row
+  numbers.
+- Where the reader's config waits for a value a context load sets, the
+  asking was not checked at all. The column and the value are checked
+  before the run, the kind of place when the reader is built.
+- A reader that declares no columns (full row, JSON) is picked by the
+  columns it hands on.
+- A positional file with its own number separators: a value is asked for
+  as the file writes it (`2.000,00`, which is how a failure shows the key),
+  and a row the reader turns away is found by it. `Source.as_read` is the
+  hook; a number given as a number is the number itself.
+- Every value named has to pick a row, with one column or with several.
+- A file that is not there, read with `die_on_error` off, has no row to
+  pick, and that is what the run says. It used to fail on a missing column.
+- Still so, and now said in the README: a file the reader cannot get
+  through (an enclosure never closed under `csv_option`, a byte not of a
+  full-row file's encoding) fails a run for any of its rows.
+- Measured again at 1,000,000 rows: 1.4 to 1.6 s for one row; a normal run
+  is as fast as before (2.22 s before, 2.18 s now, the same bytes written).
