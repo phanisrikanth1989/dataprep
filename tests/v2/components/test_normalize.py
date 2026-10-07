@@ -47,6 +47,13 @@ def test_trim_strips_each_value(tmp_path):
     assert rows(same(tmp_path, trim=True))[10:13] == ["5;m", "5;n", "5;m"]
 
 
+def test_trim_strips_what_python_calls_blank(tmp_path):
+    # The four separator characters from \x1c to \x1f are blank to Python's strip(), which is v1's trim.
+    assert rows(same(tmp_path, b"id;tags\n1;a ,\x1fb\x1c, \x1d\x1e ,\tc\xc2\xa0\n", trim=True)) == [
+        "1;a", "1;b", "1;", "1;c",
+    ]
+
+
 def test_discard_drops_the_empty_values_a_cell_ends_on_and_keeps_the_ones_inside(tmp_path):
     assert rows(same(tmp_path, discard_trailing_empty_str=True)) == [
         "1;a", "1;b", "1;c", "3;x", "4;p", "4;", "4;q", "5; m ", "5; n ", "5;m",
@@ -86,6 +93,13 @@ def test_separator_of_several_characters_with_discard(tmp_path):
     assert rows(run) == ["1;a", "1;b"]
 
 
+def test_separator_of_several_characters_is_found_from_the_left_before_anything_is_discarded(tmp_path):
+    # `a---` is `a` and `-`: it ends on the separator's characters, and on no empty value.
+    run = same(tmp_path, b"id;tags\n1;a---\n2;b-----\n3;-----\n4;--\n", itemseparator="--",
+               discard_trailing_empty_str=True)
+    assert rows(run) == ["1;a", "1;-", "2;b", "2;", "2;-", "3;", "3;", "3;-"]
+
+
 def test_no_rows(tmp_path):
     assert rows(same(tmp_path, b"id;tags\n")) == []
 
@@ -110,6 +124,15 @@ def test_values_take_the_type_the_output_declares(tmp_path):
 ])
 def test_column_that_is_a_number_is_split_as_its_text(tmp_path, kind, data, want):
     assert rows(same(tmp_path, data, schema=f"id:int, tags:{kind}")) == want
+
+
+@pytest.mark.parametrize("kind, data, want", [
+    ("bool", b"id;tags\n1;true\n2;false\n", ["1;True", "2;False"]),
+    ("Decimal#2", b"id;tags\n1;12.50\n2;7\n3;\n", ["1;12.50", "2;7.00", "3;"]),
+    ("float", b"id;tags\n1;0.0000001\n2;0.00001\n3;12345678901234567890\n", ["1;1e-07", "2;1e-05", "3;1.2345678901234567e+19"]),
+])
+def test_column_that_is_not_text_is_split_as_the_text_python_writes_for_it(tmp_path, kind, data, want):
+    assert rows(same(tmp_path, data, schema=f"id:int, tags:{kind}", out="id:int, tags:str")) == want
 
 
 # ------------------------------------------------------------------

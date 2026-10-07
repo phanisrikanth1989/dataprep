@@ -477,10 +477,15 @@ class Translator:
     def _Compare(self, node: ast.Compare) -> pl.Expr:
         result: Optional[pl.Expr] = None
         left_node = node.left
+        held = len(self._guards)
         for op, right_node in zip(node.ops, node.comparators):
             part = self._compare_pair(node, left_node, op, right_node)
             result = part if result is None else (result & part)
+            # As Python, a chain stops at the first comparison that does not hold: what stands
+            # further right is worked out only for the rows that got past this one.
+            self._guards.append(part)
             left_node = right_node
+        del self._guards[held:]
         return result
 
     def _compare_pair(self, node: ast.Compare, left_node: ast.AST, op: ast.cmpop, right_node: ast.AST) -> pl.Expr:
@@ -541,7 +546,13 @@ class Translator:
         self._guards[-1] = ~test
         orelse = self.value(node.orelse)
         self._guards.pop()
-        then, otherwise = self._one_kind(node, body, node.body, orelse, node.orelse)
+        return self.either(node, test, body, node.body, orelse, node.orelse)
+
+    def either(
+        self, node: ast.AST, test: pl.Expr, body: pl.Expr, body_node: ast.AST, orelse: pl.Expr, orelse_node: ast.AST
+    ) -> pl.Expr:
+        """One of two values by a condition, the two made to fit one column."""
+        then, otherwise = self._one_kind(node, body, body_node, orelse, orelse_node)
         return self._checked(pl.when(test).then(then).otherwise(otherwise), node)
 
     def _one_kind(self, node: ast.AST, left: pl.Expr, left_node: ast.AST, right: pl.Expr, right_node: ast.AST):

@@ -8,7 +8,8 @@ import os
 
 import pytest
 
-from src.v2 import run_job
+from src.v2 import load_job, run_job
+from src.v2.errors import JobRefusedError
 
 from .components.kit import columns, flow, job, reader, through, writer
 from .components.test_file_input_excel import book, excel
@@ -86,8 +87,28 @@ def test_blank_lines_before_the_row_are_counted_as_lines(tmp_path):
 def test_line_is_right_when_the_reader_splits_the_rows_itself(tmp_path):
     made = copying(header_rows=2, die_on_error=True, check_fields_num=True)
     error = failed(tmp_path, made, {"in.csv": b"title\nid;amount\n1;10\n\n2;20;extra\n3;30\n"})
-    assert "Field count mismatch" in error
-    assert error.endswith("; the row is line 5 of in.csv")
+    # v1's message ends on its own count of the row, "- Line: 2": its place among the rows read. It is left
+    # out here, where the line of the file follows.
+    assert error == ("Schema/coercion failed for 1 row(s); first error: Field count mismatch: expected 2, got 3"
+                     "; the row is line 5 of in.csv")
+
+
+@pytest.mark.parametrize("config, data, line", [
+    ({"header_rows": 1, "footer_rows": 2}, b"id;amount\n1;10\n2;x\n3;30\ntotal;2\nend;0\n", 3),
+    ({"header_rows": 1, "footer_rows": 1, "check_fields_num": True}, b"id;amount\n1;10\n\n2;x\nend;0\n", 4),
+    ({"header_rows": 1, "limit": 3}, b"id;amount\n1;10\n\n2;20\n3;x\n4;40\n", 5),
+    ({"row_separator": "\\r"}, b"1;10\r2;x\r3;30\r", 2),
+    ({"row_separator": "\\r", "header_rows": 1, "limit": 2}, b"id;amount\r1;10\r2;x\r3;30\r", 3),
+    ({"row_separator": "\\r\\n", "header_rows": 1}, b"id;amount\r\n1;10\r\n\r\n2;x\r\n", 4),
+    ({"remove_empty_row": False}, b"1;10\n;\n3;x\n", 3),
+    ({"header_rows": 1}, b"\xef\xbb\xbfid;amount\n1;10\n2;x\n", 3),
+    ({}, b"\xef\xbb\xbf1;x\n2;20\n", 1),
+    ({"check_fields_num": True}, b"\xef\xbb\xbf1;10\n2;x\n", 2),
+], ids=["footer", "footer, split here", "limit", "\\r", "\\r and a limit", "\\r\\n", "empty rows kept",
+        "byte order mark and a header", "byte order mark", "byte order mark, split here"])
+def test_line_is_right_whatever_the_reader_is_asked_to_skip_or_keep(tmp_path, config, data, line):
+    error = failed(tmp_path, copying(die_on_error=True, **config), {"in.csv": data})
+    assert error.endswith(f"; the row is line {line} of in.csv"), error
 
 
 def test_file_with_enclosures_names_the_record_not_a_line(tmp_path):
@@ -138,6 +159,14 @@ def test_excel_reader_names_the_sheet_and_the_row(tmp_path):
     error = failed(tmp_path, made, {"in.xlsx": sheets})
     assert error == ("Column 'n' has NULL values but is not nullable; "
                      "the row is row 3 of sheet 'second' of in.xlsx (id=4)")
+
+
+def test_excel_row_is_right_after_a_sheet_with_nothing_in_it(tmp_path):
+    made = keyed(excel("id:int, n:int!", header=1, die_on_error=True, all_sheets=True))
+    sheets = book({"first": [["id", "n"], [1, 10], [2, 20]], "empty": [], "titles": [["id", "n"]],
+                   "last": [["id", "n"], [3, 30], [4, None]]})
+    error = failed(tmp_path, made, {"in.xlsx": sheets})
+    assert error.endswith("; the row is row 3 of sheet 'last' of in.xlsx (id=4)")
 
 
 def test_excel_row_is_the_sheets_own_when_the_sheet_starts_with_empty_rows(tmp_path):
@@ -368,6 +397,28 @@ def test_every_row_a_normalize_makes_carries_the_number_of_the_row_it_came_from(
 
 
 # ------------------------------------------------------------------
+# Names a job may not use
+# ------------------------------------------------------------------
+
+def refusals(made):
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(made)
+    return [(refusal.where.split()[1], refusal.reason) for refusal in caught.value.report]
+
+
+def test_column_a_reader_declares_under_the_engines_own_prefix_is_refused():
+    found = refusals(copying("id:int, __v2_note:str"))
+    assert found == [("in", "'__v2_note': a column's name may not start with '__v2_', which marks the engine's own")]
+
+
+def test_column_a_map_makes_under_the_engines_own_prefix_is_refused_once_where_it_is_made():
+    made = chain(("PyMap", map_config([map_out("row2", [("id", "row1.id", "int"), ("__v2_row:in", "7", "int")])]),
+                  None), ("FilterColumns", {}, None))
+    made["components"][1]["schema"] = {"inputs": {"row1": columns(PEOPLE)}}
+    assert [component_id for component_id, _ in refusals(made)] == ["s1"]
+
+
+# ------------------------------------------------------------------
 # Who does not see it
 # ------------------------------------------------------------------
 
@@ -443,16 +494,15 @@ def test_conversion_that_fails_after_a_normalize_names_the_record(tmp_path):
 
 
 def test_group_made_of_normalized_json_records_names_its_first(tmp_path):
-    # Every piece of every order in one group per order; the second order's group holds a piece that is no number.
+    # One group for each order, of its pieces. Neither piece of the third order is a number, so the group has
+    # no lowest one; the two rows that were combined are the two pieces of that one record.
     grouped = {"groupbys": [{"input_column": "id", "output_column": "id"}],
                "operations": [{"output_column": "tags", "function": "min", "input_column": "tags"}]}
     made = orders(("Normalize", {"normalize_column": "tags"}, "id:int, tags:int"),
-                  ("FilterRows", {"conditions": [{"column": "id", "operator": "==", "function": "", "value": "103"}]},
-                   "id:int, tags:int"),
                   ("AggregateRow", grouped, "id:int, tags:int"))
-    error = failed(tmp_path, made, {"in.json": ORDERS})
-    assert error == ("Column 'tags' has NULL values but is not nullable; "
-                     "the row is record 3 ($.orders[2]) of in.json (id=103)")
+    error = failed(tmp_path, made, {"in.json": ORDERS.replace(b'"tags": ""', b'"tags": "x,y"')})
+    assert error == ("Column 'tags' has NULL values but is not nullable; the row is record 3 ($.orders[2]) of "
+                     "in.json, the first of 2 rows that were combined (id=103)")
 
 
 def test_json_loop_gone_through_as_root_names_the_item(tmp_path):

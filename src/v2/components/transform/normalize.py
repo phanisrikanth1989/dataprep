@@ -1,13 +1,13 @@
 """Normalize: one row whose cell holds several values becomes one row for each value."""
 from __future__ import annotations
 
-import re
 from typing import Dict
 
 import polars as pl
 
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
+from ...types import BLANKS, to_text
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -23,7 +23,8 @@ class Normalize(Transform):
     """Split one column's values at a separator, and hand on one row for each piece.
 
     The other columns are repeated on every row a cell gives. A cell with
-    nothing in it gives one row with an empty value. The pieces are text;
+    nothing in it gives one row with an empty value. A cell that is not
+    text is split as the text Python writes for it. The pieces are text;
     the engine turns them into the type the output declares for the column.
 
     In this order, as in v1: the empty pieces a cell ends on are discarded,
@@ -62,16 +63,16 @@ class Normalize(Transform):
                 f"normalize_column: '{column}' holds dates; v2 splits text and numbers, written as text"
             )
 
-        text = pl.col(column).cast(pl.String).fill_null("")
+        frame = frame.with_columns(to_text(pl.col(column), types[column]).fill_null("").str.split(separator))
+        pieces = pl.col(column)
         if config["discard_trailing_empty_str"]:
-            # The empty pieces at the end are the separators the text ends on: cut those off, and a cell
-            # that is nothing else has no piece left.
-            text = text.str.replace(f"(?:{re.escape(separator)})+$", "")
-            frame = frame.with_columns(text.alias(column)).filter(pl.col(column) != "")
-            text = pl.col(column)
-        pieces = text.str.split(separator)
+            # The pieces up to the last one that is not empty; a cell with no such piece has none left.
+            filled = pieces.list.eval(pl.element() != "")
+            kept = pl.when(filled.list.any()).then(pieces.list.len() - filled.list.reverse().list.arg_max())
+            frame = frame.with_columns(pieces.list.head(kept.otherwise(0))).filter(pieces.list.len() > 0)
         if config["trim"]:
-            pieces = pieces.list.eval(pl.element().str.strip_chars())
+            # v1 trims with Python's str.strip().
+            pieces = pieces.list.eval(pl.element().str.strip_chars(BLANKS))
         if config["deduplicate"]:
             pieces = pieces.list.unique(maintain_order=True)
         # No cell is without a piece by now; said outright, a list of none would give no row.

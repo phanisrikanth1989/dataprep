@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
@@ -26,6 +27,8 @@ logger = logging.getLogger(__name__)
 _ROW_SEPARATORS = {"\n": "\n", "\r\n": "\n", "\r": "\r"}
 _VALUE = "__v_"
 _BAD, _FIELDS, _LINE = "__bad", "__fields", "__line"
+# How v1's field-count message ends: on the row's place among the rows read, which v1 calls its line.
+_V1_LINE = re.compile(r" - Line: \d+$")
 
 
 def unescape(value: str) -> str:
@@ -188,7 +191,8 @@ class FileInputDelimited(Source):
             frame = frame.filter(~empty)
         if self._by_line():
             frame = frame.with_row_index(_LINE, offset=1)
-        # Copied before a field is trimmed or typed: a key is shown as it stands in the file.
+        # Copied before a field read as text is trimmed or typed: a key is shown as it stands in the file.
+        # A number column Polars parses itself is copied as the number it read.
         frame = frame.with_columns(self.key_copies())
         trimmed = self._trimmed()
         if trimmed:
@@ -421,4 +425,10 @@ def unreadable_text(column: Column) -> str:
 def fatal(found: pl.DataFrame, where: str = "") -> Optional[str]:
     """What a reader fails with when rows could not be read: how many, the first one's fault, and where it is."""
     rows = found["rows"].item()
-    return f"Schema/coercion failed for {rows} row(s); first error: {found['why'].item()}{where}" if rows else None
+    if not rows:
+        return None
+    why = found["why"].item()
+    if where:
+        # The row's line in the file follows; v1's own count of the row beside it would be a second number.
+        why = _V1_LINE.sub("", why)
+    return f"Schema/coercion failed for {rows} row(s); first error: {why}{where}"

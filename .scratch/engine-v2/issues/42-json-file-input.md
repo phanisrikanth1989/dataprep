@@ -55,5 +55,8 @@ value where v1 lets pandas pick a type for the column; a path that is no
 JSONPath refuses the job; a wired reject flow with nothing in it is written
 empty.
 
+Corrected after review (ticket 45): a record a path cannot be followed on
+is turned away with `PARSE_ERROR`, as in v1, and no longer fails the job.
+
 The converted sample (`Job_tFileInputJSON_0.1.json`) is refused only for
 its JSONPaths, which are empty: the Talend job it came from reads by XPath.

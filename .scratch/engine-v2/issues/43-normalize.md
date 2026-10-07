@@ -37,3 +37,8 @@ in `tests/v2/components/test_normalize.py`, against v1).
   each piece is trimmed, then repeats are left out.
 - Text and numbers are split as their text. A column of dates is refused.
 - Every row it makes carries the row number of the row it came from.
+
+Corrected after review (ticket 45): trim strips what Python's `strip()`
+strips; a separator of several characters is found from the left before
+anything is discarded; a value that is not text is split as the text Python
+writes for it.

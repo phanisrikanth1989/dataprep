@@ -86,3 +86,8 @@ Built on 2026-10-07 (`src/v2/rows.py`; tests in `tests/v2/test_row_numbers.py`).
 
 Not done here: a rejected row's own message in a reject file is as v1
 writes it. After the Python dataframe a row has no number.
+
+Corrected after review (ticket 45): a join's reject output keeps the number
+when it declares a reject schema; a map shows the value and names the row
+of one and the same failure; a job column named `__v2_...` is refused at
+load.

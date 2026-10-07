@@ -16,7 +16,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...expressions import translate_condition
 from ...job.keys import EXPRESSION, Key, Kind
-from ...types import to_text
+from ...types import BLANKS, to_text
 from ..base import Transform, is_on
 from ..registry import REGISTRY
 
@@ -28,11 +28,6 @@ _NUMBER_FUNCTIONS = ("LENGTH", "ABS")
 _SIDE = re.compile(r"(LEFT|RIGHT)\((\d+)\)")
 _KEEP = "__keep"
 
-# What Python's str.strip() removes, which is what v1's TRIM removes: the code points Python calls blank.
-_BLANKS = "".join(map(chr, (
-    *range(0x09, 0x0E), *range(0x1C, 0x21), 0x85, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F,
-    0x3000,
-)))
 # What v1 skips around a number written as text.
 _NUMBER_BLANKS = " \t\n\r\x0b\x0c"
 # Regex shorthands as v1's regex engine reads them: ASCII only, and \Z for the end of the text.
@@ -52,9 +47,10 @@ _TEXT_FUNCTIONS = {
     "UPPER": lambda text: text.str.to_uppercase(),
     "LOWER_FIRST": lambda text: _first(text).str.to_lowercase(),
     "UPPER_FIRST": lambda text: _first(text).str.to_uppercase(),
-    "TRIM": lambda text: text.str.strip_chars(_BLANKS),
-    "LTRIM": lambda text: text.str.strip_chars_start(_BLANKS),
-    "RTRIM": lambda text: text.str.strip_chars_end(_BLANKS),
+    # v1's TRIM is Python's str.strip().
+    "TRIM": lambda text: text.str.strip_chars(BLANKS),
+    "LTRIM": lambda text: text.str.strip_chars_start(BLANKS),
+    "RTRIM": lambda text: text.str.strip_chars_end(BLANKS),
 }
 _FUNCTIONS = tuple(_TEXT_FUNCTIONS) + _NUMBER_FUNCTIONS
 

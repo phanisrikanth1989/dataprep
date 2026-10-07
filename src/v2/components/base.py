@@ -38,8 +38,9 @@ COMMON_KEYS: Tuple[Key, ...] = (
 )
 
 
-# In the frame a check of conversions computes: how many rows failed, and what each conversion was handed.
-_FAILED = "__failed_rows"
+# In the frame a check of conversions computes, for each conversion: how many rows it failed on, and what
+# it was handed on the first failing row.
+_FAILED = "__failed_rows_"
 _CONVERTED = "__converted_"
 
 
@@ -202,7 +203,9 @@ class Component:
         nothing where it cannot convert, and the translation notes those
         rows in its scope. This asks, in the pass the subjob runs in, how
         many rows of the frame are among them and which is the first, and
-        fails the component with the expression, the value and the row.
+        fails the component with the conversion that failed on that row,
+        the value it was handed, the row, and how many rows that one
+        conversion failed on.
 
         Call it for every frame expressions were translated to run on, once
         they are translated. The conversions it checks are taken out of the
@@ -218,16 +221,18 @@ class Component:
         if not failures:
             return
         bad = frame.filter(pl.any_horizontal([failure.failed for failure in failures]))
-        values = [
-            pl.when(failure.failed).then(failure.value.cast(pl.String)).first().alias(f"{_CONVERTED}{index}")
-            for index, failure in enumerate(failures)
-        ]
+        asked: List[pl.Expr] = []
+        for index, failure in enumerate(failures):
+            # What the conversion was handed on the first failing row, when it is one that failed there;
+            # and on how many rows it failed.
+            handed = pl.when(failure.failed).then(failure.value.cast(pl.String))
+            asked += [handed.first().alias(f"{_CONVERTED}{index}"), failure.failed.sum().alias(f"{_FAILED}{index}")]
 
         def problem(found: pl.DataFrame) -> Optional[str]:
-            rows = found[_FAILED].item()
             for index, failure in enumerate(failures):
                 value = found[f"{_CONVERTED}{index}"].item()
-                if rows and value is not None:
+                if value is not None:
+                    rows = found[f"{_FAILED}{index}"].item()
                     count = "1 row" if rows == 1 else f"{rows} rows"
                     return (
                         f"{where or failure.where}: {failure.what} could not read '{shown(value)}' "
@@ -235,7 +240,7 @@ class Component:
                     )
             return None
 
-        self.check(bad.select(pl.len().alias(_FAILED), *values, *first_of(bad)), problem)
+        self.check(bad.select(*asked, *first_of(bad)), problem)
 
     def unchecked(self) -> List[str]:
         """The expressions whose conversions were translated and never checked: a fault in the component."""

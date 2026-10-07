@@ -82,11 +82,26 @@ Make the check count the failing rows, ask for `*first_of(bad)` in the same
 frame, and end the message with `self.where(found)`. The job still fails
 and writes nothing; the message gains the first row's place and key.
 
+The value the message shows has to come from that same first row. Where
+several columns can fail, take each one's value on the first failing row,
+not each column's own first bad value (ticket 45 found a map naming one
+row and showing another's value).
+
+A source that reads record by record in Python, as the JSON input does:
+find out what v1 does with one record it cannot read. v1's JSON input
+turns the record away and carries on; failing the job there is a fault.
+
 ### 5. If the component translates expressions
 
 Call `self.check_conversions(frame, scope)` for every frame they run on.
 The engine fails the job if you forget. A new function that can fail on a
 row is built with `tr.fallible(what, value, made)`.
+
+Check a conversion only on the rows v1 works the expression out for. If
+the frame still holds rows the component has turned away (the map keeps
+the rows an inner join missed, flagged), hand the translation a guard for
+them. Test it with a turned-away row that holds a value no conversion can
+read, on v1 too.
 
 ### 6. What to build, in this order
 
@@ -107,7 +122,11 @@ row is built with `tr.fallible(what, value, made)`.
   reads (a header, blank records, each of its read paths), and shows the
   key.
 - **Any step that hands rows on**: a failure after it still names the
-  source row (`chain(...)` in `tests/v2/test_row_numbers.py`).
+  source row (`chain(...)` in `tests/v2/test_row_numbers.py`). Once for
+  each output it has: a reject output too, with and without a declared
+  reject schema.
+- **Two inputs**: a failure names the main input's row after a join or a
+  lookup, and each row's own input after a unite.
 - **Several rows become one**: the message says "the first of N rows that
   were combined".
 - **Foreign code**: a failure after it no longer names a row.

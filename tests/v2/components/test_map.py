@@ -224,6 +224,24 @@ def test_text_expressions(tmp_path):
     assert lines[2].split(";")[:5] == ["2", "BOB LEE", "bob lee", "Bob Lee", "Bob lee"]
 
 
+def test_strip_without_characters_strips_what_python_calls_blank(tmp_path):
+    # The four separator characters from \x1c to \x1f are blank to Python's strip(). They are put in by the
+    # expressions, as v1's reader lets none through.
+    padded = "('\\x1f ' + row1.name + '\\x1c\\t')"
+    cols = [("a", f"{padded}.strip()", "str"), ("b", f"{padded}.lstrip()", "str"), ("c", f"{padded}.rstrip()", "str")]
+    made = mapping(config([out("o", cols)]), {"row1": "id:int, name:str"}, {"o": declared(cols)})
+    files = same(tmp_path, made, {"row1.csv": b"id;name\n1;bob\n"}).files
+    assert files["o.csv"] == b"a;b;c\nbob;bob\x1c\t;\x1f bob\n"
+
+
+def test_int_and_float_read_past_the_blanks_python_reads_past(tmp_path):
+    # Every blank of strip() but those four separators, which fail a conversion (see test_conversions.py).
+    padded = "'\\t\\xa0\\u2003' + row1.code + '\\x0c \\x85'"
+    cases = [(f"int({padded}) + 1", "int"), (f"float({padded}) + 1", "float")]
+    lines = computed(tmp_path, cases, "id:int, name:str, code:str", b"id;name;code\n1;bob;7\n")
+    assert lines[1] == "1;8;8.0"
+
+
 def test_number_expressions(tmp_path):
     lines = computed(tmp_path, NUMBERS, STAFF, STAFF_DATA)
     assert lines[3].split(";")[:8] == ["3", "6.5", "-14", "-3.75", "-17", "-0.4642857142857143", "-3.5", "-4"]

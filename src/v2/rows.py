@@ -20,13 +20,13 @@ import polars as pl
 if TYPE_CHECKING:
     from .components.base import Source
 
-# No column of a job's own may start this way.
+# No column of a job's own may start this way; the check at load refuses one that does.
 HIDDEN = "__v2_"
 # Followed by a source's id: the row's number in that source, from 1.
 ROW = HIDDEN + "row:"
 # Followed by a source's id, a colon and a column name: a copy of a key column of that source.
 KEY = HIDDEN + "key:"
-# Followed by a source's id: how many rows of that source were combined into this one.
+# Followed by a source's id: how many rows that came from that source were combined into this one.
 ROWS = HIDDEN + "rows:"
 # The most characters of a value that a message shows.
 SHOWN = 100

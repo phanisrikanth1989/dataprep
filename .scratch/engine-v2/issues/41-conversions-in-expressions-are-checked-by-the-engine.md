@@ -67,3 +67,8 @@ Built on 2026-10-07 (`Translator.fallible` in
 Left as they were: `round()`, `math.floor()`, `math.ceil()` and
 `math.trunc()` of something that is not a number still raise in Polars.
 A missing value handed to a conversion stays missing, as before.
+
+Corrected after review (ticket 45): a chain of comparisons and `np.where`
+follow Python's rules too; a variable and the key of a later lookup are not
+checked on a row an inner join turned away; "N rows failed" counts the rows
+the named conversion failed on.

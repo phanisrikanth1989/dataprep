@@ -240,18 +240,25 @@ failed at prepare: outputs[0].columns[16].expression: int() could not read 'x320
   record's number and no line: a field may hold a line break there.
 - **The key.** Mark a column of the source's schema as key (`"key": true`,
   which is what Talend's key flag converts to) and its value is shown beside
-  the place. Several key columns are all shown. The value is taken as it
-  stands in the source and cut at 100 characters. The place is always given,
-  key or no key.
+  the place. Several key columns are all shown. The value is shown as the
+  reader read it, before any trimming or typing of text, and cut at 100
+  characters. Two readers have it changed by then: a number column of a
+  delimited file that Polars parses itself shows as the number (`7` for
+  `007`), and a positional field shows without the blanks that pad it. The
+  place is always given, key or no key.
 - **The first row and how many.** `die_on_error` is unchanged: the job
   fails and writes nothing. v2 does not go row by row, so by the time it
-  fails it has seen every row: the message counts all that failed and names
-  the first.
+  fails it has seen every row: the message names the first row that failed
+  and says how many failed the same way (a reader: every row it could not
+  read; a conversion: the rows that one conversion failed on).
 
 How it works: every source numbers its rows as it reads them, and the
 number travels with the row as a column the job never sees. It is never
 written to a file and never handed to user Python. It costs nothing a run
 can show (the payments scenario at 1,000,000 rows: 1.9 s with and without).
+These columns have names starting with `__v2_`. A job with a column of its
+own named that way is refused at load, and the plans Polars prints at
+`--log-level DEBUG` show them by name.
 
 What becomes of the number on the way:
 
@@ -260,7 +267,7 @@ What becomes of the number on the way:
 | filter rows, filter columns, sort row, unique row, log row, map, unite | keeps its number |
 | join | keeps the main input's number; a lookup's is left behind |
 | normalize | every row made carries the number of the row it came from |
-| aggregate row | carries the lowest number of its group, and the message says "the first of 11,112 rows that were combined" |
+| aggregate row | carries the lowest number of its group, and the message says "the first of 11,112 rows that were combined" (rows as they reached the aggregate: after a normalize, several of them come from one row of the source) |
 | Python dataframe | has none: what the code hands back is a table of its own making |
 | context load | hands no rows on |
 
@@ -450,9 +457,16 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   `die_on_error` says: `int(row1.code)` on text that is not a number, for
   instance. As in Python, it fails only on a row the conversion is worked
   out for: not behind an `and` that is already false, an `or` that is
-  already true, or in the branch of an `if` that is not taken. An operation
-  on a missing value never fails; it gives a missing value. Rows are not
-  sent to a catch output.
+  already true, in the branch of an `if` that is not taken, or further along
+  a chain of comparisons (`a < b < c`) than the first that does not hold.
+  `np.where` is a function and is handed both its values worked out, so a
+  conversion in either fails. An operation on a missing value never fails;
+  it gives a missing value. Rows are not sent to a catch output.
+- A row an inner join turned away has left the map, as in v1: no variable
+  and no key of a later lookup is worked out for it, so a conversion in one
+  cannot fail on it. v1 gives an `inner_join_reject` output no variables to
+  read. v2 does, and when such an output reads one, the variables are worked
+  out for every row.
 - An output column nothing in the job reads is never worked out. A
   conversion in it that fails on a row still fails the job, as in v1, which
   works out every column of every output.
@@ -503,6 +517,15 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   column too. v2 writes `1`.
 - A path that is not a JSONPath refuses the job. v1 runs, rejects every
   record with "Parse error" and writes no row.
+- A record a path cannot be followed on (the first item asked of a number,
+  say) is turned away as in v1: it is left out of the main output and goes
+  to the reject output with `PARSE_ERROR` and what the library said,
+  whatever `die_on_error` says. v2's reject output has every column, empty
+  from the path that failed on; v1's has only the columns read before that
+  path, so its columns change with the data.
+- The document is read whole and gone through in Python, record by record:
+  a JSONPath can ask for any part of it, so Polars cannot scan it. It is the
+  one reader that takes memory and time by the size of its file.
 - Reading from a URL (`useurl`) is refused: v2 reads files.
 - A `schema` inside the config, v1's older way of typing values, is
   refused; with it go `advanced_separator`, `check_date` and their keys,
@@ -512,7 +535,8 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 **Normalize**
 
-- A column of dates is refused. Text and numbers are split as their text.
+- A column of dates is refused. A number or a true-or-false value is split
+  as the text Python writes for it (`1e-07`, `True`), as in v1.
 - `csv_option` and its two keys are accepted and change nothing, as in v1.
 
 **Positional input**

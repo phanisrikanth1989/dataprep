@@ -22,6 +22,7 @@ from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job
 from ..job.refusal import RefusalReport
+from ..rows import HIDDEN, hidden
 from .context import _BARE, _TEMPLATE
 from .runner import Runner, _reason
 
@@ -74,8 +75,14 @@ def check_job(
                     else:
                         outputs = component.build(inputs)
                     outputs = runner._conformed(component, outputs)
-                    for frame in outputs.values():
-                        frame.collect_schema()
+                    made = {name for frame in outputs.values() for name in frame.collect_schema().names()}
+                    # Nothing is read here, so no row has a number yet: a hidden column is the job's own.
+                    arrived = {name for frame in inputs.values() for name in frame.collect_schema().names()}
+                    for name in sorted(set(hidden(made)) - arrived):
+                        report.add(
+                            spec.where, "columns",
+                            f"'{name}': a column's name may not start with '{HIDDEN}', which marks the engine's own",
+                        )
             except ExpressionError as exc:
                 outputs = {}
                 # A globalMap entry is set while the job runs, and so is a context variable when the

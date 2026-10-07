@@ -265,6 +265,10 @@ are designed.
   failure names "record 2 ($.orders[1]) of in.json".
 - [Normalize](issues/43-normalize.md) -- built against v1; every row it
   makes carries the number of the row it came from.
+- [Review of the row numbers build](issues/45-review-of-the-row-numbers-build.md)
+  -- a second reader found faults in tickets 40 to 43; each was reproduced
+  as a failing test (on v1 too) and fixed, and what it taught is in ticket
+  44 and the guide.
 - [What a new component owes the row numbers](issues/44-what-a-new-component-owes-the-row-numbers.md)
   -- for any component added from now on: the rules are in
   `docs/v2/writing-a-component.md`, and the ticket is the list to hand a

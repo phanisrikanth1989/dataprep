@@ -256,8 +256,11 @@ def test_machine_without_the_jsonpath_library_is_told_what_to_install(tmp_path, 
 
     monkeypatch.setitem(sys.modules, "jsonpath_ng.ext", None)
     with pytest.raises(JobRefusedError) as caught:
-        load_job(json_job("id:int", paths("id")))
-    assert "needs the jsonpath-ng package" in caught.value.report.format()
+        load_job(json_job("id:int, name:str", paths("id", "name")))
+    # Said once, and not as a fault of each path.
+    assert [refusal.reason for refusal in caught.value.report] == [
+        "reading JSON files needs the jsonpath-ng package (pip install 'dataprep[v2]')"
+    ]
 
 
 def test_reading_from_a_url_is_refused():

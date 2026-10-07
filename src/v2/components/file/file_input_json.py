@@ -89,16 +89,17 @@ class FileInputJSON(Source):
     )
 
     def problems(self) -> List[str]:
+        paths = [("json_loop_query", self.config["json_loop_query"])]
+        paths += [(f"mapping[{index}].jsonpath", entry["jsonpath"]) for index, entry in enumerate(self.config["mapping"])]
         found = []
-        try:
-            _parsed(self.config["json_loop_query"])
-        except Exception as exc:  # noqa: BLE001 -- the parser raises its own kinds
-            found.append(f"json_loop_query: not a JSONPath ({_said(exc)})")
-        for index, entry in enumerate(self.config["mapping"]):
+        for key, path in paths:
             try:
-                _parsed(entry["jsonpath"])
-            except Exception as exc:  # noqa: BLE001
-                found.append(f"mapping[{index}].jsonpath: not a JSONPath ({_said(exc)})")
+                _parsed(path)
+            except ConfigurationError as exc:
+                # The library is not there: said once, and no path is at fault.
+                return [f"config: {exc}"]
+            except Exception as exc:  # noqa: BLE001 -- the parser raises its own kinds
+                found.append(f"{key}: not a JSONPath ({_said(exc)})")
         return found
 
     def declared_outputs(self) -> Dict[str, pl.LazyFrame]:

@@ -11,7 +11,7 @@ from tests.v2.answer_key import assert_matches_v1
 
 from .components.kit import columns, flow, writer
 from .components.test_filter_rows import filter_job
-from .components.test_map import config, lookup, mapping, out, pair, same, v2
+from .components.test_map import config, lookup, mapping, out, pair, refused, same, v2
 
 CODES = "id:int, code:str"
 # Row 2 (line 3 of the file) holds a code that is no number; row 4 an empty one.
@@ -63,6 +63,12 @@ def test_conversion_behind_an_and_or_an_or_is_worked_out_only_where_python_reach
 def test_conversion_in_a_branch_not_taken_does_not_fail(tmp_path, expression, want):
     run = same(tmp_path, one_column(expression), {"row1.csv": DATA})
     assert [line.split(";")[1] for line in lines_of(run)[1:]] == want
+
+
+def test_conversion_in_a_chain_of_comparisons_is_worked_out_only_while_the_chain_holds(tmp_path):
+    # Rows 2 and 4 have an even id, so Python stops at `0 < 0` and never converts their codes.
+    run = same(tmp_path, one_column("0 < row1.id % 2 < int(row1.code)", "bool"), {"row1.csv": DATA})
+    assert [line.split(";")[1] for line in lines_of(run)[1:]] == ["true", "false", "true", "false", "true"]
 
 
 def test_output_filter_is_not_worked_out_for_a_row_an_inner_join_turned_away(tmp_path):
@@ -131,6 +137,16 @@ def test_variable_an_inner_join_reject_output_reads_is_worked_out_for_the_rows_i
     assert result.error.startswith("variables[0].expression: int() could not read 'x320' (in: int(row1.code)); ")
 
 
+def test_inner_join_reject_output_whose_expression_is_not_python_is_refused_for_that_expression():
+    # Its expressions are looked through for variables before they are translated; one that cannot be
+    # read is left for the translation to refuse, with its place.
+    outputs = [out("o", [("id", "row1.id", "int")]),
+               out("lost", [("id", "row1.id +", "int")], inner_join_reject=True)]
+    made = mapping(config(outputs, lookups=[BY_ID], variables=[("n", "int(row1.code)")]),
+                   {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int", "lost": "id:int"})
+    assert "outputs[1].columns[0].expression" in refused(made)
+
+
 def test_conversion_guarded_in_an_output_filter(tmp_path):
     outputs = [out("o", [("id", "row1.id", "int")], filter="row1.code.isdigit() and int(row1.code) > 9",
                    activate_filter=True)]
@@ -176,6 +192,13 @@ def test_conversion_in_a_filter_rows_condition_fails_with_its_place(tmp_path):
     "float(row1.code) * 2",
     "row1.id > 0 and int(row1.code) > 5",
     "int(row1.code) if row1.id > 1 else 0",
+    "0 < row1.id < int(row1.code)",
+    # A function is handed all its arguments worked out, whichever of them it then picks.
+    "np.where(row1.code.isdigit(), int(row1.code), 0)",
+    "np.where(not row1.code.isdigit(), 0, int(row1.code))",
+    # Python's int() and float() do not read past the separators from \x1c to \x1f, though strip() strips them.
+    "int('\\x1d' + str(row1.id))",
+    "float(str(row1.id) + '\\x1f')",
     "datetime.strptime(row1.code, '%Y%m%d').year",
 ])
 def test_conversion_python_reaches_on_a_bad_value_fails_both_engines(tmp_path, expression):
@@ -193,6 +216,15 @@ def test_failed_conversion_says_what_could_not_be_read_how_often_and_which_row(t
     assert result.failed_component == "map"
     assert result.error == ("outputs[0].columns[1].expression: int() could not read 'x320' (in: int(row1.code) + 1); "
                             "2 rows failed; the row is line 3 of row1.csv (id=2)")
+
+
+def test_rows_counted_are_the_ones_the_named_conversion_failed_on(tmp_path):
+    # Lines 3 and 5 hold a code that is no number; line 4 holds another text that is none, which is not counted.
+    kept = [("id", "row1.id", "int"), ("n", "int(row1.code)", "int"), ("m", "int(row1.other)", "int")]
+    made = mapping(config([out("o", kept)]), {"row1": "id:int, code:str, other:str"}, {"o": "id:int, n:int, m:int"})
+    result, files = v2(tmp_path, made, {"row1.csv": b"id;code;other\n1;10;1\n2;x;1\n3;30;y\n4;z;1\n"})
+    assert result.error == ("outputs[0].columns[1].expression: int() could not read 'x' (in: int(row1.code)); "
+                            "2 rows failed; the row is line 3 of row1.csv")
 
 
 def test_one_failed_row_is_said_as_one(tmp_path):
@@ -221,13 +253,14 @@ def test_long_value_is_cut_in_the_message(tmp_path):
 
 
 def test_missing_value_is_not_a_failed_conversion(tmp_path):
-    # An operation on a missing value gives a missing value, here as everywhere in an expression.
-    made = one_column("int(row1.code)")
-    for component in made["components"]:
-        if component["id"] == "in_row1":
-            component["config"]["csv_option"] = False
-    result, files = v2(tmp_path, made, {"row1.csv": CLEAN})
+    # An operation on a missing value gives a missing value, here as everywhere in an expression. The second
+    # row finds no name, so it has no code to convert.
+    kept = [("id", "row1.id", "int"), ("n", "int(names.code)", "int")]
+    made = mapping(config([out("o", kept)], lookups=[lookup("names", [("id", "row1.id")])]),
+                   {"row1": CODES, "names": "id:int, code:str"}, {"o": "id:int, n:int"})
+    result, files = v2(tmp_path, made, {"row1.csv": CLEAN, "names.csv": b"id;code\n1;5\n3;7\n"})
     assert result.status == "success", result.error
+    assert files["o.csv"] == b"id;n\n1;5\n2;\n3;7\n"
 
 
 # ------------------------------------------------------------------

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import polars as pl
 
+from ..types import BLANKS
 from .translate import NOT_CONSTANT
 
 if TYPE_CHECKING:
@@ -141,6 +142,8 @@ def _int(tr: "Translator", node: ast.Call) -> pl.Expr:
     value = tr.value(arg)
     dtype = tr.dtype(value, arg)
     if dtype == pl.String:
+        # What Polars strips with nothing named is what Python's int() and float() skip around a number:
+        # the blanks of str.strip() less the four separators from \x1c to \x1f.
         text = value.str.strip_chars()
         return tr.fallible("int()", text, text.cast(pl.Int64, strict=False))
     if dtype.is_decimal():
@@ -234,7 +237,8 @@ def _strip(method: str) -> Handler:
     def handler(tr: "Translator", node: ast.Call, target: pl.Expr) -> pl.Expr:
         args = tr.args(node, 0, 1)
         _need_text(tr, node, target)
-        chars = _const_text(tr, args[0], "the characters to strip") if args else None
+        # With no characters named, Python strips what it calls blank, which is more than Polars does.
+        chars = _const_text(tr, args[0], "the characters to strip") if args else BLANKS
         return getattr(target.str, method)(chars)
 
     return handler
@@ -701,9 +705,13 @@ def _np_round(tr: "Translator", node: ast.Call) -> pl.Expr:
 
 
 def _np_where(tr: "Translator", node: ast.Call) -> pl.Expr:
-    """numpy's three-argument where: one value where the condition holds, another where it does not."""
+    """numpy's three-argument where: one value where the condition holds, another where it does not.
+
+    Not an ``if``: a function is handed both values worked out, whichever it then picks, so a
+    conversion in either fails on every row it cannot be done for.
+    """
     test, then, otherwise = tr.args(node, 3, 3)
-    return tr.value(ast.copy_location(ast.IfExp(test=test, body=then, orelse=otherwise), node))
+    return tr.either(node, tr.truth(test), tr.value(then), then, tr.value(otherwise), otherwise)
 
 
 def _is_missing(negate: bool) -> Handler:

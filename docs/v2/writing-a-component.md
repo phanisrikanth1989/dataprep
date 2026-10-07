@@ -13,7 +13,10 @@ for the words used here (config key, alias, refusal report, answer key).
 2. **Native Polars only.** No `map_elements`, `map_batches`, `apply`, no
    Python loop over rows. If Polars cannot express a config key natively,
    declare the key **refused** with the reason. The only components that run
-   user Python are the Python components.
+   user Python are the Python components. One exception is allowed and has
+   to be said in the component's docstring and in the README: a source whose
+   format Polars cannot scan (the JSON input, asked by JSONPath) reads its
+   file in Python and hands Polars the table.
 3. **v1 is the answer key.** For the same job config and input files, the
    output files must equal v1's byte for byte. Read the v1 component
    (`src/v1/engine/components/...`) before writing a line, and remember that
@@ -194,11 +197,25 @@ does not raise. It gives nothing where it fails, and the translation notes
 those rows in the scope (`scope.failures`), counting only the rows Python
 would work the conversion out for. After translating, hand the frame the
 expressions run on to `self.check_conversions(frame, scope)`: it fails the
-component with the expression, the value, how many rows failed and the
-first one's place. The engine fails the job when a component translated a
+component with the conversion that failed on the first failing row, the
+value it was handed, how many rows that conversion failed on and the first
+one's place. The engine fails the job when a component translated a
 conversion and did not check it, so one cannot go missing silently. A new
 function that can fail on a row is built the same way, with
 `tr.fallible(what, value, made)` (`_int` in `expressions/functions.py`).
+
+Check a conversion on the rows v1 works the expression out for, and on no
+others. Where a component translates an expression for a frame that still
+holds rows it has turned away, the conversion needs a guard: the map hands
+one to `translated(text, scope, where, guard)` for a variable and for the
+key of a later lookup, which v1 never works out for a row an inner join
+missed. Write the test with such a row holding a value that cannot be
+converted, and run it on v1.
+
+Python's own blanks differ by what asks: `str.strip()` strips the four
+separators from `\x1c` to `\x1f`, `int()` and `float()` do not read past
+them. Polars' `strip_chars()` with nothing named is the second set; the
+first is `types.BLANKS`.
 
 ## Types (`src/v2/types.py`)
 
@@ -266,16 +283,19 @@ How a user asks for a key: `"key": true` on a column of the source's
 schema, which is what Talend's key flag converts to. Nothing else is
 configured, and a new component declares no config key for any of this.
 
-The names: hidden columns start with `__v2_`, and no column of a job may.
+The names: hidden columns start with `__v2_`, and no column of a job may:
+the check at load refuses a job in which a component declares or makes one.
 `__v2_row:<source id>` is the number, `__v2_key:<source id>:<column>` the
-copy of a key column, `__v2_rows:<source id>` how many rows of the source
-were combined into this one.
+copy of a key column, `__v2_rows:<source id>` how many rows were combined
+into this one (rows as they reached the aggregate: after a normalize,
+several of them come from one row of the source).
 
 What the engine does for every component: it drops the hidden columns
 before a sink is handed its frame, leaves them out of the scope an
-expression is translated in (`row_scope`), and out of debug lines. No file
-ever holds one; every test that compares v2's files with v1's would fail if
-one did.
+expression is translated in (`row_scope`), and out of the columns a debug
+line lists. The plan Polars prints at DEBUG is Polars' own text and does
+name them. No file ever holds one; every test that compares v2's files with
+v1's would fail if one did.
 
 What a component owes, by what it does with rows:
 
@@ -307,9 +327,12 @@ A source:
   `with_row_index(self.row_number, offset=1)`. The number counts from the
   first record after what the reader's config skips at the top, so that
   `locate` can add the header rows back;
-- hands on, with every output, that column and `self.key_copies()`, taken
-  before a value is trimmed or typed: a key is shown as it stands in the
-  source;
+- hands on, with every output (a reject output that declares its own
+  columns too), that column and `self.key_copies()`. Take the copies where
+  the reader first holds the column, before it trims or types text, so that
+  a key is shown as close to the source as the reader has it. A column
+  Polars parses itself is copied as parsed (`7` for `007`), and a positional
+  field without its padding; the README says so;
 - implements `locate(number)`: the words a person looking for the record
   would use, ending in the path as the job gives it. `line 7 of in.csv`,
   `row 3 of sheet 'Q1' of book.xlsx`, `record 2 ($.orders[1]) of in.json`.
@@ -319,7 +342,10 @@ A source:
 
 A check that fails on rows names the first. Ask for the hidden columns of
 the first failing row beside the count, and end the message with
-`self.where(found)`:
+`self.where(found)`. The value shown has to come from that same row: where
+several columns can fail, take each one's value on the first failing row
+(`pl.when(flag).then(value).filter(any_flag).first()`), never each column's
+own first bad value, which may stand on a later row.
 
 ```python
 from ...rows import first_of

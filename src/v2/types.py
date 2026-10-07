@@ -28,6 +28,13 @@ _DECIMAL_DIGITS = 38
 # Places text is read at before it is rounded to the declared ones.
 _WIDE_SCALE = 18
 
+# What Python's str.strip() removes: the code points Python calls blank. Polars' own idea of a blank
+# (strip_chars with nothing named) leaves out the four separators from \x1c to \x1f.
+BLANKS = "".join(map(chr, (
+    *range(0x09, 0x0E), *range(0x1C, 0x21), 0x85, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F,
+    0x3000,
+)))
+
 _TRUE = ("true", "1", "yes")
 _FALSE = ("false", "0", "no")
 _NOT_A_DATE = ("NaN", "nan", "NaT")
