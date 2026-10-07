@@ -68,5 +68,5 @@ itself is shown as the number (`7` for `007`), a positional key without its
 padding; the plans printed at DEBUG name the hidden columns; the JSON
 reader goes through its document in Python.
 
-Verified: 4,515 tests in `tests/v2`, and the per-module coverage gate (40
+Verified: 4,516 tests in `tests/v2`, and the per-module coverage gate (40
 modules at 95% or more).
