@@ -12,6 +12,7 @@ from src.v2 import run_job
 
 from .components.kit import columns, flow, job, reader, through, writer
 from .components.test_file_input_excel import book, excel
+from .components.test_file_input_json import json_job
 from .components.test_file_input_fullrow import read_lines
 from .components.test_file_input_positional import cut
 from .components.test_map import config as map_config
@@ -282,3 +283,81 @@ def test_debug_lines_do_not_list_the_hidden_columns(tmp_path, caplog):
     assert ran(tmp_path, keyed(copying(PEOPLE, header_rows=1)), {"in.csv": PEOPLE_DATA}).status == "success"
     listed = [record.getMessage() for record in caplog.records if "] output " in record.getMessage()]
     assert listed and not [line for line in listed if "__v2_" in line]
+
+
+# ------------------------------------------------------------------
+# A source that is not lines of text, and a step that makes several rows of one
+# ------------------------------------------------------------------
+
+# Three orders; the second has a tag that is no number, and the third no tags at all.
+ORDERS = b"""{"orders": [
+  {"id": 101, "tags": "1,2"},
+  {"id": 102, "tags": "3,x7,5"},
+  {"id": 103, "tags": ""}
+]}"""
+ORDER = "id:int, tags:str"
+
+
+def orders(*steps, last="id:int, tags:int!", loop="$.orders[*]", **config):
+    """orders.json -> the steps, one after another -> a sort that needs every tag to be a number -> file."""
+    source = keyed(json_job(ORDER, [("id", "$.id"), ("tags", "$.tags")], loop=loop, **config))["components"][0]
+    made = chain(*steps, schema=ORDER, last=last)
+    made["components"][0] = source
+    return made
+
+
+def test_json_record_is_named_by_its_number_its_path_and_its_key(tmp_path):
+    # No step in between: the third order has no tags, and the sort needs them.
+    error = failed(tmp_path, orders(last="id:int, tags:str!"), {"in.json": ORDERS.replace(b'"tags": ""', b'"tags": null')})
+    assert error == ("Column 'tags' has NULL values but is not nullable; "
+                     "the row is record 3 ($.orders[2]) of in.json (id=103)")
+
+
+def test_record_is_still_named_after_a_normalize_made_several_rows_of_it(tmp_path):
+    made = orders(("Normalize", {"normalize_column": "tags"}, "id:int, tags:int"))
+    error = failed(tmp_path, made, {"in.json": ORDERS})
+    # "x7" is the second piece of the second order: not a number, so it goes missing, and the sort needs it.
+    assert error == ("Column 'tags' has NULL values but is not nullable; "
+                     "the row is record 2 ($.orders[1]) of in.json (id=102)")
+
+
+def test_conversion_that_fails_after_a_normalize_names_the_record(tmp_path):
+    doubled = map_config([map_out("row3", [("id", "row2.id", "int"), ("tags", "int(row2.tags) * 2", "int")])])
+    doubled["inputs"]["main"]["name"] = "row2"
+    made = orders(("Normalize", {"normalize_column": "tags", "discard_trailing_empty_str": True}, ORDER),
+                  ("PyMap", doubled, None), last="id:int, tags:int")
+    made["components"][2]["schema"] = {"inputs": {"row2": columns(ORDER)}}
+    error = failed(tmp_path, made, {"in.json": ORDERS})
+    assert error == ("outputs[0].columns[1].expression: int() could not read 'x7' (in: int(row2.tags) * 2); "
+                     "1 row failed; the row is record 2 ($.orders[1]) of in.json (id=102)")
+
+
+def test_group_made_of_normalized_json_records_names_its_first(tmp_path):
+    # Every piece of every order in one group per order; the second order's group holds a piece that is no number.
+    grouped = {"groupbys": [{"input_column": "id", "output_column": "id"}],
+               "operations": [{"output_column": "tags", "function": "min", "input_column": "tags"}]}
+    made = orders(("Normalize", {"normalize_column": "tags"}, "id:int, tags:int"),
+                  ("FilterRows", {"conditions": [{"column": "id", "operator": "==", "function": "", "value": "103"}]},
+                   "id:int, tags:int"),
+                  ("AggregateRow", grouped, "id:int, tags:int"))
+    error = failed(tmp_path, made, {"in.json": ORDERS})
+    assert error == ("Column 'tags' has NULL values but is not nullable; "
+                     "the row is record 3 ($.orders[2]) of in.json (id=103)")
+
+
+def test_json_loop_gone_through_as_root_names_the_item(tmp_path):
+    made = orders(last="id:int, tags:str!", loop="$.orders", use_loop_as_root=True)
+    error = failed(tmp_path, made, {"in.json": ORDERS.replace(b'"tags": ""', b'"tags": null')})
+    assert error.endswith("; the row is record 3 ($.orders[2]) of in.json (id=103)")
+
+
+def test_line_is_still_named_after_a_normalize(tmp_path):
+    data = b"id;name;age\n1;ann;30\n2;bob;4,x1\n"
+    doubled = map_config([map_out("row3", [("id", "row2.id", "int"), ("age", "int(row2.age)", "int")])])
+    doubled["inputs"]["main"]["name"] = "row2"
+    made = chain(("Normalize", {"normalize_column": "age"}, "id:int, name:str, age:str"), ("PyMap", doubled, None),
+                 schema="id:int, name:str, age:str", last="id:int, age:int")
+    made["components"][2]["schema"] = {"inputs": {"row2": columns("id:int, name:str, age:str")}}
+    error = failed(tmp_path, made, {"in.csv": data})
+    assert error == ("outputs[0].columns[1].expression: int() could not read 'x1' (in: int(row2.age)); "
+                     "1 row failed; the row is line 3 of in.csv (id=2)")
