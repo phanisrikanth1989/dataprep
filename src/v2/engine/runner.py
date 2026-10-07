@@ -29,6 +29,7 @@ from ..files import put_in_place
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
+from .picking import MOST, holds, in_words
 from ..rows import first_of, shown, visible, without
 from ..types import VIOLATION, conform
 from .conditions import evaluate
@@ -75,10 +76,15 @@ class JobResult:
     global_map: Dict[str, Any] = field(default_factory=dict)
     context: Dict[str, Any] = field(default_factory=dict)
     duration_s: float = 0.0
+    only: Optional[Dict[str, Any]] = None
 
     def summary(self) -> Dict[str, Any]:
-        """How the run ended, as plain values: what the command prints last, and what a service sends back."""
-        return {
+        """How the run ended, as plain values: what the command prints last, and what a service sends back.
+
+        A run for picked rows has ``only`` as well: the reader they were
+        picked from, and where each of them is.
+        """
+        made: Dict[str, Any] = {
             "job_name": self.job_name,
             "status": self.status,
             "error": self.error,
@@ -88,6 +94,9 @@ class JobResult:
             "counts": {component_id: dict(counted) for component_id, counted in self.counts.items()},
             "duration_s": round(self.duration_s, 3),
         }
+        if self.only is not None:
+            made["only"] = dict(self.only)
+        return made
 
     def raise_for_status(self) -> None:
         """Raise ``JobFailedError`` unless the job finished."""
@@ -148,6 +157,8 @@ class Runner:
         self.settings = settings if settings is not None else job.run
         self._asked_for = dict(asked_for or {})
         self._asked_by = asked_by
+        # In a run for picked rows: the reader they were picked from and where each one is, once it is read.
+        self.picked: Optional[Dict[str, Any]] = None
         row_counts = bool(row_counts or self.settings.row_counts)
         self.row_counts = row_counts
         self.counts: Dict[str, Dict[str, int]] = {}
@@ -168,6 +179,14 @@ class Runner:
             self.run_context.cleanup()
         if result.failures:
             result.status = "failed"
+        only = self.settings.only
+        if only is not None:
+            if self.picked is None and not result.failures:
+                logger.warning(one_line(
+                    f"[{self.job.name}] the run was to be for picked rows of '{only.source}', which no stage of this "
+                    "run came to read: every row of every other reader was run"
+                ))
+            result.only = self.picked or {"source": only.source, "rows": []}
         result.rows = dict(self.rows)
         result.counts = dict(self.counts)
         result.global_map = dict(self.run_context.global_map)
@@ -451,8 +470,14 @@ class Runner:
                     state.writes.append((component_id, component.write(handed), heights))
                     outputs: Dict[str, pl.LazyFrame] = {}
                 elif isinstance(component, Source):
+                    only = self.settings.only
+                    if only is not None and only.source == component_id:
+                        component.only_rows = self._picked_rows(spec, only)
                     outputs = component.read()
                     self.run_context.sources[component_id] = component
+                    if component.only_rows is not None:
+                        places = [component.locate(number) for number in component.only_rows]
+                        self.picked = {"source": component_id, "rows": places}
                 elif component.needs_rows():
                     collected = self._collect(list(inputs.values()), state, component_id)
                     for name, frame in zip(inputs, collected):
@@ -491,6 +516,66 @@ class Runner:
             state.produced += [(component_id, frame) for frame in outputs.values()]
             state.taps += [(component_id, tap) for tap in component.taps]
             state.noticed += [(component_id, noticed) for noticed in component.noticed]
+
+    def _picked_rows(self, spec: ComponentSpec, only: Only) -> List[int]:
+        """The numbers of the rows of a source that the run is for.
+
+        The source is read once more for it, held to no row: to find the
+        rows by what they hold, or to see that each place named has a row.
+        A row the source would turn away is found as well, in its reject
+        output.
+
+        Raises:
+            _Failed: When a value or a place has no row, or more rows are
+                picked than a run can be for.
+        """
+        probe = self._ready(spec)
+        if not isinstance(probe, Source):  # pragma: no cover -- refused before the run
+            raise _Failed(spec.id, f"'{spec.id}' is not a reader")
+        read = self._conformed(probe, probe.read())
+        number = probe.row_number
+        wanted: Dict[int, int] = {}
+        if only.places is not None:
+            kind, places = only.places
+            at = kind[:-1] if only.sheet is None else f"{kind[:-1]} (of sheet '{only.sheet}')"
+            for place in places:
+                try:
+                    wanted[probe.number_at(place, only.sheet)] = place
+                except ValueError as exc:
+                    raise _Failed(spec.id, f"'{spec.id}' has no row at {at} {place}: {exc}") from None
+            matching = [frame.filter(pl.col(number).is_in(list(wanted))).select(number) for frame in read.values()]
+        else:
+            columns = [pl.col(name) for name in only.where]
+            matching = [
+                frame.filter(holds(frame, probe.schema, only.where)).select(number, *columns) for frame in read.values()
+            ]
+        try:
+            found = pl.collect_all(matching, engine=self.engine)
+        except Exception as exc:  # noqa: BLE001 -- Polars reports data problems in many types
+            if self.run_context.fast_read and self.run_context.used_fast_read:
+                raise _Failed(None, _reason(exc), read_again=True) from exc
+            raise _Failed(spec.id, _reason(exc)) from exc
+        numbers = sorted({value for frame in found for value in frame[number].to_list()})
+
+        if only.places is not None:
+            for value, place in wanted.items():
+                if value not in numbers:
+                    raise _Failed(spec.id, f"'{spec.id}' has no row at {at} {place}")
+        elif len(only.where) == 1:
+            # Each value named has to pick a row: one that picks none is most likely mistyped.
+            (name, values), = only.where.items()
+            for value in values:
+                picks = [frame.filter(holds(frame.lazy(), probe.schema, {name: [value]})).height for frame in found]
+                if not sum(picks):
+                    raise _Failed(spec.id, f"no row of '{spec.id}' has {in_words({name: [value]})}")
+        elif not numbers:
+            raise _Failed(spec.id, f"no row of '{spec.id}' has {in_words(only.where)}")
+        if len(numbers) > MOST:
+            raise _Failed(
+                spec.id,
+                f"{len(numbers)} rows of '{spec.id}' have {in_words(only.where)}; a run can be for {MOST} rows at most",
+            )
+        return numbers
 
     def _instantiate(self, spec: ComponentSpec) -> Component:
         config, refusals = normalize_config(

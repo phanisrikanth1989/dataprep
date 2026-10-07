@@ -214,9 +214,16 @@ def load_job(
     return _Loader(raw, dict(context or {}), registry).load()
 
 
-def run_settings(block: Optional[Dict[str, Any]]) -> Tuple[RunSettings, List[Refusal]]:
-    """Run settings from a ``run`` block that was checked against ``RUN_KEYS``, with what they cannot be run with."""
+def run_settings(block: Optional[Dict[str, Any]], written: Any = None) -> Tuple[RunSettings, List[Refusal]]:
+    """Run settings from a ``run`` block that was checked against ``RUN_KEYS``, with what they cannot be run with.
+
+    Args:
+        block: The block as ``normalize_config`` hands it on.
+        written: The block as it was written, to tell a way of picking rows
+            that was not given from one that was given and refused.
+    """
     block = block or {}
+    written_only = written.get("only") if isinstance(written, dict) else None
     refusals: List[Refusal] = []
     for name, value in block.items():
         if has_context_reference(value):
@@ -228,14 +235,15 @@ def run_settings(block: Optional[Dict[str, Any]]) -> Tuple[RunSettings, List[Ref
     picked = block.get("only")
     if picked is not None and picked.get("source"):
         places = [(kind, picked[kind]) for kind in PLACES if picked.get(kind)]
-        ways = len(places) + (picked.get("where") is not None)
+        given = written_only if isinstance(written_only, dict) else picked
+        ways = sum(given.get(way) is not None for way in ("where",) + PLACES)
         if ways != 1:
             refusals.append(Refusal(
                 "job", "run.only", "say which rows in one way: `where`, or one of " + ", ".join(f"`{kind}`" for kind in PLACES)
             ))
-        elif picked.get("sheet") is not None and not picked.get("rows"):
+        elif picked.get("sheet") is not None and given.get("rows") is None:
             refusals.append(Refusal("job", "run.only.sheet", "a sheet is named together with `rows`"))
-        else:
+        elif places or picked.get("where"):
             settings.only = Only(
                 source=picked["source"], where=picked.get("where") or {},
                 places=places[0] if places else None, sheet=picked.get("sheet"),
@@ -246,7 +254,7 @@ def run_settings(block: Optional[Dict[str, Any]]) -> Tuple[RunSettings, List[Ref
 def caller_settings(asked: Optional[Mapping[str, Any]]) -> Tuple[RunSettings, List[Refusal]]:
     """Run settings as a caller of the engine hands them over: checked like a job config's ``run`` block."""
     block, refusals = normalize_config(dict(asked or {}), RUN_KEYS, "job", _prefix="run.")
-    settings, more = run_settings(block)
+    settings, more = run_settings(block, asked)
     return settings, refusals + more
 
 
@@ -265,7 +273,7 @@ class _Loader:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
         self.report.extend(refusals)
         job = Job(name=top.get("name") or "")
-        job.run, refusals = run_settings(top.get("run"))
+        job.run, refusals = run_settings(top.get("run"), self.raw.get("run"))
         self.report.extend(refusals)
         job.context, job.context_types = self._context(top)
         for index, raw_component in enumerate(top.get("components") or []):

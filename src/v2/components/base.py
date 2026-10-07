@@ -432,10 +432,18 @@ class Source(Component):
     A source numbers its rows from 1 as it reads them, before it drops any,
     in the column ``row_number``, and hands that column on with every row of
     every output, together with ``key_copies()``. ``locate`` says where a
-    number is, in the words a person looking for the row would use.
+    number is, in the words a person looking for the row would use, and
+    ``number_at`` goes the other way.
+
+    A run may be for a few rows of a source and no others (``run.only``).
+    The engine then names them by their numbers in ``only_rows``, and the
+    source keeps to them with ``picked``, called where it has numbered its
+    rows and before it types or turns away any.
     """
 
     max_inputs: ClassVar[Optional[int]] = 0
+    # The numbers of the rows a run is for, when it is not for every row. Set by the engine before ``read``.
+    only_rows: Optional[List[int]] = None
 
     def read(self) -> Dict[str, pl.LazyFrame]:
         """Return the lazy frame of each output port."""
@@ -453,6 +461,38 @@ class Source(Component):
     def locate(self, number: int) -> str:
         """Where the row with a number is: ``"line 7 of in.csv"``."""
         raise NotImplementedError
+
+    def picked(self, frame: Any) -> Any:
+        """The rows of a frame that a run is for: every row, unless the engine named some by their numbers."""
+        if self.only_rows is None:
+            return frame
+        return frame.filter(pl.col(self.row_number).is_in(self.only_rows))
+
+    @property
+    def place_kind(self) -> str:
+        """The kind of place this source's rows have, as ``locate`` names them: ``lines``, ``records`` or ``rows``."""
+        return "lines"
+
+    @property
+    def place_why(self) -> str:
+        """Why its rows have that kind of place, to follow the source's id in a message."""
+        return "is read line by line"
+
+    def number_at(self, place: int, sheet: Optional[str] = None) -> int:
+        """The number of the row at a place: ``locate`` the other way round. Called once the source is read.
+
+        Args:
+            place: The line, record or row, as ``locate`` would say it.
+            sheet: The sheet it is on, for a source that has sheets.
+
+        Raises:
+            ValueError: When no row of this source can be at that place.
+                The message says why.
+        """
+        header = max(self.config.get("header_rows") or 0, 0)
+        if place <= header:
+            raise ValueError(f"its first {header} line(s) are the header")
+        return place - header
 
 
 class Transform(Component):

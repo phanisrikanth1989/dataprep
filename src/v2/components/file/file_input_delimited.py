@@ -191,6 +191,7 @@ class FileInputDelimited(Source):
             frame = frame.filter(~empty)
         if self._by_line():
             frame = frame.with_row_index(_LINE, offset=1)
+        frame = self.picked(frame)
         # Copied before a field read as text is trimmed or typed: a key is shown as it stands in the file.
         # A number column Polars parses itself is copied as the number it read.
         frame = frame.with_columns(self.key_copies())
@@ -205,6 +206,19 @@ class FileInputDelimited(Source):
         if self.config["csv_option"]:
             return f"record {number} of {path}"
         return f"line {number + self.config['header_rows']} of {path}"
+
+    @property
+    def place_kind(self) -> str:
+        return "records" if self.config["csv_option"] else "lines"
+
+    @property
+    def place_why(self) -> str:
+        if self.config["csv_option"]:
+            return "is read with `csv_option`, where a record can span lines"
+        return super().place_why
+
+    def number_at(self, place: int, sheet: Optional[str] = None) -> int:
+        return place if self.config["csv_option"] else super().number_at(place)
 
     def _native(self) -> Tuple[Dict[str, pl.DataType], str]:
         """The columns Polars parses itself, with their types; the others arrive as text.
@@ -227,6 +241,9 @@ class FileInputDelimited(Source):
                 "v2 splits the rows itself (a field count, a delimiter of several bytes, a limit, "
                 "or empty rows that are kept)"
             )
+        if self.only_rows is not None:
+            # Polars would parse the numbers of every row of the file, and fail on one the run is not for.
+            return {}, "the run is for a few picked rows, and only those are to be read as numbers"
         if not self.run_context.fast_read:
             return {}, "the engine asked for the tolerant reader in this subjob"
         if "reject" in self.wired:

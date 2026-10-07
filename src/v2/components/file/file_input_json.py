@@ -24,7 +24,9 @@ from .file_input_delimited import encoding
 logger = logging.getLogger(__name__)
 
 _NO_SCHEMA = "Acted on by v1 only with a `schema` inside the config, which the converter does not write."
-# A working column: what the log says of a record that is turned away, missing for the others.
+# Working columns of a record that is turned away, missing for the others: what the library said, and what
+# the log says of it.
+_WHY = "__json_why"
 _TOLD = "__json_told"
 
 
@@ -150,13 +152,16 @@ class FileInputJSON(Source):
                    if column.name in cells]
         rows = rows.with_columns(present)
         rows = rows.select(visible(rows.columns) + hidden(rows.columns))
-        why = pl.Series(turned_away, dtype=pl.String)
-        reject = rows.filter(why.is_not_null()).with_columns(
-            pl.lit("PARSE_ERROR").alias("errorCode"), why.drop_nulls().alias("errorMessage")
+        # Two working columns: what the library said of a record that is turned away, and what the log says.
+        rows = self.picked(rows.with_columns(
+            pl.Series(_WHY, turned_away, dtype=pl.String), pl.Series(_TOLD, told, dtype=pl.String)
+        ))
+        reject = rows.filter(pl.col(_WHY).is_not_null()).select(
+            pl.exclude(_WHY, _TOLD), pl.lit("PARSE_ERROR").alias("errorCode"), pl.col(_WHY).alias("errorMessage")
         )
+        reject = reject.select(visible(reject.columns) + hidden(reject.columns))
         # Turned away whatever die_on_error says, so told whatever it says.
-        marked = rows.with_columns(pl.Series(_TOLD, told, dtype=pl.String)).lazy()
-        main = self.tell_dropped(marked, pl.col(_TOLD).is_not_null(), pl.col(_TOLD))
+        main = self.tell_dropped(rows.drop(_WHY).lazy(), pl.col(_TOLD).is_not_null(), pl.col(_TOLD))
         return {"main": main.filter(pl.col(_TOLD).is_null()).drop(_TOLD), "reject": reject.lazy()}
 
     def _records(self, document: Any) -> List[Tuple[str, Any]]:
@@ -170,6 +175,17 @@ class FileInputJSON(Source):
     def locate(self, number: int) -> str:
         """Where a row's record is: its place among the records, and its path in the document."""
         return f"record {number} ({self._paths[number - 1]}) of {self.config['path']}"
+
+    @property
+    def place_kind(self) -> str:
+        return "records"
+
+    @property
+    def place_why(self) -> str:
+        return "reads the records of a document"
+
+    def number_at(self, place: int, sheet: Optional[str] = None) -> int:
+        return place
 
 
 # ------------------------------------------------------------------

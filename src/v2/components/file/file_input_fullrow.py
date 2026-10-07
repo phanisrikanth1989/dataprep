@@ -153,6 +153,7 @@ class FileInputFullRow(Source):
             lines = lines.filter(pl.col(name) != "")
         if config["limit"] is not None:
             lines = lines.head(config["limit"])
+        lines = self.picked(lines)
         # The one column there is at this point is the only one that can be a key.
         keys = [copy for column, copy in zip([c for c in self.schema if c.key], self.key_copies()) if column.name == name]
         return {"main": lines.select(name, self.row_number, *keys)}

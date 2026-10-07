@@ -14,6 +14,7 @@ from ..job.loader import load_job as read_job
 from ..job.model import Job, RunSettings
 from ..job.refusal import RefusalReport
 from .check import check_job
+from .picking import check_only, source_problem
 from .routines import load_routines
 from .runner import JobResult, Runner
 
@@ -148,9 +149,21 @@ def settled(job: Job, asked: RunSettings) -> Tuple[RunSettings, Dict[str, bool]]
         JobRefusedError: When the settings do not go together.
     """
     settings, asked_for = asked.over(job.run)
+    report = RefusalReport(job_name=job.name)
     if settings.trace and settings.only is None:
-        report = RefusalReport(job_name=job.name)
         report.add("job", "run.trace", "a trace is of the rows `only` picks; say which rows")
+    if settings.only is not None:
+        found = source_problem(job, settings.only)
+        if not found:
+            try:
+                instance = Runner(job)._instantiate(job.components[settings.only.source])
+            except ConfigurationError:
+                # Its config waits for a value the run sets; what is wrong with the asking is then said by the run.
+                instance = None
+            if instance is not None:
+                found = check_only(job, settings.only, instance)
+        report.extend(found)
+    if report:
         raise JobRefusedError(report)
     return settings, asked_for
 

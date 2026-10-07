@@ -207,13 +207,38 @@ class FileInputExcel(Source):
             if frame.height:
                 self._sheet_rows.append((read + 1, sheet))
             read += frame.height
-        rows = pl.concat(numbered).lazy()
+        self._rows_read = read
+        rows = self.picked(pl.concat(numbered)).lazy()
         return {"main": rows, "reject": _no_rejects(rows)}
 
     def locate(self, number: int) -> str:
         """Where a row is: its row in its sheet, counted as the sheet shows it."""
         first, sheet = max(entry for entry in self._sheet_rows if entry[0] <= number)
         return f"row {number - first + self.config['header'] + 1} of sheet '{sheet}' of {self._path}"
+
+    @property
+    def place_kind(self) -> str:
+        return "rows"
+
+    @property
+    def place_why(self) -> str:
+        return "reads the sheets of a workbook"
+
+    def number_at(self, place: int, sheet: Optional[str] = None) -> int:
+        """The number of the row a sheet shows at a row of its own."""
+        with_rows = [name for _, name in self._sheet_rows]
+        if sheet is None and len(with_rows) != 1:
+            raise ValueError(f"say which sheet; those with rows are: {', '.join(with_rows) or 'none'}")
+        if sheet is not None and sheet not in with_rows:
+            raise ValueError(f"no sheet '{sheet}' was read with rows; those with rows are: {', '.join(with_rows) or 'none'}")
+        at = with_rows.index(sheet) if sheet is not None else 0
+        first = self._sheet_rows[at][0]
+        last = self._sheet_rows[at + 1][0] - 1 if at + 1 < len(self._sheet_rows) else self._rows_read
+        number = first + place - self.config["header"] - 1
+        if not first <= number <= last:
+            shown_from = self.config["header"] + 1
+            raise ValueError(f"the rows read from sheet '{with_rows[at]}' are {shown_from} to {last - first + shown_from}")
+        return number
 
     def _nothing(self, why: str) -> Dict[str, pl.LazyFrame]:
         """No rows at all, or a failed component when errors are fatal."""

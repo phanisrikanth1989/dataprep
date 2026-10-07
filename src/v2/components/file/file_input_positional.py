@@ -158,7 +158,7 @@ class FileInputPositional(Source):
         frame = frame.filter(pl.any_horizontal([pl.col(name).str.strip_chars() != "" for name in names]))
         if config["limit"] is not None:
             frame = frame.head(config["limit"])
-        return self._typed(frame.with_columns(self.key_copies()), names)
+        return self._typed(self.picked(frame).with_columns(self.key_copies()), names)
 
     def locate(self, number: int) -> str:
         return f"line {number + self.config['header_rows']} of {self.config['path']}"

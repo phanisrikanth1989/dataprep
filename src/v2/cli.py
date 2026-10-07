@@ -22,8 +22,10 @@ from contextlib import contextmanager
 from typing import Dict, Iterator, List, Optional
 
 from .engine import Runner, load_job, settled
+from .engine.picking import only_from_text
 from .errors import JobRefusedError, V2Error
-from .job.model import RunSettings
+from .job.loader import caller_settings
+from .job.refusal import RefusalReport
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -43,6 +45,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--row-counts", action=argparse.BooleanOptionalAction, default=None,
                         help="Count the rows of every component and log them. For looking into a job: "
                              "the run takes about three times as long.")
+    parser.add_argument("--only", metavar="ROWS",
+                        help="Run the job for a few rows of one reader and no others: READER:COLUMN=VALUE[,VALUE] "
+                             "by what a column holds, READER:line=NUMBER[,NUMBER] by the place a failure names "
+                             "(record= or row= for readers that have those), or a `run.only` block in JSON.")
+    parser.add_argument("--trace", action=argparse.BooleanOptionalAction, default=None,
+                        help="With --only: put what every component did with the picked rows in the summary.")
     try:
         args = parser.parse_args(argv)
     except SystemExit as stop:
@@ -117,10 +125,22 @@ def _run(args: argparse.Namespace) -> int:
     except (OSError, ValueError, V2Error) as exc:
         print(f"{args.job_config}: {exc}", file=sys.stderr)
         return 2
+    said: Dict[str, object] = {"log_level": args.log_level, "row_counts": args.row_counts,
+                               "summary_file": args.summary, "trace": args.trace}
+    if args.only is not None:
+        try:
+            said["only"] = only_from_text(args.only, job)
+        except ValueError as exc:
+            print(f"--only {args.only!r}: {exc}", file=sys.stderr)
+            return 2
+    asked, refusals = caller_settings({name: value for name, value in said.items() if value is not None})
+    if refusals:
+        report = RefusalReport(job_name=job.name)
+        report.extend(refusals)
+        print(report.format(), file=sys.stderr)
+        return 2
     try:
-        settings, asked_for = settled(job, RunSettings(
-            log_level=args.log_level, row_counts=args.row_counts, summary_file=args.summary,
-        ))
+        settings, asked_for = settled(job, asked)
     except JobRefusedError as refused:
         print(refused.report.format(), file=sys.stderr)
         return 2
