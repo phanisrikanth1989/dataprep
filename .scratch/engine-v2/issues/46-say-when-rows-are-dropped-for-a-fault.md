@@ -67,11 +67,13 @@ reviewed by a second reader and reworked the same day.
   notices such rows as they pass, in the subjob's own pass. Only a subjob
   that had some is read once more when it has finished, to count them and
   find the first.
-- Cost, measured on the payments scenario at 1,000,000 rows (the middle of
-  seven whole runs each, turn and turn about): 2.01 s before there was a
-  warning, 2.05 s now, and 2.24 s for a run that does drop a row. The
-  first build asked in every run and took 2.24 s whether or not a row was
-  dropped.
+- Cost, measured twice on the payments scenario at 1,000,000 rows (whole
+  runs of the three versions, turn and turn about, the middle one taken).
+  First, seven runs each: 2.01 s before there was a warning, 2.24 s as
+  first built, 2.05 s now. Then nine runs each on a busier machine: 2.14 s,
+  2.39 s, 2.22 s. So a run that drops nothing pays 0.04 to 0.08 s, where
+  the first build paid 0.23 to 0.25 s. A run that does drop a row is read
+  once more: 2.24 s.
 - The job's files and its exit code are unchanged: the three versions
   write the same bytes at a million rows, and the whole suite that
   compares v2's files with v1's passes.

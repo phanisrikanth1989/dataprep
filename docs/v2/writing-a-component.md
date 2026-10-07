@@ -268,10 +268,11 @@ main = flagged.filter(~pl.col("__bad"))
 
 It is handed the frame that still holds the rows, an expression that is
 true for a row turned away, and one giving what is wrong with it; it hands
-back the frame to filter. The engine notices such rows as they pass, at no
-cost, and when the subjob has finished it asks how many they were and which
-was the first (a second reading, only when there were any) and logs one
-WARNING. Nothing is said when a flow takes the component's reject output.
+back the frame to filter. The engine notices such rows as they pass, in the
+subjob's own pass, and when the subjob has finished it asks how many they
+were and which was the first (a second reading, only when there were any)
+and logs one WARNING. Nothing is said when a flow takes the component's
+reject output.
 Call it on the branch that goes on, not on the one that fails the component
 (`die_on_error`), and not for rows the job itself turns away (a filter's, a
 join's): see `_typed` in `file_input_delimited.py`.

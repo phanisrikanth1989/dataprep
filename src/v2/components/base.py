@@ -306,9 +306,9 @@ class Component:
         with. Nothing is said either when the subjob fails: nothing was
         written, so nothing was dropped.
 
-        Such rows are noticed as they pass, which costs nothing. Only a
-        subjob that had some is asked, once it has finished, how many they
-        were and which was the first: that is a second reading.
+        Such rows are noticed as they pass, which costs next to nothing.
+        Only a subjob that had some is asked, once it has finished, how many
+        they were and which was the first: that is a second reading.
 
         Args:
             frame: The rows, the turned-away ones among them, with the

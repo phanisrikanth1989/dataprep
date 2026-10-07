@@ -30,8 +30,9 @@ and then run again here. Ticketed only; for the dev to decide.
   than the Talend job did.
 - The same kind of thing in a context load: a row with no key is skipped
   without a word, in v1 and in v2. That one loses a setting, not data.
-- Telling it would cost nothing a run can show: the engine can now notice
-  rows as they pass (ticket 46).
+- Telling it should cost little: the engine can now notice rows as they
+  pass (ticket 46; 0.04 to 0.08 s at a million rows for a reader's rows,
+  not measured for an aggregate).
 
 ## To settle
 

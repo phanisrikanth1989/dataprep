@@ -241,9 +241,10 @@ v1 shows a reader's loss as the REJECT count it logs for every component,
 for its delimited and JSON readers. A row dropped for a missing value it
 counts as passed on, so its log does not show that loss.
 
-The rows are noticed as they pass, which costs nothing a run can show: the
-payments scenario at 1,000,000 rows takes 2.05 s, against 2.01 s before
-there was a warning. Only a subjob that did drop rows is read once more,
+The rows are noticed as they pass, which costs little: the payments
+scenario at 1,000,000 rows took 0.04 s and 0.08 s longer than before there
+was a warning, in two measurements (2.01 s to 2.05 s, and 2.14 s to 2.22 s
+on a busier machine). Only a subjob that did drop rows is read once more,
 to count them and find the first: 2.24 s with one bad amount in the file.
 
 `--log-level DEBUG` adds what a person needs when a job does not do what
