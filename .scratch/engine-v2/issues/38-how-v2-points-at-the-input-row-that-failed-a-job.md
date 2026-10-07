@@ -1,6 +1,6 @@
 # 38 - How v2 points at the input row that failed a job
 
-Status: claimed
+Status: resolved
 Type: grilling
 
 ## Question
@@ -148,3 +148,42 @@ were combined into. Only the group and the rows that went into it.
 - Whether reject files stay byte for byte what v1 writes.
 - How many failing rows are reported: the first, or the first few and a
   count.
+
+## Answer
+
+Settled with the dev on 2026-10-07. The dev's own idea is the design.
+
+- **Every source numbers its rows**, from 1, as it reads them, whatever kind
+  of source it is. The number is a hidden column that travels with the row.
+  It is never written to a file and never shown to user Python.
+- **A key column is shown as well.** A column the source's schema marks as
+  key (the `key` flag every schema column already has) has its value shown
+  beside the number. The number is always there, key or no key: a key can
+  repeat, and can be the bad cell itself. (The dev asked for the number only
+  where no key is marked; shown both ways the dev did not object.)
+- **A failure names the row**: where it is in its source (a line of a text
+  file, a sheet and a row, a path in a JSON document), and its key.
+- **Only the log.** The first failing row and how many failed in all, in the
+  one line the failure has today. The bad value may stand in the log. No
+  file of errors. (The dev, 2026-10-07: "only bad row is sufficient. error
+  can present in the log.")
+- **`die_on_error` is untouched.** The job fails and writes nothing, as now.
+- **Conversions in expressions are checked by the engine**, not left to
+  Polars to raise on, so that the failing row is in hand and can be named.
+  That also corrects the fault of ticket 39.
+- **What becomes of the number at each kind of step**: kept through a
+  filter, a sort, a lookup, a map and a unique row; repeated when one row
+  becomes several; the lowest of the group, with how many rows went in,
+  after an aggregate; lost after user Python.
+- **Left for later**: finding a row again by its key after user Python (one
+  filtered read of the source, 0.09 s for a million rows), and looking again
+  after a failure for what Polars still raises by itself (the probe finds
+  the row in 2.1 s for a million rows). Both are in the map.
+
+Built under:
+[Every source numbers its rows](40-every-source-numbers-its-rows.md),
+[Conversions in expressions are checked by the engine](41-conversions-in-expressions-are-checked-by-the-engine.md),
+[JSON file input](42-json-file-input.md),
+[Normalize](43-normalize.md), and written down for whoever adds a component
+next in
+[What a new component owes the row numbers](44-what-a-new-component-owes-the-row-numbers.md).

@@ -247,6 +247,11 @@ are designed.
   -- research: no tool names the input row of a failure in a later step, and
   Polars names none at all; a reader can name its own rows for nothing, and
   a failure Polars raises needs a second look at the data.
+- [How v2 points at the input row that failed a job](issues/38-how-v2-points-at-the-input-row-that-failed-a-job.md)
+  -- every source numbers its rows, the number travels hidden with the row
+  and is named, with the key column's value, in the log line of a failure;
+  conversions in expressions are checked by the engine so that the row is
+  in hand.
 
 ## Not yet specified
 
@@ -269,10 +274,23 @@ decide, not fog on the way there.
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
-- Being settled with the dev, after the research of 2026-10-06:
-  [How v2 points at the input row that failed a job](issues/38-how-v2-points-at-the-input-row-that-failed-a-job.md).
-- A fault found on 2026-10-07, not yet corrected:
-  [A conversion guarded by `and` or `or` fails on v2 and not on v1](issues/39-a-conversion-guarded-by-and-or-or-fails-on-v2.md).
+- Being built, as settled with the dev on 2026-10-07:
+  [Every source numbers its rows](issues/40-every-source-numbers-its-rows.md);
+  [Conversions in expressions are checked by the engine](issues/41-conversions-in-expressions-are-checked-by-the-engine.md),
+  which corrects
+  [A conversion guarded by `and` or `or` fails on v2 and not on v1](issues/39-a-conversion-guarded-by-and-or-or-fails-on-v2.md);
+  [JSON file input](issues/42-json-file-input.md);
+  [Normalize](issues/43-normalize.md);
+  [What a new component owes the row numbers](issues/44-what-a-new-component-owes-the-row-numbers.md).
+- Left for later from the same discussion. After user Python the row number
+  is gone; where the result still has the source's key column, the row can
+  be found again by one filtered read of the source (0.09 s for a million
+  rows). For an error Polars still raises by itself, the row can be found by
+  running the failed component's part of the plan on halves of the file (2.1
+  s for a million rows, 13.1 s for five million; probe in
+  `research/probes/probe_look_again_for_the_failed_row.py`).
+- The XML file input and unpivot, the other two the dev named with tickets 42
+  and 43, are not built.
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).
