@@ -131,7 +131,9 @@ class FilterRows(Transform):
         else:
             keep = pl.any_horizontal(tests)
         if config["use_advanced"]:
-            keep = keep & translate_condition(config["condition"], self.row_scope(types, name, "input_row"))
+            scope = self.row_scope(types, name, "input_row")
+            keep = keep & translate_condition(config["condition"], scope)
+            self.check_conversions(frame, scope, "condition")
 
         flagged = frame.with_columns(keep.alias(_KEEP))
         return {

@@ -141,9 +141,13 @@ def _int(tr: "Translator", node: ast.Call) -> pl.Expr:
     value = tr.value(arg)
     dtype = tr.dtype(value, arg)
     if dtype == pl.String:
-        return value.str.strip_chars().cast(pl.Int64)
+        text = value.str.strip_chars()
+        return tr.fallible("int()", text, text.cast(pl.Int64, strict=False))
     if dtype.is_decimal():
         return value.truncate(0).cast(pl.Int64)
+    if dtype.is_float():
+        # Not a number, or a number no whole number can hold.
+        return tr.fallible("int()", value, value.cast(pl.Int64, strict=False))
     return value.cast(pl.Int64)
 
 
@@ -151,7 +155,8 @@ def _float(tr: "Translator", node: ast.Call) -> pl.Expr:
     (arg,) = tr.args(node, 1, 1)
     value = tr.value(arg)
     if tr.dtype(value, arg) == pl.String:
-        return value.str.strip_chars().cast(pl.Float64)
+        text = value.str.strip_chars()
+        return tr.fallible("float()", text, text.cast(pl.Float64, strict=False))
     return value.cast(pl.Float64)
 
 
@@ -638,7 +643,8 @@ def _strptime(tr: "Translator", node: ast.Call) -> pl.Expr:
     value = tr.value(text)
     if tr.dtype(value, text) != pl.String:
         tr.fail(text, "strptime() needs text to parse")
-    return value.str.to_datetime(_const_text(tr, pattern, "the date format").replace(".%f", "%.f"))
+    fmt = _const_text(tr, pattern, "the date format").replace(".%f", "%.f")
+    return tr.fallible("strptime()", value, value.str.to_datetime(fmt, strict=False))
 
 
 def _now(tr: "Translator", node: ast.Call) -> pl.Expr:

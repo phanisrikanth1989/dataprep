@@ -27,20 +27,36 @@ Check = Callable[[pl.LazyFrame, Callable[[pl.DataFrame], Optional[str]]], None]
 Where = Callable[[pl.DataFrame], str]
 
 
-def translated(text: str, scope: Scope, where: str) -> pl.Expr:
-    """Translate an expression; a refusal says which config key holds it."""
-    try:
-        return translate(text, scope)
-    except ExpressionError as exc:
-        raise ExpressionError(exc.expression, f"{where}: {exc.reason}") from None
+def translated(text: str, scope: Scope, where: str, guard: Optional[pl.Expr] = None) -> pl.Expr:
+    """Translate an expression; a refusal, and a conversion that fails in it, say which config key holds it.
+
+    Args:
+        text: The expression.
+        scope: What it may refer to.
+        where: The config key that holds it.
+        guard: True for the rows the expression is worked out for at all; None for every row.
+    """
+    return _placed(translate, text, scope, where, guard)
 
 
-def condition(text: str, scope: Scope, where: str) -> pl.Expr:
+def condition(text: str, scope: Scope, where: str, guard: Optional[pl.Expr] = None) -> pl.Expr:
     """A filter as a true-or-false value that is never missing, by Python's rules of truth."""
+    return _placed(translate_condition, text, scope, where, guard)
+
+
+def _placed(
+    translator: Callable[[str, Scope], pl.Expr], text: str, scope: Scope, where: str, guard: Optional[pl.Expr]
+) -> pl.Expr:
+    noted = len(scope.failures)
     try:
-        return translate_condition(text, scope)
+        made = translator(text, scope)
     except ExpressionError as exc:
         raise ExpressionError(exc.expression, f"{where}: {exc.reason}") from None
+    for failure in scope.failures[noted:]:
+        failure.where = where
+        if guard is not None:
+            failure.failed = guard & failure.failed
+    return made
 
 
 def type_of(value: pl.Expr, scope: Scope) -> pl.DataType:
@@ -48,11 +64,12 @@ def type_of(value: pl.Expr, scope: Scope) -> pl.DataType:
     return pl.LazyFrame(schema=dict(scope.columns)).select(value.alias("_")).collect_schema()["_"]
 
 
-def _own_filter(output: Dict[str, Any], scope: Scope, where: str) -> Optional[pl.Expr]:
+def _own_filter(output: Dict[str, Any], scope: Scope, where: str, guard: Optional[pl.Expr]) -> Optional[pl.Expr]:
+    """An output's filter; it is worked out only for the rows the output is offered (``guard``)."""
     text = output["filter"].strip()
     if not output["activate_filter"] or not text:
         return None
-    return condition(text, scope, f"{where}.filter")
+    return condition(text, scope, f"{where}.filter", guard)
 
 
 def _both(first: Optional[pl.Expr], second: Optional[pl.Expr]) -> Optional[pl.Expr]:
@@ -85,10 +102,10 @@ def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, mi
     ordinary: List[int] = []
     for index, output in enumerate(outputs):
         if output["inner_join_reject"]:
-            own = _own_filter(output, scope, f"outputs[{index}]")
+            own = _own_filter(output, scope, f"outputs[{index}]", pl.col(MISSED) if missed else pl.lit(False))
             taken[index] = _both(pl.col(MISSED), own) if missed else pl.lit(False)
         elif not output["is_reject"]:
-            taken[index] = _both(came_through, _own_filter(output, scope, f"outputs[{index}]"))
+            taken[index] = _both(came_through, _own_filter(output, scope, f"outputs[{index}]", came_through))
             ordinary.append(index)
 
     flags = [which.alias(f"{_TAKEN}{index}") for index, which in taken.items() if which is not None]
@@ -118,7 +135,7 @@ def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, mi
 
 def projected(
     rows: pl.LazyFrame, output: Dict[str, Any], scope: Scope, where: str, check: Optional[Check] = None,
-    row_named: Optional[Where] = None,
+    row_named: Optional[Where] = None, converted: Optional[Callable[[pl.LazyFrame, Scope], None]] = None,
 ) -> pl.LazyFrame:
     """One output's columns for the rows it takes, each fitted to its declared type.
 
@@ -133,6 +150,9 @@ def projected(
         where: The output's place in the config, for messages.
         check: The component's ``check``, when unreadable text is fatal.
         row_named: The component's ``where``, to name the row in the message.
+        converted: The component's ``check_conversions``: a conversion in a
+            column's expression that fails on a row the output takes fails
+            the component, whatever ``check`` says.
     """
     declared: List[Column] = []
     values: List[pl.Expr] = []
@@ -148,6 +168,8 @@ def projected(
             unreadable[made.name] = from_text(pl.col(made.name).fill_null(""), made)[1]
         declared.append(made)
         values.append(value.alias(made.name))
+    if converted is not None:
+        converted(rows, scope)
     # Added to the rows and then picked: an output made of constants alone still has a row for each of them.
     # The hidden columns of the main row go on with it.
     carried = hidden(rows.collect_schema().names())

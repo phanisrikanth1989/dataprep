@@ -42,6 +42,32 @@ _NAME_HINTS = {
 
 
 @dataclass
+class Fallible:
+    """A conversion in an expression that can fail on a row.
+
+    Polars would raise on the first such row and say only which value it
+    was. The conversion is built so that it gives nothing where it fails,
+    and this says which rows those are, for the component that asked for
+    the translation to check: it then holds the row and can name it.
+
+    Attributes:
+        failed: True for a row on which the conversion is worked out and
+            cannot be made. Never missing.
+        what: The conversion as a message names it: ``int()``.
+        value: What the conversion was handed, on every row.
+        source: The expression it is written in.
+        where: The config key that holds the expression, for the message;
+            set by the component that asked for the translation.
+    """
+
+    failed: pl.Expr
+    what: str
+    value: pl.Expr
+    source: str
+    where: str = "expression"
+
+
+@dataclass
 class Scope:
     """What an expression may refer to.
 
@@ -55,6 +81,9 @@ class Scope:
         global_map: globalMap entries, read as ``globalMap.get("name")``.
         routines: Routine modules, each a mapping of function name to a
             function that takes and returns Polars expressions.
+        failures: The conversions that can fail on a row, noted by every
+            translation made with this scope. The component that asked
+            checks them on the rows the expressions run on.
     """
 
     columns: Dict[str, pl.DataType]
@@ -64,6 +93,7 @@ class Scope:
     context: Mapping[str, Any] = field(default_factory=dict)
     global_map: Mapping[str, Any] = field(default_factory=dict)
     routines: Mapping[str, Mapping[str, Callable[..., pl.Expr]]] = field(default_factory=dict)
+    failures: List[Fallible] = field(default_factory=list)
 
     @classmethod
     def for_rows(
@@ -137,6 +167,8 @@ class Translator:
         self.source = text.strip()
         self.scope = scope
         self._probe = pl.LazyFrame(schema=dict(scope.columns))
+        # The conditions under which the part being translated is worked out at all, outermost first.
+        self._guards: List[pl.Expr] = []
 
     def run(self) -> pl.Expr:
         """Parse the text and translate it."""
@@ -158,6 +190,26 @@ class Translator:
     # ------------------------------------------------------------------
     # Helpers used by the function tables
     # ------------------------------------------------------------------
+
+    def fallible(self, what: str, value: pl.Expr, made: pl.Expr) -> pl.Expr:
+        """Note a conversion that gives nothing where it fails, and hand its result on.
+
+        A row fails when the conversion was handed a value and made nothing
+        of it, and only where Python would have worked the conversion out
+        at all: not behind an ``and`` that was already false or an ``or``
+        that was already true, and not in the branch of an ``if`` that was
+        not taken. A missing value is not a failure: it stays missing.
+
+        Args:
+            what: The conversion, as a message names it: ``int()``.
+            value: What it was handed.
+            made: Its result, missing where it failed.
+        """
+        failed = value.is_not_null() & made.is_null()
+        for guard in self._guards:
+            failed = guard & failed
+        self.scope.failures.append(Fallible(failed, what, value, self.source))
+        return made
 
     def fail(self, node: ast.AST, reason: str) -> NoReturn:
         """Refuse the expression, quoting the part that cannot be translated."""
@@ -215,10 +267,18 @@ class Translator:
     def truth(self, node: ast.AST) -> pl.Expr:
         """Translate a node used as a condition."""
         if isinstance(node, ast.BoolOp):
-            parts = [self.truth(value) for value in node.values]
-            combined = parts[0]
-            for part in parts[1:]:
-                combined = (combined & part) if isinstance(node.op, ast.And) else (combined | part)
+            both = isinstance(node.op, ast.And)
+            held = len(self._guards)
+            combined: Optional[pl.Expr] = None
+            for value in node.values:
+                part = self.truth(value)
+                if combined is None:
+                    combined = part
+                else:
+                    combined = (combined & part) if both else (combined | part)
+                # Python goes on to the next part only after a true part of an `and`, a false part of an `or`.
+                self._guards.append(part if both else ~part)
+            del self._guards[held:]
             return combined
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
             return ~self.truth(node.operand)
@@ -391,19 +451,27 @@ class Translator:
         self.fail(node, "this operator is not supported")
 
     def _BoolOp(self, node: ast.BoolOp) -> pl.Expr:
-        values = [self.value(item) for item in node.values]
-        types = [self.dtype(value, item) for value, item in zip(values, node.values)]
+        # A first translation to learn the types. What can fail in the parts is noted below, by the
+        # translation that knows which rows reach each part.
+        noted = len(self.scope.failures)
+        types = [self.dtype(self.value(item), item) for item in node.values]
+        del self.scope.failures[noted:]
         if all(dtype in (pl.Boolean, pl.Null) for dtype in types):
             return self.truth(node)
-        result, result_node = values[0], node.values[0]
-        for item, value in zip(node.values[1:], values[1:]):
+        both = isinstance(node.op, ast.And)
+        held = len(self._guards)
+        result, result_node = self.value(node.values[0]), node.values[0]
+        for item in node.values[1:]:
             condition = self.truthy(result, result_node)
+            self._guards.append(condition if both else ~condition)
+            value = self.value(item)
             result, value = self._one_kind(node, result, result_node, value, item)
-            if isinstance(node.op, ast.And):
+            if both:
                 result = pl.when(condition).then(value).otherwise(result)
             else:
                 result = pl.when(condition).then(result).otherwise(value)
             result_node = item
+        del self._guards[held:]
         return self._checked(result, node)
 
     def _Compare(self, node: ast.Compare) -> pl.Expr:
@@ -466,10 +534,15 @@ class Translator:
         self.fail(node, "`in` needs a list of constants, or text on both sides")
 
     def _IfExp(self, node: ast.IfExp) -> pl.Expr:
-        then, otherwise = self._one_kind(
-            node, self.value(node.body), node.body, self.value(node.orelse), node.orelse
-        )
-        return self._checked(pl.when(self.truth(node.test)).then(then).otherwise(otherwise), node)
+        test = self.truth(node.test)
+        # Each branch is worked out only for the rows that take it.
+        self._guards.append(test)
+        body = self.value(node.body)
+        self._guards[-1] = ~test
+        orelse = self.value(node.orelse)
+        self._guards.pop()
+        then, otherwise = self._one_kind(node, body, node.body, orelse, node.orelse)
+        return self._checked(pl.when(test).then(then).otherwise(otherwise), node)
 
     def _one_kind(self, node: ast.AST, left: pl.Expr, left_node: ast.AST, right: pl.Expr, right_node: ast.AST):
         """Make two alternative values fit one column, or refuse.

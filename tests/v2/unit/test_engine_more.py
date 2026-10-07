@@ -375,3 +375,21 @@ def test_rows_handed_to_a_component_that_needs_them_are_computed_once():
     result = run_job(made, registry=registry)
     assert result.status == "success" and result.global_map["peek_NB_LINE"] == 3 and Mark.ran == ["next"]
     assert runs == [3]
+
+
+# ------------------------------------------------------------------
+# Conversions a component translated and did not check
+# ------------------------------------------------------------------
+
+def test_component_that_translates_a_conversion_and_never_checks_it_is_a_fault_said_out_loud(tmp_path):
+    # The stand-in `calc` translates its expression and checks nothing. A conversion in it would turn
+    # into a missing value without a word; the engine fails the job instead, naming the expression.
+    made = with_schema(job(
+        [("in", "rows", {"data": {"n": [1], "t": ["x"]}}), ("calc", "calc", {"expression": "n + int(t)"}),
+         ("out", "save", {"path": str(tmp_path / "o.csv")})],
+        [("r1", "in", "calc", "flow"), ("r2", "calc", "out", "flow")],
+    ), {"in": schema_of(("n", "int"), ("t", "str"))})
+    result = run(made)
+    assert result.status == "failed" and result.failed_component == "calc"
+    assert result.error == "conversions were translated and never checked (check_conversions): n + int(t)"
+    assert not (tmp_path / "o.csv").exists()

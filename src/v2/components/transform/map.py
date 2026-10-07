@@ -15,7 +15,7 @@ from ...errors import ConfigurationError
 from ...expressions import Scope
 from ...job.keys import EXPRESSION, Key, Kind
 from ...job.model import TYPE_NAMES
-from ...rows import without
+from ...rows import visible, without
 from ..base import Transform, is_on
 from ..registry import REGISTRY
 from .map_joins import joined_with
@@ -222,23 +222,27 @@ class Map(Transform):
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         main = self.config["inputs"]["main"]
         joined = self._filtered(self._input(inputs, main["name"], "inputs.main.name"), main, "inputs.main")
-        rows = {main["name"]: dict(joined.collect_schema())}
+        rows = {main["name"]: _own(joined)}
         missed = False
         for index, lookup in enumerate(self.config["inputs"]["lookups"]):
             where = f"inputs.lookups[{index}]"
             # A lookup's own row numbers are left behind: the row that goes on is the main input's.
             frame = without(self._filtered(self._input(inputs, lookup["name"], f"{where}.name"), lookup, where))
-            keys = self._keys(lookup, rows, where)
+            keys = self._keys(lookup, rows, where, joined)
             joined = joined_with(joined, frame, lookup, keys, missed, self.config["enable_auto_convert_type"], where)
             missed = missed or lookup["join_mode"] == "INNER_JOIN"
-            rows[lookup["name"]] = dict(frame.collect_schema())
+            rows[lookup["name"]] = _own(frame)
         scope = self._scope(rows)
         joined = self._with_variables(joined, scope)
         outputs = self.config["outputs"]
         taken = routed(joined, outputs, scope, missed)
+        # The variables and the outputs' filters are worked out on the joined rows.
+        self.check_conversions(joined, scope)
         check = self.check if self.config["die_on_error"] else None
         return {
-            output["name"]: projected(taken[index], output, scope, f"outputs[{index}]", check, self.where)
+            output["name"]: projected(
+                taken[index], output, scope, f"outputs[{index}]", check, self.where, self.check_conversions
+            )
             for index, output in enumerate(outputs)
         }
 
@@ -267,17 +271,27 @@ class Map(Transform):
         if not source["activate_filter"] or not text:
             return frame
         scope = self.row_scope(frame.collect_schema(), source["name"])
-        return frame.filter(condition(text, scope, f"{where}.filter"))
+        kept = condition(text, scope, f"{where}.filter")
+        self.check_conversions(frame, scope)
+        return frame.filter(kept)
 
     def _keys(
-        self, lookup: Dict[str, Any], rows: Dict[str, Dict[str, pl.DataType]], where: str
+        self, lookup: Dict[str, Any], rows: Dict[str, Dict[str, pl.DataType]], where: str, joined: pl.LazyFrame
     ) -> List[Tuple[pl.Expr, pl.DataType]]:
-        """A lookup's key values on the main side, which may read the lookups joined before it."""
+        """A lookup's key values on the main side, which may read the lookups joined before it.
+
+        Args:
+            lookup: The lookup's config.
+            rows: The rows joined so far, by name, with their columns.
+            where: The lookup's place in the config, for messages.
+            joined: The rows joined so far, which the key expressions are worked out on.
+        """
         scope = self._scope(rows)
         keys = []
         for index, key in enumerate(lookup["join_keys"]):
             value = translated(key["expression"], scope, f"{where}.join_keys[{index}].expression")
             keys.append((value, type_of(value, scope)))
+        self.check_conversions(joined, scope)
         return keys
 
     def _with_variables(self, joined: pl.LazyFrame, scope: Scope) -> pl.LazyFrame:
@@ -294,6 +308,14 @@ class Map(Transform):
 
     def _scope(self, rows: Dict[str, Dict[str, pl.DataType]]) -> Scope:
         """What an expression over the joined rows may refer to: the main row and the lookups joined so far."""
-        return Scope.for_rows(
+        scope = Scope.for_rows(
             rows, context=self.context, global_map=self.global_map, routines=self.run_context.routines
         )
+        self.scopes.append(scope)
+        return scope
+
+
+def _own(frame: pl.LazyFrame) -> Dict[str, pl.DataType]:
+    """A frame's own columns with their types: what an expression may name of it."""
+    types = frame.collect_schema()
+    return {name: types[name] for name in visible(types)}

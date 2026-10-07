@@ -22,7 +22,7 @@ import polars as pl
 
 from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
-from ..rows import described, key_column, row_column, visible
+from ..rows import described, first_of, key_column, row_column, shown, visible
 
 if TYPE_CHECKING:
     from ..engine.context import RunContext
@@ -36,6 +36,11 @@ COMMON_KEYS: Tuple[Key, ...] = (
     Key("chunk_size", kind=Kind.IGNORED, type=object, doc="v1 streaming chunk size."),
     Key("component_type", kind=Kind.IGNORED, type=object, doc="v1's name for the component type; a label."),
 )
+
+
+# In the frame a check of conversions computes: how many rows failed, and what each conversion was handed.
+_FAILED = "__failed_rows"
+_CONVERTED = "__converted_"
 
 
 def is_on(value: Any) -> bool:
@@ -102,6 +107,8 @@ class Component:
         self.input_schema: List["Column"] = spec.input_schema
         self.run_context = run_context
         self.taps: List[Tap] = []
+        # Every scope handed out: each has to be checked for conversions before the component is done building.
+        self.scopes: List[Scope] = []
         # The output ports a flow leaves by. The engine fills it in; a component may do less for a port nobody reads.
         self.wired: Set[str] = set()
 
@@ -176,7 +183,7 @@ class Component:
         types = {column: types[column] for column in visible(types)}
         same = {column: column for column in types}
         rows = {name: dict(same) for name in names or ("row",)}
-        return Scope(
+        scope = Scope(
             columns=dict(types),
             rows=rows,
             bare=next(iter(rows)),
@@ -185,6 +192,54 @@ class Component:
             routines=self.run_context.routines,
             **more,
         )
+        self.scopes.append(scope)
+        return scope
+
+    def check_conversions(self, frame: pl.LazyFrame, scope: Scope, where: Optional[str] = None) -> None:
+        """Fail the component when a conversion in a translated expression fails on a row.
+
+        An expression's ``int()``, ``float()`` or ``strptime()`` gives
+        nothing where it cannot convert, and the translation notes those
+        rows in its scope. This asks, in the pass the subjob runs in, how
+        many rows of the frame are among them and which is the first, and
+        fails the component with the expression, the value and the row.
+
+        Call it for every frame expressions were translated to run on, once
+        they are translated. The conversions it checks are taken out of the
+        scope, so the next call checks only what was translated since.
+
+        Args:
+            frame: The rows the expressions are worked out on.
+            scope: The scope they were translated with.
+            where: The config key that holds them, when they were not given
+                one each.
+        """
+        failures, scope.failures[:] = list(scope.failures), []
+        if not failures:
+            return
+        bad = frame.filter(pl.any_horizontal([failure.failed for failure in failures]))
+        values = [
+            pl.when(failure.failed).then(failure.value.cast(pl.String)).first().alias(f"{_CONVERTED}{index}")
+            for index, failure in enumerate(failures)
+        ]
+
+        def problem(found: pl.DataFrame) -> Optional[str]:
+            rows = found[_FAILED].item()
+            for index, failure in enumerate(failures):
+                value = found[f"{_CONVERTED}{index}"].item()
+                if rows and value is not None:
+                    count = "1 row" if rows == 1 else f"{rows} rows"
+                    return (
+                        f"{where or failure.where}: {failure.what} could not read '{shown(value)}' "
+                        f"(in: {failure.source}); {count} failed{self.where(found)}"
+                    )
+            return None
+
+        self.check(bad.select(pl.len().alias(_FAILED), *values, *first_of(bad)), problem)
+
+    def unchecked(self) -> List[str]:
+        """The expressions whose conversions were translated and never checked: a fault in the component."""
+        return sorted({failure.source for scope in self.scopes for failure in scope.failures})
 
     def tap(self, frame: pl.LazyFrame, receive: Callable[[pl.DataFrame], None]) -> None:
         """Ask for a frame to be computed in the same pass as the subjob.

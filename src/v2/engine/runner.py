@@ -401,6 +401,11 @@ class Runner:
                     if not component.sees_hidden_columns:
                         inputs = {name: without(frame) for name, frame in inputs.items()}
                     outputs = component.build(inputs)
+                left = component.unchecked()
+                if left:
+                    raise RuntimeError(
+                        f"conversions were translated and never checked (check_conversions): {'; '.join(left)}"
+                    )
                 outputs = self._conformed(component, outputs)
                 for port, frame in outputs.items():
                     columns = frame.collect_schema()
