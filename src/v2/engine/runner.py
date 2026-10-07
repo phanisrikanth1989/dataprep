@@ -29,6 +29,7 @@ from ..files import put_in_place
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Trigger
+from ..rows import first_of, visible, without
 from ..types import VIOLATION, conform
 from .conditions import evaluate
 from .context import RunContext
@@ -379,26 +380,32 @@ class Runner:
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 if isinstance(component, Sink):
                     heights: List[int] = []
-                    handed = _counted(next(iter(inputs.values())), heights)
+                    # A file holds the job's own columns and nothing of the engine's.
+                    handed = _counted(without(next(iter(inputs.values()))), heights)
                     state.writes.append((component_id, component.write(handed), heights))
                     outputs: Dict[str, pl.LazyFrame] = {}
                 elif isinstance(component, Source):
                     outputs = component.read()
+                    self.run_context.sources[component_id] = component
                 elif component.needs_rows():
                     collected = self._collect(list(inputs.values()), state, component_id)
                     for name, frame in zip(inputs, collected):
                         self._share(name, frame.lazy(), frames)
+                    if not component.sees_hidden_columns:
+                        collected = [frame.select(visible(frame.columns)) for frame in collected]
                     results = component.run(dict(zip(inputs, collected))) or {}
                     # Counted from the rows in hand: the plans that made them are not run again for it.
                     inputs = {name: frame.lazy() for name, frame in zip(inputs, collected)}
                     outputs = {port: frame.lazy() for port, frame in results.items()}
                 else:
+                    if not component.sees_hidden_columns:
+                        inputs = {name: without(frame) for name, frame in inputs.items()}
                     outputs = component.build(inputs)
                 outputs = self._conformed(component, outputs)
                 for port, frame in outputs.items():
                     columns = frame.collect_schema()
                     if logger.isEnabledFor(logging.DEBUG):
-                        shown = ", ".join(f"{name} {dtype}" for name, dtype in columns.items())
+                        shown = ", ".join(f"{name} {columns[name]}" for name in visible(columns))
                         logger.debug(ascii_only(f"[{component_id}] output {port}: {shown}"))
                 self._count(component, inputs, outputs)
             except _Failed:
@@ -450,9 +457,10 @@ class Runner:
             columns = spec.schema if component.conforms else []
             main, violation = conform(outputs["main"], columns, rename_errors=True)
             if violation is not None and component.config.get("die_on_error", True):
+                broken = main.filter(violation.is_not_null())
                 component.check(
-                    main.filter(violation.is_not_null()).select(pl.len().alias("rows"), violation.first().alias("why")),
-                    _null_problem,
+                    broken.select(pl.len().alias("rows"), violation.first().alias("why"), *first_of(broken)),
+                    lambda found: _null_problem(found, component),
                 )
                 main = main.drop(VIOLATION)
             elif violation is not None:
@@ -663,12 +671,13 @@ def _add(global_map: Dict[str, Any], key: str, rows: int) -> None:
     global_map[key] = global_map.get(key, 0) + int(rows)
 
 
-def _null_problem(found: pl.DataFrame) -> Optional[str]:
-    """v1's words for a missing value in a column that may not hold one."""
+def _null_problem(found: pl.DataFrame, component: Component) -> Optional[str]:
+    """v1's words for a missing value in a column that may not hold one, and the row it was."""
     if not found["rows"].item():
         return None
     named = _NULL_COLUMN.fullmatch(found["why"].item() or "")
-    return f"Column '{named.group(1) if named else '?'}' has NULL values but is not nullable"
+    column = named.group(1) if named else "?"
+    return f"Column '{column}' has NULL values but is not nullable{component.where(found)}"
 
 
 def _temp_path(path: str, component_id: str) -> str:

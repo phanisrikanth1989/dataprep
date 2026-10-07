@@ -403,7 +403,9 @@ def test_missing_value_the_schema_forbids_fails_the_sort(tmp_path, config):
     schema = "id:int!, name:str, age:int!, amt:float, flag:bool, d:datetime@%Y-%m-%d, m:Decimal#2!, txt:str"
     same(tmp_path, dict(config, criteria=by("id:num:desc")), out_schema=schema, fails=True)
     result, _ = v2(tmp_path / "direct", dict(config, criteria=by("id:num:desc")), out_schema=schema)
-    assert result.failed_component == "it" and result.error == "Column 'age' has NULL values but is not nullable"
+    # Rows 2 and 9 lack an age; sorted by id descending, row 9 is the first the sort hands on.
+    assert result.failed_component == "it"
+    assert result.error == "Column 'age' has NULL values but is not nullable; the row is line 10 of in.csv"
 
 
 def test_missing_value_the_schema_forbids_drops_the_row_when_errors_are_not_fatal(tmp_path):

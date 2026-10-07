@@ -15,6 +15,7 @@ from ...errors import ConfigurationError
 from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
+from ...rows import first_of
 from ...types import finish_value, parse_text, polars_schema, unreadable
 from ..base import Source, ascii_only
 from ..registry import REGISTRY
@@ -187,10 +188,19 @@ class FileInputDelimited(Source):
             frame = frame.filter(~empty)
         if self._by_line():
             frame = frame.with_row_index(_LINE, offset=1)
+        # Copied before a field is trimmed or typed: a key is shown as it stands in the file.
+        frame = frame.with_columns(self.key_copies())
         trimmed = self._trimmed()
         if trimmed:
             frame = frame.with_columns([pl.col(name).str.strip_chars() for name in trimmed])
         return self._typed(frame, names, native)
+
+    def locate(self, number: int) -> str:
+        """Where a row is: its line, or its place among the records where a record can span lines."""
+        path = self.config["path"]
+        if self.config["csv_option"]:
+            return f"record {number} of {path}"
+        return f"line {number + self.config['header_rows']} of {path}"
 
     def _native(self) -> Tuple[Dict[str, pl.DataType], str]:
         """The columns Polars parses itself, with their types; the others arrive as text.
@@ -244,6 +254,9 @@ class FileInputDelimited(Source):
                 truncate_ragged_lines=True,
                 raise_if_empty=False,
                 glob=False,
+                # Numbered where the file is read: a row keeps its place in the file whatever is dropped after.
+                row_index_name=self.row_number,
+                row_index_offset=1,
             )
 
         rows = config["limit"]
@@ -264,7 +277,7 @@ class FileInputDelimited(Source):
     def _lines(self, source: str, names: List[str]) -> pl.LazyFrame:
         """The file's fields as text columns, split here: slower, but any delimiter and the field count."""
         config = self.config
-        lines = pl.scan_lines(source, name=_LINE, glob=False)
+        lines = pl.scan_lines(source, name=_LINE, glob=False, row_index_name=self.row_number, row_index_offset=1)
         length: Optional[int] = None
         if config["footer_rows"] > 0:
             total = lines.select(pl.len()).collect().item()
@@ -286,7 +299,9 @@ class FileInputDelimited(Source):
             lines = lines.head(config["limit"])
         parts = text.str.split_exact(delimiter, len(names) - 1).struct.rename_fields(names)
         frame = lines.select(
-            (text.str.count_matches(delimiter, literal=True) + 1).alias(_FIELDS), parts.alias("__row")
+            (text.str.count_matches(delimiter, literal=True) + 1).alias(_FIELDS), parts.alias("__row"),
+            # The scan numbered every line of the file; a row's number counts from the first line after the header.
+            pl.col(self.row_number) - config["header_rows"],
         ).unnest("__row")
         return frame.with_columns([pl.col(name).fill_null("") for name in names])
 
@@ -306,8 +321,9 @@ class FileInputDelimited(Source):
     ) -> Dict[str, pl.LazyFrame]:
         typed = [column for column in self.schema if column.type != "str"]
         counted = self.config["check_fields_num"] and not self.config["csv_option"]
+        carried = [self.row_number] + [expr.meta.output_name() for expr in self.key_copies()]
         if not typed and not counted:
-            return {"main": frame.select(names), "reject": self._no_rejects(names)}
+            return {"main": frame.select(names + carried), "reject": self._no_rejects(names)}
 
         # Each field read as text is parsed once: the parsed column gives the value and tells an unreadable field.
         frame = frame.with_columns([
@@ -331,19 +347,23 @@ class FileInputDelimited(Source):
         values = [value(held[name]).alias(name) if name in held else pl.col(name) for name in names]
         if not flags:
             # Polars parsed every typed column and none may not be missing: no row can be rejected here.
-            return {"main": frame.select(values), "reject": self._no_rejects(names)}
+            return {"main": frame.select(values + carried), "reject": self._no_rejects(names)}
 
         flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
-        main = flagged.filter(~pl.col(_BAD)).select(values)
+        main = flagged.filter(~pl.col(_BAD)).select(values + carried)
         code, message = self._reasons(typed, counted, len(names), native)
         reason = {"errorCode": code.alias("errorCode"), "errorMessage": message.alias("errorMessage")}
         # A data column with one of the two names gives its place to the reason, as in v1.
         reject = flagged.filter(pl.col(_BAD)).select(
             *[reason.get(name, pl.col(name).cast(pl.String)) for name in names],
             *[expr for name, expr in reason.items() if name not in names],
+            *carried,
         )
         if self.config["die_on_error"]:
-            self.check(reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why")), fatal)
+            self.check(
+                reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
+                lambda found: fatal(found, self.where(found)),
+            )
         return {"main": main, "reject": reject}
 
     @staticmethod
@@ -398,6 +418,7 @@ def unreadable_text(column: Column) -> str:
     return f"Column '{name}': time data '{{}}' does not match format '{pattern}'"
 
 
-def fatal(found: pl.DataFrame) -> Optional[str]:
+def fatal(found: pl.DataFrame, where: str = "") -> Optional[str]:
+    """What a reader fails with when rows could not be read: how many, the first one's fault, and where it is."""
     rows = found["rows"].item()
-    return f"Schema/coercion failed for {rows} row(s); first error: {found['why'].item()}" if rows else None
+    return f"Schema/coercion failed for {rows} row(s); first error: {found['why'].item()}{where}" if rows else None

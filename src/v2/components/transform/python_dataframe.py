@@ -65,6 +65,8 @@ class PythonDataFrame(Transform):
 
     names = ("python_dataframe", "PythonDataFrameComponent", "tPythonDataFrame")
     may_need_rows = True
+    # The user's code is handed the job's own columns and nothing else.
+    sees_hidden_columns = False
     keys = (
         Key("python_code", type=CODE, required=True, convert=_not_empty,
             doc="The Python to run. It is handed the flow as `df` and leaves its result in `df`."),

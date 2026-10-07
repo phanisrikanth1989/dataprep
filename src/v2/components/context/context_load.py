@@ -76,6 +76,8 @@ class ContextLoad(Eager):
     outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {}
     min_inputs = 1
     sets_context = True
+    # Its columns are read by their place: key first, value second.
+    sees_hidden_columns = False
     # The variables the flow set, by name.
     _loaded: Tuple[str, ...] = ()
     keys = (

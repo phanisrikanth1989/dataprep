@@ -8,6 +8,7 @@ import polars as pl
 
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
+from ...rows import visible
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -110,7 +111,8 @@ class UniqueRow(Transform):
     def _key(self, types: pl.Schema) -> pl.Expr:
         """What two rows must have in common to be duplicates of each other."""
         config = self.config
-        sensitive = {name: config["case_sensitive"] for name in types.names()}
+        # Without key columns two rows are duplicates when all their own columns agree; the hidden ones never do.
+        sensitive = {name: config["case_sensitive"] for name in visible(types.names())}
         if config["key_columns"]:
             sensitive = {}
             for entry in config["key_columns"]:

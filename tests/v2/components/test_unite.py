@@ -194,7 +194,8 @@ def test_missing_value_where_none_is_allowed_fails_the_unite(tmp_path):
     same(tmp_path, made, inputs, fails=True)
     (tmp_path / "direct").mkdir()
     result = v2_run(tmp_path / "direct", made, inputs)
-    assert result.failures == {"it": "Column 'amt' has NULL values but is not nullable"}
+    # The row comes from the second input, which has no amt at all.
+    assert result.failures == {"it": "Column 'amt' has NULL values but is not nullable; the row is line 2 of in2.csv"}
 
 
 # ------------------------------------------------------------------

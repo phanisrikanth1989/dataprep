@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 import polars as pl
 
 from ...job.keys import Key, Kind
+from ...rows import visible
 from ...types import to_text
 from ..base import Transform
 from ..registry import REGISTRY
@@ -74,7 +75,7 @@ class LogRow(Transform):
         types = frame.collect_schema()
         # One row is asked for even when none is to be printed: a header line is printed only for a flow with rows.
         shown = frame.head(max(self.config["max_rows"], 1))
-        self.tap(shown.select([_printed(name, dtype) for name, dtype in types.items()]), self._print)
+        self.tap(shown.select([_printed(name, types[name]) for name in visible(types)]), self._print)
         return {"main": frame}
 
     # ------------------------------------------------------------------

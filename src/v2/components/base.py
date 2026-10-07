@@ -22,6 +22,7 @@ import polars as pl
 
 from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
+from ..rows import described, key_column, row_column, visible
 
 if TYPE_CHECKING:
     from ..engine.context import RunContext
@@ -68,6 +69,11 @@ class Component:
             class. A subjob holding such a component is never run a second
             time (see ``RunContext.fast_read``), because what the component
             did with the rows cannot be undone.
+        sees_hidden_columns: Whether the component is handed the hidden
+            columns that say where a row came from (``src/v2/rows.py``). A
+            component that hands its rows to code the engine cannot see
+            into, or that reads its columns by their place, turns this off;
+            what it hands on has then lost them.
 
     An instance exists for one run of one subjob. It holds:
 
@@ -86,6 +92,7 @@ class Component:
     max_inputs: ClassVar[Optional[int]] = 1
     conforms: ClassVar[bool] = True
     may_need_rows: ClassVar[bool] = False
+    sees_hidden_columns: ClassVar[bool] = True
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -165,6 +172,8 @@ class Component:
             *names: Names the row goes by; the flow's name, usually.
             **more: Further ``Scope`` fields, such as ``variables``.
         """
+        # The hidden columns are not a job's to name.
+        types = {column: types[column] for column in visible(types)}
         same = {column: column for column in types}
         rows = {name: dict(same) for name in names or ("row",)}
         return Scope(
@@ -206,6 +215,19 @@ class Component:
                 raise CheckFailed(found)
 
         self.tap(frame, receive)
+
+    def where(self, found: pl.DataFrame) -> str:
+        """The words that name the row a check found, to end its message with.
+
+        Args:
+            found: The check's one-row result, holding the hidden columns of
+                the first failing row (``rows.first_of`` asks for them).
+
+        Returns:
+            ``"; the row is line 7 of in.csv (id=42)"``; nothing when the row
+            carries no number.
+        """
+        return described(found.row(0, named=True), self.run_context.sources) if found.height else ""
 
     @property
     def context(self) -> Dict[str, Any]:
@@ -261,12 +283,31 @@ class CheckFailed(Exception):
 
 
 class Source(Component):
-    """A component that produces rows and takes no input."""
+    """A component that produces rows and takes no input.
+
+    A source numbers its rows from 1 as it reads them, before it drops any,
+    in the column ``row_number``, and hands that column on with every row of
+    every output, together with ``key_copies()``. ``locate`` says where a
+    number is, in the words a person looking for the row would use.
+    """
 
     max_inputs: ClassVar[Optional[int]] = 0
 
     def read(self) -> Dict[str, pl.LazyFrame]:
         """Return the lazy frame of each output port."""
+        raise NotImplementedError
+
+    @property
+    def row_number(self) -> str:
+        """The name of the hidden column that holds this source's row numbers."""
+        return row_column(self.id)
+
+    def key_copies(self) -> List[pl.Expr]:
+        """Hidden copies of the columns the schema marks as key, to hand on beside the row number."""
+        return [pl.col(column.name).alias(key_column(self.id, column.name)) for column in self.schema if column.key]
+
+    def locate(self, number: int) -> str:
+        """Where the row with a number is: ``"line 7 of in.csv"``."""
         raise NotImplementedError
 
 

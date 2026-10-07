@@ -47,6 +47,8 @@ class RunContext:
         # it only where it can run the subjob again, and a source that uses it says so.
         self.fast_read = False
         self.used_fast_read = False
+        # The sources of the subjob being run, by id: a failure asks them where a row's number is.
+        self.sources: Dict[str, Any] = {}
 
     def reads(self, key: str) -> bool:
         """Whether anything in the job reads a globalMap entry.
@@ -110,6 +112,7 @@ class RunContext:
                 pass
         self._scratch.clear()
         self.utf8_copies.clear()
+        self.sources.clear()
 
 
 def _as_text(value: Any) -> str:

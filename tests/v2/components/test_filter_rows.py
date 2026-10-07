@@ -1007,7 +1007,9 @@ NO_MISSING_AGE = "id:int!, name:str, age:int!, qty:int!, amt:float, flag:bool, d
 def test_missing_value_the_schema_forbids_fails_the_filter(tmp_path, config):
     same(tmp_path, dict(config, conditions=[cond("qty", ">", "0")]), out_schema=NO_MISSING_AGE, fails=True)
     result, _ = v2(tmp_path / "direct", dict(config, conditions=[cond("qty", ">", "0")]), out_schema=NO_MISSING_AGE)
-    assert result.failed_component == "it" and result.error == "Column 'age' has NULL values but is not nullable"
+    # Row 2 of the data, under one header line.
+    assert result.failed_component == "it"
+    assert result.error == "Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv"
 
 
 def test_missing_value_the_schema_forbids_is_rejected_when_errors_are_not_fatal(tmp_path):

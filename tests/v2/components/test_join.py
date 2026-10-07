@@ -570,7 +570,7 @@ def test_missing_lookup_value_where_none_is_allowed_fails_the_join(tmp_path):
     (tmp_path / "direct").mkdir()
     result = v2(tmp_path / "direct", joined(FETCH, out=STRICT, reject=True))
     assert result.status == "failed" and result.failed_component == "it"
-    assert result.error == "Column 'dname' has NULL values but is not nullable"
+    assert result.error == "Column 'dname' has NULL values but is not nullable; the row is line 4 of main.csv"
     assert not (tmp_path / "direct" / "out.csv").exists()
 
 
@@ -580,7 +580,9 @@ def test_die_on_error(tmp_path, die_on_error):
     run = same(tmp_path, made, fails=die_on_error)
     if die_on_error:
         (tmp_path / "direct").mkdir()
-        assert v2(tmp_path / "direct", made).failures == {"it": "Column 'dname' has NULL values but is not nullable"}
+        assert v2(tmp_path / "direct", made).failures == {
+            "it": "Column 'dname' has NULL values but is not nullable; the row is line 4 of main.csv"
+        }
     else:
         assert run.files["rej.csv"].splitlines() == [
             b"id;name;dept;dname;loc;errorCode;errorMessage",
