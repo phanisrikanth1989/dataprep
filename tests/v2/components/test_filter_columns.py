@@ -135,7 +135,8 @@ def test_no_input_rows_still_leaves_the_declared_columns_only(tmp_path):
 def test_missing_value_the_schema_forbids_fails_the_component(tmp_path, config):
     same(tmp_path, "id:int!, age:int!", fails=True, **config)
     result, _ = v2(tmp_path / "direct", "id:int!, age:int!", **config)
-    assert result.failed_component == "it" and result.error == "Column 'age' has NULL values but is not nullable"
+    assert result.failed_component == "it"
+    assert result.error == "Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv"
 
 
 def test_missing_value_the_schema_forbids_drops_the_row_when_errors_are_not_fatal(tmp_path):

@@ -373,6 +373,7 @@ def test_unreadable_row_fails_the_job_when_errors_are_fatal(tmp_path):
     assert result.status == "failed" and result.failed_component == "in"
     assert result.error == (
         "Schema/coercion failed for 3 row(s); first error: Column 'i': could not convert string to float: 'x2'"
+        "; the row is line 2 of in.txt"
     )
     assert not (folder / "out.csv").exists()
 

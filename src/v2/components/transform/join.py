@@ -9,6 +9,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...types import polars_type
+from ...rows import without
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -78,6 +79,8 @@ class Join(Transform):
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         main, lookup = _sides(inputs)
+        # The row that goes on is the main input's: a lookup's own row numbers are left behind.
+        lookup = without(lookup)
         main_types, lookup_types = main.collect_schema(), lookup.collect_schema()
         keys = self._keys(main_types, lookup_types)
         fetched = self._fetched(main_types, lookup_types)

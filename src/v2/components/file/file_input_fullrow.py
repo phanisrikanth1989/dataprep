@@ -147,9 +147,15 @@ class FileInputFullRow(Source):
             length = max(count_rows(lines) + int(last_is_empty) - header - footer, 0)
         elif last_is_empty and not config["remove_empty_row"]:
             lines = pl.concat([lines, pl.LazyFrame({name: [""]})])
-        lines = lines.slice(header, length)
+        # Numbered before an empty line is dropped: a line's number plus the header rows is its line in the file.
+        lines = lines.slice(header, length).with_row_index(self.row_number, offset=1)
         if config["remove_empty_row"]:
             lines = lines.filter(pl.col(name) != "")
         if config["limit"] is not None:
             lines = lines.head(config["limit"])
-        return {"main": lines}
+        # The one column there is at this point is the only one that can be a key.
+        keys = [copy for column, copy in zip([c for c in self.schema if c.key], self.key_copies()) if column.name == name]
+        return {"main": lines.select(name, self.row_number, *keys)}
+
+    def locate(self, number: int) -> str:
+        return f"line {number + max(self.config['header_rows'], 0)} of {self.config['path']}"

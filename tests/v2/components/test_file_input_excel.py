@@ -720,7 +720,8 @@ def test_missing_value_where_none_is_allowed_is_rejected(tmp_path):
 def test_missing_value_where_none_is_allowed_fails_when_errors_are_fatal(tmp_path):
     same(tmp_path, GAPS, NEEDED, die_on_error=True, fails=True)
     result, folder = v2(tmp_path / "direct", GAPS, NEEDED, die_on_error=True)
-    assert result.failed_component == "in" and result.error == "Column 'f' has NULL values but is not nullable"
+    assert result.failed_component == "in"
+    assert result.error == "Column 'f' has NULL values but is not nullable; the row is row 2 of sheet 'S' of in.xlsx"
     assert not (folder / "out.csv").exists()
 
 

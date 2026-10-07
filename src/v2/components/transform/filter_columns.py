@@ -7,6 +7,7 @@ import polars as pl
 
 from ...errors import ConfigurationError
 from ...job.keys import Key
+from ...rows import hidden
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -38,4 +39,4 @@ class FilterColumns(Transform):
             raise ConfigurationError(
                 f"schema: none of the declared columns ({', '.join(declared)}) is among the input's columns"
             )
-        return {"main": frame.select(kept)}
+        return {"main": frame.select(kept + hidden(have.names()))}

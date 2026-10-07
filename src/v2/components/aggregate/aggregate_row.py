@@ -9,6 +9,7 @@ import polars as pl
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
 from ...job.model import Column
+from ...rows import KEY, ROW, hidden, rows_column
 from ...types import to_text
 from ..base import Transform
 from ..registry import REGISTRY
@@ -193,8 +194,12 @@ class AggregateRow(Transform):
             # and a plain select of aggregates comes out one row per input row on Polars' in-memory engine
             # when two of them share a part.
             frame, keys = frame.with_columns(pl.lit(True).alias(_WHOLE)), [_WHOLE]
-        aggregated = frame.group_by(keys, maintain_order=True).agg(aggregates)
-        made = aggregated.select([pl.col(name).alias(output) for name, output in groups] + results)
+        carried = _carried(types.names())
+        aggregated = frame.group_by(keys, maintain_order=True).agg(aggregates + carried)
+        made = aggregated.select(
+            [pl.col(name).alias(output) for name, output in groups] + results
+            + [pl.col(expr.meta.output_name()) for expr in carried]
+        )
         return {"main": self._as_declared(made)}
 
     def _as_declared(self, frame: pl.LazyFrame) -> pl.LazyFrame:
@@ -380,6 +385,29 @@ def _unless_missing(value: pl.Expr, column: pl.Expr, parts: _Parts, ignore_null:
 def _float_of(decimal: pl.Expr) -> pl.Expr:
     """The float nearest to a Decimal. Polars' own cast can be one step off; reading the digits is not."""
     return decimal.cast(pl.String).cast(pl.Float64)
+
+
+def _carried(names: List[str]) -> List[pl.Expr]:
+    """What a group keeps of where its rows came from.
+
+    Many rows become one, so no single row stands behind it. The group keeps,
+    for each source, the lowest row number among its rows, that row's key,
+    and how many rows went in. A failure after the aggregate can then say
+    "the first of 11,112 rows that were combined".
+    """
+    held = hidden(names)
+    kept: List[pl.Expr] = []
+    for name in held:
+        if not name.startswith(ROW):
+            continue
+        source_id = name[len(ROW):]
+        counted = rows_column(source_id)
+        first = pl.col(name).arg_min()
+        kept.append(pl.col(name).min().alias(name))
+        # Rows that were combined once already bring their own count.
+        kept.append((pl.col(counted).sum() if counted in held else pl.col(name).count()).alias(counted))
+        kept += [pl.col(key).get(first).alias(key) for key in held if key.startswith(f"{KEY}{source_id}:")]
+    return kept
 
 
 def _decimal_of(number: pl.Expr, places: int = _EXACT.scale) -> pl.Expr:

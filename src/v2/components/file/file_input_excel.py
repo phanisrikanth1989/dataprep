@@ -19,6 +19,7 @@ from ...errors import ConfigurationError
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import from_text, polars_type, to_text
+from ...rows import hidden, visible
 from ..base import Source
 from ..registry import REGISTRY
 
@@ -197,8 +198,22 @@ class FileInputExcel(Source):
         except fastexcel.FastExcelError as exc:
             return self._nothing(f"Error reading Excel file {path}: {str(exc).splitlines()[0]}")
         self.global_map[f"{self.id}_CURRENT_SHEET"] = sheets[-1]
-        rows = pl.concat(frames).lazy()
+        # Rows are numbered through all the sheets, and each sheet's share of the numbers is kept to find a row by.
+        self._path, self._sheet_rows, numbered, read = path, [], [], 0
+        for sheet, frame in zip(sheets, frames):
+            frame = frame.with_row_index(self.row_number, offset=read + 1).with_columns(self.key_copies())
+            # The declared columns stay in front, as they were.
+            numbered.append(frame.select(visible(frame.columns) + hidden(frame.columns)))
+            if frame.height:
+                self._sheet_rows.append((read + 1, sheet))
+            read += frame.height
+        rows = pl.concat(numbered).lazy()
         return {"main": rows, "reject": _no_rejects(rows)}
+
+    def locate(self, number: int) -> str:
+        """Where a row is: its row in its sheet, counted as the sheet shows it."""
+        first, sheet = max(entry for entry in self._sheet_rows if entry[0] <= number)
+        return f"row {number - first + self.config['header'] + 1} of sheet '{sheet}' of {self._path}"
 
     def _nothing(self, why: str) -> Dict[str, pl.LazyFrame]:
         """No rows at all, or a failed component when errors are fatal."""

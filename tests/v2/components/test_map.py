@@ -1141,7 +1141,8 @@ def test_values_are_turned_into_the_declared_type(tmp_path):
 def test_text_that_cannot_be_read_as_the_declared_type_fails_the_job(tmp_path):
     result, files = typed(tmp_path, [("id", "row1.id", "int"), ("n", "row1.text", "int")], data=UNREADABLE)
     assert result.status == "failed" and result.failed_component == "map"
-    assert result.error == "output 'o' column 'n': 'abc' cannot be read as int (2 rows of the output hold such a value)"
+    assert result.error == ("output 'o' column 'n': 'abc' cannot be read as int (2 rows of the output hold such a value)"
+                            "; the row is line 3 of row1.csv")
     assert files == {}
 
 

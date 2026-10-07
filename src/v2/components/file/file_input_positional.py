@@ -16,6 +16,7 @@ from ...files import as_utf8
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...types import from_text
+from ...rows import first_of, hidden
 from ..base import Source
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, fatal, unreadable_text
@@ -150,13 +151,17 @@ class FileInputPositional(Source):
         length: Optional[int] = None
         if config["footer_rows"] > 0:
             length = max(count_rows(lines) - config["header_rows"] - config["footer_rows"], 0)
-        lines = lines.slice(config["header_rows"], length)
+        # Numbered before a blank line is dropped: a row's number plus the header rows is its line in the file.
+        lines = lines.slice(config["header_rows"], length).with_row_index(self.row_number, offset=1)
 
-        frame = lines.select(self._fields(names, starts_with_byte_order_mark(source)))
+        frame = lines.select(*self._fields(names, starts_with_byte_order_mark(source)), self.row_number)
         frame = frame.filter(pl.any_horizontal([pl.col(name).str.strip_chars() != "" for name in names]))
         if config["limit"] is not None:
             frame = frame.head(config["limit"])
-        return self._typed(frame, names)
+        return self._typed(frame.with_columns(self.key_copies()), names)
+
+    def locate(self, number: int) -> str:
+        return f"line {number + self.config['header_rows']} of {self.config['path']}"
 
     def _fields(self, names: List[str], marked: bool) -> List[pl.Expr]:
         """Each declared column cut out of the line, by position."""
@@ -204,16 +209,21 @@ class FileInputPositional(Source):
         flagged = frame.with_columns(*values, pl.any_horizontal([wrong for wrong, _, _ in cases]).alias(_BAD))
 
         held = {column.name for column in typed}
+        carried = hidden(frame.collect_schema().names())
         main = flagged.filter(~pl.col(_BAD)).select(
-            [pl.col(_VALUE + name).alias(name) if name in held else pl.col(name) for name in names]
+            [pl.col(_VALUE + name).alias(name) if name in held else pl.col(name) for name in names] + carried
         )
         reject = flagged.filter(pl.col(_BAD)).select(
             *[pl.col(name) for name in names],
             pl.coalesce([pl.when(wrong).then(pl.lit(code)) for wrong, code, _ in cases]).alias("errorCode"),
             pl.coalesce([pl.when(wrong).then(reason) for wrong, _, reason in cases]).alias("errorMessage"),
+            *carried,
         )
         if self.config["die_on_error"]:
-            self.check(reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why")), fatal)
+            self.check(
+                reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
+                lambda found: fatal(found, self.where(found)),
+            )
         return {"main": main, "reject": reject}
 
 

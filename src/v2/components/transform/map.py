@@ -15,6 +15,7 @@ from ...errors import ConfigurationError
 from ...expressions import Scope
 from ...job.keys import EXPRESSION, Key, Kind
 from ...job.model import TYPE_NAMES
+from ...rows import without
 from ..base import Transform, is_on
 from ..registry import REGISTRY
 from .map_joins import joined_with
@@ -225,7 +226,8 @@ class Map(Transform):
         missed = False
         for index, lookup in enumerate(self.config["inputs"]["lookups"]):
             where = f"inputs.lookups[{index}]"
-            frame = self._filtered(self._input(inputs, lookup["name"], f"{where}.name"), lookup, where)
+            # A lookup's own row numbers are left behind: the row that goes on is the main input's.
+            frame = without(self._filtered(self._input(inputs, lookup["name"], f"{where}.name"), lookup, where))
             keys = self._keys(lookup, rows, where)
             joined = joined_with(joined, frame, lookup, keys, missed, self.config["enable_auto_convert_type"], where)
             missed = missed or lookup["join_mode"] == "INNER_JOIN"
@@ -236,7 +238,7 @@ class Map(Transform):
         taken = routed(joined, outputs, scope, missed)
         check = self.check if self.config["die_on_error"] else None
         return {
-            output["name"]: projected(taken[index], output, scope, f"outputs[{index}]", check)
+            output["name"]: projected(taken[index], output, scope, f"outputs[{index}]", check, self.where)
             for index, output in enumerate(outputs)
         }
 

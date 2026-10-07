@@ -12,6 +12,7 @@ import polars as pl
 from ...errors import ExpressionError
 from ...expressions import Scope, translate, translate_condition
 from ...job.model import TYPE_NAMES, Column
+from ...rows import hidden
 from ...types import conform, from_text, polars_type
 from .map_joins import MISSED
 
@@ -22,6 +23,8 @@ _REJECTED = "__map_rejected"
 _ROWS = "__map_rows"
 
 Check = Callable[[pl.LazyFrame, Callable[[pl.DataFrame], Optional[str]]], None]
+# Given a check's result, the words that name the row it found (``Component.where``).
+Where = Callable[[pl.DataFrame], str]
 
 
 def translated(text: str, scope: Scope, where: str) -> pl.Expr:
@@ -114,7 +117,8 @@ def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, mi
 
 
 def projected(
-    rows: pl.LazyFrame, output: Dict[str, Any], scope: Scope, where: str, check: Optional[Check] = None
+    rows: pl.LazyFrame, output: Dict[str, Any], scope: Scope, where: str, check: Optional[Check] = None,
+    row_named: Optional[Where] = None,
 ) -> pl.LazyFrame:
     """One output's columns for the rows it takes, each fitted to its declared type.
 
@@ -128,6 +132,7 @@ def projected(
         scope: What its expressions may refer to.
         where: The output's place in the config, for messages.
         check: The component's ``check``, when unreadable text is fatal.
+        row_named: The component's ``where``, to name the row in the message.
     """
     declared: List[Column] = []
     values: List[pl.Expr] = []
@@ -144,26 +149,30 @@ def projected(
         declared.append(made)
         values.append(value.alias(made.name))
     # Added to the rows and then picked: an output made of constants alone still has a row for each of them.
-    computed = rows.with_columns(values).select([column.name for column in declared])
+    # The hidden columns of the main row go on with it.
+    carried = hidden(rows.collect_schema().names())
+    computed = rows.with_columns(values).select([column.name for column in declared] + carried)
     if check is not None and unreadable:
         kinds = {column.name: column.type for column in declared if column.name in unreadable}
+        any_unreadable = pl.any_horizontal(list(unreadable.values()))
         check(
             computed.select(
-                pl.any_horizontal(list(unreadable.values())).sum().alias(_ROWS),
+                any_unreadable.sum().alias(_ROWS),
                 *[pl.col(name).filter(flag).first().alias(name) for name, flag in unreadable.items()],
+                *[pl.col(name).filter(any_unreadable).first().alias(name) for name in carried],
             ),
-            lambda found: _unreadable_problem(found, output["name"], kinds),
+            lambda found: _unreadable_problem(found, output["name"], kinds, row_named(found) if row_named else ""),
         )
     frame, _ = conform(computed, declared)
     return frame
 
 
-def _unreadable_problem(found: pl.DataFrame, output: str, kinds: Dict[str, str]) -> Optional[str]:
+def _unreadable_problem(found: pl.DataFrame, output: str, kinds: Dict[str, str], row: str = "") -> Optional[str]:
     """What to say when text could not be read as its column's type; None when all of it could."""
     rows = found[_ROWS].item()
     for name, kind in kinds.items():
         value = found[name].item()
         if rows and value is not None:
             count = "1 row of the output holds" if rows == 1 else f"{rows} rows of the output hold"
-            return f"output '{output}' column '{name}': '{value}' cannot be read as {kind} ({count} such a value)"
+            return f"output '{output}' column '{name}': '{value}' cannot be read as {kind} ({count} such a value){row}"
     return None
