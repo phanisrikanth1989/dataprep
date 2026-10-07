@@ -1,6 +1,6 @@
 # 49 - Single-record debug run
 
-Status: needs-triage
+Status: claimed
 Type: grilling
 Blocked by: 50
 

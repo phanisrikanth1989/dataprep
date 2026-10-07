@@ -1,6 +1,6 @@
 # 48 - Run a job with one command, handing it the JSON
 
-Status: needs-triage
+Status: claimed
 Type: grilling
 
 ## Question

@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from ..components.registry import REGISTRY, Registry
 from .graph import loop, subjobs
-from .keys import EXPRESSION, Key, Kind, normalize_config
-from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Trigger
+from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
+from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Only, RunSettings, Trigger
 from .refusal import Refusal, RefusalReport
 
 JAVA_PREFIX = "{{java}}"
@@ -46,6 +46,64 @@ def _some(value: list) -> list:
     return value
 
 
+_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+# The kinds of place a row can be picked by, as a failure names a row's place.
+PLACES = ("lines", "records", "rows")
+
+
+def _level(value: str) -> str:
+    if value.upper() not in _LEVELS:
+        raise ValueError(f"{value!r} is not a log level; the levels are {', '.join(_LEVELS)}")
+    return value.upper()
+
+
+def _numbers(value: List[Any]) -> List[int]:
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int) or item < 1:
+            raise ValueError(f"{item!r} is not the number of a row; rows are numbered from 1")
+    if not value:
+        raise ValueError("names no row")
+    return list(value)
+
+
+def _values(value: Dict[str, Any]) -> Dict[str, List[Any]]:
+    """Each column with the values a picked row may hold in it; one value may be given bare."""
+    if not value:
+        raise ValueError("names no column")
+    made: Dict[str, List[Any]] = {}
+    for column, wanted in value.items():
+        listed = wanted if isinstance(wanted, list) else [wanted]
+        if not listed or any(isinstance(item, (list, dict)) or item is None for item in listed):
+            raise ValueError(f"column '{column}': give the value a picked row holds, or a list of such values")
+        made[column] = list(listed)
+    return made
+
+
+ONLY_KEYS: Tuple[Key, ...] = (
+    Key("source", required=True, convert=_not_empty, doc="Id of the reader whose rows are picked."),
+    Key("where", type=dict, default=None, nullable=True, convert=_values,
+        doc="Column name to the value, or the values, a picked row holds in it."),
+    Key("lines", type=list, default=None, nullable=True, convert=_numbers,
+        doc="The picked rows by their line in a text file, as a failure names it."),
+    Key("records", type=list, default=None, nullable=True, convert=_numbers,
+        doc="The picked rows by their record number: a JSON document, or a delimited file read with `csv_option`."),
+    Key("rows", type=list, default=None, nullable=True, convert=_numbers,
+        doc="The picked rows by their row on a sheet of a workbook; `sheet` says which sheet."),
+    Key("sheet", default=None, nullable=True, doc="The sheet `rows` are on."),
+)
+
+RUN_KEYS: Tuple[Key, ...] = (
+    Key("log_level", default=None, nullable=True, convert=_level,
+        doc="The lowest level of log line that is written: DEBUG, INFO, WARNING, ERROR or CRITICAL."),
+    Key("row_counts", type=bool, default=None, nullable=True,
+        doc="Whether the rows of every component are counted and logged. The run then takes about three times as long."),
+    Key("summary_file", default=None, nullable=True, doc="A file the summary of the run is written to as well."),
+    Key("only", type=dict, default=None, nullable=True, fields=ONLY_KEYS,
+        doc="Run the job for a few rows of one reader and no others."),
+    Key("trace", type=bool, default=None, nullable=True,
+        doc="With `only`: have the result hold what every component did with the picked rows."),
+)
+
 JOB_KEYS: Tuple[Key, ...] = (
     Key("name", required=True, aliases=("job_name",), convert=_not_empty, doc="The job's name."),
     Key("context", type=dict, default={}, doc="Context variables, flat or grouped by context name."),
@@ -61,6 +119,8 @@ JOB_KEYS: Tuple[Key, ...] = (
             Key("routines_dir", default="src/python_routines", doc="The folder holding the routine files."),
             Key("routines", type=list, default=[], doc="Names of routines that must be there."),
         )),
+    Key("run", type=dict, default=None, nullable=True, fields=RUN_KEYS,
+        doc="How the job is run: what the command line could say too. The command line wins over it."),
     Key("engine_config", kind=Kind.IGNORED, type=object, doc="v1 engine settings for components v2 does not have."),
     Key("oracle_config", kind=Kind.IGNORED, type=object, doc="v1's Oracle settings."),
     Key("mssql_config", kind=Kind.IGNORED, type=object, doc="v1's SQL Server settings."),
@@ -154,6 +214,42 @@ def load_job(
     return _Loader(raw, dict(context or {}), registry).load()
 
 
+def run_settings(block: Optional[Dict[str, Any]]) -> Tuple[RunSettings, List[Refusal]]:
+    """Run settings from a ``run`` block that was checked against ``RUN_KEYS``, with what they cannot be run with."""
+    block = block or {}
+    refusals: List[Refusal] = []
+    for name, value in block.items():
+        if has_context_reference(value):
+            refusals.append(Refusal("job", f"run.{name}", "a context variable is not read in a run setting"))
+    settings = RunSettings(
+        log_level=block.get("log_level"), row_counts=block.get("row_counts"),
+        summary_file=block.get("summary_file"), trace=block.get("trace"),
+    )
+    picked = block.get("only")
+    if picked is not None and picked.get("source"):
+        places = [(kind, picked[kind]) for kind in PLACES if picked.get(kind)]
+        ways = len(places) + (picked.get("where") is not None)
+        if ways != 1:
+            refusals.append(Refusal(
+                "job", "run.only", "say which rows in one way: `where`, or one of " + ", ".join(f"`{kind}`" for kind in PLACES)
+            ))
+        elif picked.get("sheet") is not None and not picked.get("rows"):
+            refusals.append(Refusal("job", "run.only.sheet", "a sheet is named together with `rows`"))
+        else:
+            settings.only = Only(
+                source=picked["source"], where=picked.get("where") or {},
+                places=places[0] if places else None, sheet=picked.get("sheet"),
+            )
+    return settings, refusals
+
+
+def caller_settings(asked: Optional[Mapping[str, Any]]) -> Tuple[RunSettings, List[Refusal]]:
+    """Run settings as a caller of the engine hands them over: checked like a job config's ``run`` block."""
+    block, refusals = normalize_config(dict(asked or {}), RUN_KEYS, "job", _prefix="run.")
+    settings, more = run_settings(block)
+    return settings, refusals + more
+
+
 class _Loader:
     """Reads one job config, collecting refusals as it goes."""
 
@@ -169,6 +265,8 @@ class _Loader:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
         self.report.extend(refusals)
         job = Job(name=top.get("name") or "")
+        job.run, refusals = run_settings(top.get("run"))
+        self.report.extend(refusals)
         job.context, job.context_types = self._context(top)
         for index, raw_component in enumerate(top.get("components") or []):
             spec = self._component(index, raw_component, job)

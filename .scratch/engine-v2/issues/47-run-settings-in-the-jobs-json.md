@@ -1,6 +1,6 @@
 # 47 - Run settings in the job's JSON
 
-Status: needs-triage
+Status: claimed
 Type: grilling
 
 ## Question

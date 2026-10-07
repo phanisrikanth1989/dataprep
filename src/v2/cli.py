@@ -21,8 +21,9 @@ import sys
 from contextlib import contextmanager
 from typing import Dict, Iterator, List, Optional
 
-from .engine import load_job, run_job
+from .engine import Runner, load_job, settled
 from .errors import JobRefusedError, V2Error
+from .job.model import RunSettings
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -34,19 +35,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--check", action="store_true", help="Load and check the job config; run nothing.")
     parser.add_argument("--engine", choices=("streaming", "in-memory", "auto"),
                         help="The Polars engine to run with (default: streaming).")
-    parser.add_argument("--log-level", default="INFO", type=str.upper,
+    parser.add_argument("--log-level", default=None, type=str.upper,
                         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
-                        help="Logging level (default: INFO).")
+                        help="Logging level (default: the job config's run.log_level, or INFO).")
     parser.add_argument("--summary", metavar="FILE",
                         help="Also write the summary of the run to this file, as JSON.")
-    parser.add_argument("--row-counts", action="store_true",
+    parser.add_argument("--row-counts", action=argparse.BooleanOptionalAction, default=None,
                         help="Count the rows of every component and log them. For looking into a job: "
                              "the run takes about three times as long.")
     try:
         args = parser.parse_args(argv)
     except SystemExit as stop:
         return 0 if stop.code == 0 else 2
-    with _log_streams(args.log_level):
+    # What the command line says wins over the job config's `run` block; the block is known once the job is loaded.
+    with _log_streams(args.log_level or "INFO"):
         return _run(args)
 
 
@@ -115,31 +117,31 @@ def _run(args: argparse.Namespace) -> int:
     except (OSError, ValueError, V2Error) as exc:
         print(f"{args.job_config}: {exc}", file=sys.stderr)
         return 2
+    try:
+        settings, asked_for = settled(job, RunSettings(
+            log_level=args.log_level, row_counts=args.row_counts, summary_file=args.summary,
+        ))
+    except JobRefusedError as refused:
+        print(refused.report.format(), file=sys.stderr)
+        return 2
     if args.check:
         print(_writable(f"Job '{job.name}': nothing refused.", sys.stdout))
         return 0
+    if settings.log_level:
+        logging.getLogger().setLevel(settings.log_level)
 
     # Opened before the job runs: a job is not run only to find that its summary has nowhere to go.
     # The file is empty while the job runs, so an earlier run's summary is never taken for this one's.
-    summary_file = None
-    if args.summary:
+    summary_file, named_by = None, "--summary" if args.summary else "run.summary_file"
+    if settings.summary_file:
         try:
-            summary_file = open(args.summary, "w", encoding="utf-8")
+            summary_file = open(settings.summary_file, "w", encoding="utf-8")
         except OSError as exc:
-            print(f"--summary {args.summary}: {exc}", file=sys.stderr)
+            print(f"{named_by} {settings.summary_file}: {exc}", file=sys.stderr)
             return 2
 
-    result = run_job(job, engine=args.engine, row_counts=args.row_counts)
-    summary = json.dumps({
-        "job_name": result.job_name,
-        "status": result.status,
-        "error": result.error,
-        "failed_component": result.failed_component,
-        "failures": result.failures,
-        "rows": result.rows,
-        "counts": result.counts,
-        "duration_s": round(result.duration_s, 3),
-    }, indent=2)
+    result = Runner(job, engine=args.engine, settings=settings, asked_for=asked_for, asked_by="command line").run()
+    summary = json.dumps(result.summary(), indent=2)
     print(summary)
     if summary_file is not None:
         try:
@@ -147,5 +149,5 @@ def _run(args: argparse.Namespace) -> int:
                 summary_file.write(summary + "\n")
         except OSError as exc:
             # The job has run, and how it ended stands: this is said, and is not made a failure of the job.
-            print(f"--summary {args.summary}: {exc}", file=sys.stderr)
+            print(f"{named_by} {settings.summary_file}: {exc}", file=sys.stderr)
     return 0 if result.status == "success" else 1

@@ -28,8 +28,8 @@ from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
-from ..job.model import ComponentSpec, Job, Trigger
-from ..rows import first_of, visible, without
+from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
+from ..rows import first_of, shown, visible, without
 from ..types import VIOLATION, conform
 from .conditions import evaluate
 from .context import RunContext
@@ -75,6 +75,19 @@ class JobResult:
     global_map: Dict[str, Any] = field(default_factory=dict)
     context: Dict[str, Any] = field(default_factory=dict)
     duration_s: float = 0.0
+
+    def summary(self) -> Dict[str, Any]:
+        """How the run ended, as plain values: what the command prints last, and what a service sends back."""
+        return {
+            "job_name": self.job_name,
+            "status": self.status,
+            "error": self.error,
+            "failed_component": self.failed_component,
+            "failures": dict(self.failures),
+            "rows": dict(self.rows),
+            "counts": {component_id: dict(counted) for component_id, counted in self.counts.items()},
+            "duration_s": round(self.duration_s, 3),
+        }
 
     def raise_for_status(self) -> None:
         """Raise ``JobFailedError`` unless the job finished."""
@@ -124,11 +137,18 @@ class Runner:
         engine: Optional[str] = None,
         routines: Optional[Mapping[str, Mapping[str, Callable[..., Any]]]] = None,
         row_counts: bool = False,
+        settings: Optional[RunSettings] = None,
+        asked_for: Optional[Mapping[str, bool]] = None,
+        asked_by: str = "asked by the caller",
     ) -> None:
         self.job = job
         self.engine = engine or os.environ.get("V2_ENGINE") or DEFAULT_ENGINE
         self.run_context = RunContext(job.name, job.context, routines or job.routine_modules, job.context_types)
         self.rows: Dict[str, int] = {}
+        self.settings = settings if settings is not None else job.run
+        self._asked_for = dict(asked_for or {})
+        self._asked_by = asked_by
+        row_counts = bool(row_counts or self.settings.row_counts)
         self.row_counts = row_counts
         self.counts: Dict[str, Dict[str, int]] = {}
         self.run_context.job_text = _job_text(job)
@@ -141,6 +161,7 @@ class Runner:
         started = time.perf_counter()
         result = JobResult(job_name=self.job.name)
         logger.info(f"[{self.job.name}] starting ({len(self.job.components)} components, engine={self.engine})")
+        self._say_settings()
         try:
             self._run_subjobs(result)
         finally:
@@ -154,6 +175,23 @@ class Runner:
         result.duration_s = time.perf_counter() - started
         logger.info(f"[{self.job.name}] {result.status} in {result.duration_s:.2f}s")
         return result
+
+    def _say_settings(self) -> None:
+        """Say which run settings are in force and who asked for each: the job config, or whoever started the run."""
+        settings = self.settings
+        said = {
+            "log_level": f"log level {settings.log_level}",
+            "row_counts": "row counts" if settings.row_counts else "",
+            "summary_file": f"summary file {settings.summary_file}",
+            "only": f"only {_picked(settings.only)}" if settings.only else "",
+            "trace": "trace" if settings.trace else "",
+        }
+        parts = [
+            f"{said[name]} ({self._asked_by if self._asked_for.get(name) else 'job config'})"
+            for name in RunSettings.NAMES if getattr(settings, name) is not None and said[name]
+        ]
+        if parts:
+            logger.info(one_line(f"[{self.job.name}] run settings: {', '.join(parts)}"))
 
     # ------------------------------------------------------------------
     # Subjobs and triggers
@@ -748,6 +786,16 @@ def _counted(frame: pl.LazyFrame, heights: List[int]) -> pl.LazyFrame:
         return batch
 
     return frame.map_batches(note, streamable=True, validate_output_schema=False)
+
+
+def _picked(only: Only) -> str:
+    """The rows a run is for, in a few words: ``payments_in where txn_id=654321`` or ``payments_in lines 7, 9``."""
+    if only.places is not None:
+        kind, numbers = only.places
+        sheet = f" of sheet '{only.sheet}'" if only.sheet is not None else ""
+        return f"{only.source} {kind} {', '.join(str(number) for number in numbers)}{sheet}"
+    columns = [f"{column}={','.join(shown(value) for value in values)}" for column, values in only.where.items()]
+    return f"{only.source} where {' and '.join(columns)}"
 
 
 def _one_line(text: str) -> str:

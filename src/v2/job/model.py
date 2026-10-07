@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
 if TYPE_CHECKING:
     from ..components.base import Component
@@ -126,6 +126,64 @@ class ComponentSpec:
 
 
 @dataclass
+class Only:
+    """The rows of one source that a run is for, and no others (``run.only``).
+
+    Attributes:
+        source: Id of the source the rows are picked from.
+        where: Column name to the values a picked row may hold in it.
+        places: The picked rows by their place, as a failure names it: the
+            kind of place (``lines``, ``records`` or ``rows``) and the
+            numbers.
+        sheet: The sheet the rows are on, for a workbook.
+    """
+
+    source: str
+    where: Dict[str, List[Any]] = field(default_factory=dict)
+    places: Optional[Tuple[str, List[int]]] = None
+    sheet: Optional[str] = None
+
+
+@dataclass
+class RunSettings:
+    """How a job is run: what its ``run`` block, the command line or a caller asks for.
+
+    A setting that is None was not asked for.
+
+    Attributes:
+        log_level: The lowest level of log line that is written.
+        row_counts: Whether the rows of every component are counted.
+        summary_file: A file the summary of the run is written to as well.
+        only: The rows the run is for, when it is not for every row.
+        trace: Whether the result holds what every component did with the
+            picked rows.
+    """
+
+    log_level: Optional[str] = None
+    row_counts: Optional[bool] = None
+    summary_file: Optional[str] = None
+    only: Optional[Only] = None
+    trace: Optional[bool] = None
+
+    NAMES = ("log_level", "row_counts", "summary_file", "only", "trace")
+
+    def over(self, other: "RunSettings") -> Tuple["RunSettings", Dict[str, bool]]:
+        """These settings laid over others: each of these that was asked for wins.
+
+        Returns:
+            The settings in force, and for each one that is set whether it
+            is one of these (True) or one of the others (False).
+        """
+        made, ours = RunSettings(), {}
+        for name in self.NAMES:
+            mine, theirs = getattr(self, name), getattr(other, name)
+            setattr(made, name, theirs if mine is None else mine)
+            if getattr(made, name) is not None:
+                ours[name] = mine is not None
+        return made, ours
+
+
+@dataclass
 class Job:
     """A loaded job: what the engine runs.
 
@@ -140,9 +198,11 @@ class Job:
         routines: Where routine modules are loaded from: v1's
             ``python_config`` block, or None.
         routine_modules: The loaded routine modules: name to functions.
+        run: How the job config asks to be run (its ``run`` block).
     """
 
     name: str
+    run: RunSettings = field(default_factory=RunSettings)
     context: Dict[str, Any] = field(default_factory=dict)
     context_types: Dict[str, str] = field(default_factory=dict)
     routines: Optional[Dict[str, Any]] = None
