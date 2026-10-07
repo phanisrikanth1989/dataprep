@@ -340,6 +340,7 @@ class Runner:
         """Build and run one subjob once."""
         state = _Subjob()
         self.run_context.used_fast_read = False
+        self.run_context.dropped.clear()
         started = time.perf_counter()
         logger.info(f"[{self.job.name}] subjob starting: {', '.join(component_ids)}")
         try:
@@ -353,10 +354,20 @@ class Runner:
             # A run that is stopped (Ctrl-C) leaves no file half written either.
             _discard(state)
             raise
+        self._say_dropped()
         if self.row_counts:
             self._say_counts(component_ids)
         logger.info(f"[{self.job.name}] subjob finished in {time.perf_counter() - started:.2f}s")
         return None
+
+    def _say_dropped(self) -> None:
+        """Warn of the rows that components dropped for a fault in a subjob that finished.
+
+        Said only now: a subjob that fails writes nothing, and so has dropped nothing.
+        """
+        for component_id, said in self.run_context.dropped:
+            logger.warning(ascii_only(f"[{component_id}] {said}"))
+        self.run_context.dropped.clear()
 
     def _say_counts(self, component_ids: List[str]) -> None:
         """Keep and log the row counts of a subjob that finished, component by component, as v1 words them."""
@@ -477,6 +488,7 @@ class Runner:
                     ).drop(VIOLATION)
                     own = outputs.get("reject")
                     outputs["reject"] = rejected if own is None else pl.concat([own, rejected], how="diagonal_relaxed")
+                component.tell_dropped(broken, violation)
             outputs["main"] = main
         if "reject" in outputs and spec.reject_schema and component.conforms:
             columns = [dataclasses.replace(column, nullable=True) for column in spec.reject_schema]

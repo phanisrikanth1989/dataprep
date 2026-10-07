@@ -27,7 +27,9 @@ python -m src.v2 job.json --row-counts                     # log the row counts 
 
 Log lines at INFO and DEBUG go to standard output. Warnings and errors go
 to standard error, and so do the refusal report and what is wrong with the
-command line: an empty standard error means a clean run. `--log-level`
+command line: an empty standard error means a clean run. A job that
+finished but dropped rows for a fault has a warning there (see "What the
+log says"). `--log-level`
 names the lowest level that is written (`INFO` unless told otherwise). A
 character a stream's encoding cannot write is written as an escape, on
 either stream, so no line is lost on a server whose locale is not UTF-8.
@@ -204,6 +206,29 @@ finished, in v1's words. The same numbers are in the summary, under
 ```
 [format_check] NB_LINE:4000 OK:3920 REJECT:80
 ```
+
+At WARNING, and so on standard error: one line for every component that
+dropped rows because something was wrong with them, when its subjob has
+finished. That is a row a reader could not read, a JSON record a path could
+not be followed on, or a missing value in a column that may not hold one,
+where the component is told to go on (`die_on_error` off) and no flow takes
+its reject output. The line has the count, what was wrong with the first
+row, and that row's place and key, as a failure has them:
+
+```
+[payments_in] 1 row was dropped (no flow takes this component's rejects): Column 'amount': could not convert string to Decimal: '9600x81.20'; the row is line 654322 of /data/payments.csv (txn_id=654321)
+[orders_in] 3 rows were dropped (no flow takes this component's rejects); the first: Column 'qty': could not convert string to float: 'x'; the row is line 12 of /data/orders.csv
+[by_date] 1 row was dropped: Column 'amount': non-nullable column has null; the row is line 7 of /data/orders.csv
+```
+
+The job still finishes and writes the same files. Nothing is said when a
+flow takes the rejects (the rows are then in the job's hands), nothing for
+the rows a filter, a unique row or a join turns away (that is the job's own
+doing), and nothing in a subjob that fails (it writes nothing, so it
+dropped nothing). v1 shows the same loss as the REJECT count it logs for
+every component. The line costs a second reading of the typed columns of
+the file: 0.17 s for the million rows of the payments scenario (2.13 s
+without it, 2.30 s with).
 
 `--log-level DEBUG` adds what a person needs when a job does not do what
 they expected:

@@ -38,6 +38,9 @@ COMMON_KEYS: Tuple[Key, ...] = (
 )
 
 
+# In the frame asked for about dropped rows: how many there are, and what is wrong with the first.
+_DROPPED = "__dropped_rows"
+_WRONG = "__dropped_why"
 # In the frame a check of conversions computes, for each conversion: how many rows it failed on, and what
 # it was handed on the first failing row.
 _FAILED = "__failed_rows_"
@@ -275,6 +278,35 @@ class Component:
                 raise CheckFailed(found)
 
         self.tap(frame, receive)
+
+    def tell_dropped(self, turned_away: pl.LazyFrame, wrong: pl.Expr) -> None:
+        """Have the log say, once the subjob has finished, that rows were dropped for a fault.
+
+        For the rows a component turns away because something is wrong with
+        them (a value that cannot be read, a missing value where none is
+        allowed) and then goes on without. Not for the rows the job itself
+        turns away, such as a filter's. Nothing is said when a flow takes
+        the component's reject output: the rows are then the job's to deal
+        with. Nothing is said either when the subjob fails: nothing was
+        written, so nothing was dropped.
+
+        Args:
+            turned_away: The rows, with the hidden columns they came with.
+            wrong: What is wrong with a row, as text.
+        """
+        if "reject" in self.wired:
+            return
+        untaken = " (no flow takes this component's rejects)" if "reject" in type(self).outputs else ""
+
+        def receive(found: pl.DataFrame) -> None:
+            rows = found[_DROPPED].item()
+            if rows:
+                said = f"1 row was dropped{untaken}: " if rows == 1 else f"{rows} rows were dropped{untaken}; the first: "
+                self.run_context.dropped.append((self.id, f"{said}{found[_WRONG].item()}{self.where(found)}"))
+
+        self.tap(
+            turned_away.select(pl.len().alias(_DROPPED), wrong.first().alias(_WRONG), *first_of(turned_away)), receive
+        )
 
     def where(self, found: pl.DataFrame) -> str:
         """The words that name the row a check found, to end its message with.

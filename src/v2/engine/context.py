@@ -49,6 +49,8 @@ class RunContext:
         self.used_fast_read = False
         # The sources of the subjob being run, by id: a failure asks them where a row's number is.
         self.sources: Dict[str, Any] = {}
+        # What components of the subjob being run dropped for a fault: (component id, what the log is to say).
+        self.dropped: List[Tuple[str, str]] = []
 
     def reads(self, key: str) -> bool:
         """Whether anything in the job reads a globalMap entry.
@@ -113,6 +115,7 @@ class RunContext:
         self._scratch.clear()
         self.utf8_copies.clear()
         self.sources.clear()
+        self.dropped.clear()
 
 
 def _as_text(value: Any) -> str:

@@ -149,8 +149,12 @@ class FileInputJSON(Source):
         why = pl.Series(turned_away, dtype=pl.String)
         reject = rows.filter(why.is_not_null()).with_columns(
             pl.lit("PARSE_ERROR").alias("errorCode"), why.drop_nulls().alias("errorMessage")
+        ).lazy()
+        # Turned away whatever die_on_error says, so told whatever it says.
+        self.tell_dropped(
+            reject, pl.format("a path could not be followed on the record ({})", pl.col("errorMessage"))
         )
-        return {"main": rows.filter(why.is_null()).lazy(), "reject": reject.lazy()}
+        return {"main": rows.filter(why.is_null()).lazy(), "reject": reject}
 
     def _records(self, document: Any) -> List[Tuple[str, Any]]:
         """The records the loop finds, each with its path in the document."""

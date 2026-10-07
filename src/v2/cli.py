@@ -7,7 +7,8 @@ not run at all: the job config was refused, or the command line was wrong.
 
 Log lines at INFO and DEBUG go to standard output; warnings and errors go
 to standard error, and so do the refusal report and what is wrong with the
-command line. An empty standard error means a clean run. A summary of the
+command line. An empty standard error means a clean run: a job that finished
+but dropped rows for a fault has a warning there. A summary of the
 run is the last thing written to standard output, as JSON; ``--summary``
 writes it to a file as well.
 """

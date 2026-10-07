@@ -368,6 +368,9 @@ class FileInputDelimited(Source):
                 reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
                 lambda found: fatal(found, self.where(found)),
             )
+        else:
+            # The file's line follows what is said; v1's own count of the row would be a second number.
+            self.tell_dropped(reject, pl.col("errorMessage").str.replace(_V1_LINE.pattern, ""))
         return {"main": main, "reject": reject}
 
     @staticmethod

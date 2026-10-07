@@ -117,7 +117,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 ### Entry Points (CLI)
 - Converter: `python -m src.converters.talend_to_v1.converter <input.item> [output.json]` (see `src/converters/talend_to_v1/converter.py:460-472`)
 - Engine: `python src/v1/engine/engine.py <job_config.json> [--context_param KEY=VALUE]` (see `src/v1/engine/engine.py:860-889`)
-- v2 engine: `python -m src.v2 <job_config.json> [--context_param KEY=VALUE] [--check] [--row-counts] [--summary FILE]` (see `src/v2/cli.py`). Exit code 0 finished, 1 ran and failed, 2 not run (job config refused, or bad command line). `--check` prints the refusal report and runs nothing. INFO and DEBUG log lines go to stdout, warnings and errors to stderr (an empty stderr is a clean run); the JSON summary is the last thing on stdout, and `--summary FILE` writes it to a file as well. `--row-counts` logs the row counts of every component, for looking into a job (the run takes about three times as long).
+- v2 engine: `python -m src.v2 <job_config.json> [--context_param KEY=VALUE] [--check] [--row-counts] [--summary FILE]` (see `src/v2/cli.py`). Exit code 0 finished, 1 ran and failed, 2 not run (job config refused, or bad command line). `--check` prints the refusal report and runs nothing. INFO and DEBUG log lines go to stdout, warnings and errors to stderr (an empty stderr is a clean run; a job that finished but dropped rows for a fault, with no flow taking the rejects, warns there with the count and the first row's place); the JSON summary is the last thing on stdout, and `--summary FILE` writes it to a file as well. `--row-counts` logs the row counts of every component, for looking into a job (the run takes about three times as long).
 
 ---
 

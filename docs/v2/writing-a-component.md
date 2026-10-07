@@ -256,6 +256,17 @@ base-class behaviour (`types.conform`), unless the class sets
 So do not reorder or cast to the declared schema yourself. Do declare
 `die_on_error` with v1's default for the component if v1 reads it.
 
+Rows that are dropped for a fault are told in the log. The engine does it
+for the missing value above. A component that turns rows away itself
+because something is wrong with them, and goes on without them, says so
+with `self.tell_dropped(rows, wrong)`: the rows with their hidden columns,
+and an expression giving what is wrong with each. The engine then logs one
+WARNING when the subjob has finished, with the count and the first row's
+place, unless a flow takes the component's reject output. Call it on the
+branch that goes on, not on the one that fails the component
+(`die_on_error`), and not for rows the job itself turns away (a filter's, a
+join's): see `_typed` in `file_input_delimited.py`.
+
 Row counts: sinks set `<id>_NB_LINE`. `<id>_NB_LINE`, `_NB_LINE_OK` and
 `_NB_LINE_REJECT` of other components are counted by the engine, when
 something in the job reads them or when the run asks for the counts of
@@ -455,6 +466,8 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
 
 - one file, declared keys with v1 aliases, docstrings;
 - the row numbers kept, by the table in "Row numbers", and a test of it;
+- rows it drops for a fault told in the log (`tell_dropped`), and a test of
+  it in `tests/v2/test_dropped_rows.py`;
 - answer-key tests for every supported key, unit tests for refusals;
 - the whole `tests/v2` suite green;
 - a short report: keys supported / ignored / refused (with reasons), every

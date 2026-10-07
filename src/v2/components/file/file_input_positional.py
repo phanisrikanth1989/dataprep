@@ -224,6 +224,8 @@ class FileInputPositional(Source):
                 reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
                 lambda found: fatal(found, self.where(found)),
             )
+        else:
+            self.tell_dropped(reject, pl.col("errorMessage"))
         return {"main": main, "reject": reject}
 
 

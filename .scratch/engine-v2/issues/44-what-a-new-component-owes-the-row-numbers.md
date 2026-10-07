@@ -87,6 +87,15 @@ several columns can fail, take each one's value on the first failing row,
 not each column's own first bad value (ticket 45 found a map naming one
 row and showing another's value).
 
+If the component goes on without the row instead (`die_on_error` off, or a
+row it always turns away), it tells the log: `self.tell_dropped(rows,
+wrong)` on that branch, with the rows it turned away and what is wrong with
+each. The engine then warns once the subjob has finished, with the count
+and the first row's place, unless a flow takes the reject output
+([Say when rows are dropped for a fault](46-say-when-rows-are-dropped-for-a-fault.md)).
+The engine does this itself for a missing value in a column that may not
+hold one. It is not for rows the job turns away by its own logic.
+
 A source that reads record by record in Python, as the JSON input does:
 find out what v1 does with one record it cannot read. v1's JSON input
 turns the record away and carries on; failing the job there is a fault.
@@ -127,6 +136,9 @@ read, on v1 too.
   reject schema.
 - **Two inputs**: a failure names the main input's row after a join or a
   lookup, and each row's own input after a unite.
+- **Rows dropped for a fault**: the warning with its count and the first
+  row's place; none when a flow takes the rejects, none when the component
+  stops the job (`tests/v2/test_dropped_rows.py`).
 - **Several rows become one**: the message says "the first of N rows that
   were combined".
 - **Foreign code**: a failure after it no longer names a row.
