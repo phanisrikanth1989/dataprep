@@ -30,6 +30,7 @@ from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
 from .picking import MOST, holds, in_words
+from .tracing import NOT_PICKED, captured, changes, counted
 from ..rows import first_of, shown, visible, without
 from ..types import VIOLATION, conform
 from .conditions import evaluate
@@ -77,12 +78,15 @@ class JobResult:
     context: Dict[str, Any] = field(default_factory=dict)
     duration_s: float = 0.0
     only: Optional[Dict[str, Any]] = None
+    trace: Optional[List[Dict[str, Any]]] = None
 
     def summary(self) -> Dict[str, Any]:
         """How the run ended, as plain values: what the command prints last, and what a service sends back.
 
         A run for picked rows has ``only`` as well: the reader they were
-        picked from, and where each of them is.
+        picked from, and where each of them is. When it asked for a trace
+        it has ``trace``: every component in the order it ran, with what
+        each of its outputs held of the picked rows.
         """
         made: Dict[str, Any] = {
             "job_name": self.job_name,
@@ -96,6 +100,8 @@ class JobResult:
         }
         if self.only is not None:
             made["only"] = dict(self.only)
+        if self.trace is not None:
+            made["trace"] = self.trace
         return made
 
     def raise_for_status(self) -> None:
@@ -122,6 +128,12 @@ class _Subjob:
     writes: List[Tuple[str, Write, List[int]]] = field(default_factory=list)
     taps: List[Tuple[str, Tap]] = field(default_factory=list)
     noticed: List[Tuple[str, Noticed]] = field(default_factory=list)
+    # In a run that is traced: the flows whose rows all come from the picked rows, those rows in hand, what
+    # is noted of each component, and the files written from such flows.
+    traced: Set[str] = field(default_factory=set)
+    in_hand: Dict[str, pl.DataFrame] = field(default_factory=dict)
+    trace: List[Dict[str, Any]] = field(default_factory=list)
+    small: List[str] = field(default_factory=list)
     produced: List[Tuple[str, pl.LazyFrame]] = field(default_factory=list)
     written: List[Tuple[str, Write, str, int]] = field(default_factory=list)
     temps: List[str] = field(default_factory=list)
@@ -159,6 +171,9 @@ class Runner:
         self._asked_by = asked_by
         # In a run for picked rows: the reader they were picked from and where each one is, once it is read.
         self.picked: Optional[Dict[str, Any]] = None
+        # In a run that is traced: what is noted of each component, and the files written from picked rows.
+        self.trace: Optional[List[Dict[str, Any]]] = [] if self.settings.trace else None
+        self._small: Set[str] = set()
         row_counts = bool(row_counts or self.settings.row_counts)
         self.row_counts = row_counts
         self.counts: Dict[str, Dict[str, int]] = {}
@@ -187,6 +202,7 @@ class Runner:
                     "run came to read: every row of every other reader was run"
                 ))
             result.only = self.picked or {"source": only.source, "rows": []}
+        result.trace = self.trace
         result.rows = dict(self.rows)
         result.counts = dict(self.counts)
         result.global_map = dict(self.run_context.global_map)
@@ -407,11 +423,21 @@ class Runner:
             self._place(state)
         except _Failed as failure:
             _discard(state)
+            if self.trace is not None and not failure.read_again:
+                # The trace goes as far as the failure, and holds it.
+                if failure.component_id in self.job.components:
+                    failed = {"id": failure.component_id, "type": self.job.components[failure.component_id].type,
+                              "error": failure.reason}
+                    state.trace = [entry for entry in state.trace if entry["id"] != failure.component_id] + [failed]
+                self.trace += state.trace
             return failure
         except BaseException:
             # A run that is stopped (Ctrl-C) leaves no file half written either.
             _discard(state)
             raise
+        if self.trace is not None:
+            self.trace += state.trace
+            self._small.update(state.small)
         self._say_dropped(state)
         if self.row_counts:
             self._say_counts(component_ids)
@@ -463,12 +489,21 @@ class Runner:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(ascii_only(f"[{component_id}] config: {json.dumps(component.config, default=str)}"))
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
+                traced = self.trace is not None and self._traced(component, list(inputs), state)
+                held: Dict[str, pl.DataFrame] = {}
                 if isinstance(component, Sink):
                     heights: List[int] = []
                     # A file holds the job's own columns and nothing of the engine's.
                     handed = _counted(without(next(iter(inputs.values()))), heights)
-                    state.writes.append((component_id, component.write(handed), heights))
+                    write = component.write(handed)
+                    state.writes.append((component_id, write, heights))
                     outputs: Dict[str, pl.LazyFrame] = {}
+                    if traced:
+                        rows = state.in_hand[next(iter(inputs))]
+                        state.trace.append({"id": component_id, "type": spec.type, "path": write.path,
+                                            **captured(rows, self.run_context.sources)})
+                        state.small.append(os.path.realpath(write.path))
+                        logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} to {write.path}"))
                 elif isinstance(component, Source):
                     only = self.settings.only
                     if only is not None and only.source == component_id:
@@ -504,6 +539,14 @@ class Runner:
                         shown = ", ".join(f"{name} {columns[name]}" for name in visible(columns))
                         logger.debug(ascii_only(f"[{component_id}] output {port}: {shown}"))
                 self._count(component, inputs, outputs)
+                state.produced += [(component_id, frame) for frame in outputs.values()]
+                state.taps += [(component_id, tap) for tap in component.taps]
+                state.noticed += [(component_id, noticed) for noticed in component.noticed]
+                if traced and not isinstance(component, Sink):
+                    held = self._hold(component, list(inputs), outputs, state)
+                    outputs = {port: rows.lazy() for port, rows in held.items()}
+                elif self.trace is not None and not traced:
+                    state.trace.append({"id": component_id, "type": spec.type, "outputs": None, "why": NOT_PICKED})
             except _Failed:
                 raise
             except Exception as exc:  # noqa: BLE001 -- anything a component raises fails the job
@@ -513,9 +556,52 @@ class Runner:
                 if flow.port not in outputs:
                     raise _Failed(component_id, f"produced no '{flow.port}' output for flow '{flow.name}'")
                 frames[flow.name] = outputs[flow.port]
-            state.produced += [(component_id, frame) for frame in outputs.values()]
-            state.taps += [(component_id, tap) for tap in component.taps]
-            state.noticed += [(component_id, noticed) for noticed in component.noticed]
+                if flow.port in held:
+                    state.traced.add(flow.name)
+                    state.in_hand[flow.name] = held[flow.port]
+
+    def _traced(self, component: Component, names: List[str], state: _Subjob) -> bool:
+        """Whether every row a component works on comes from the picked rows, so that its rows can be listed.
+
+        That is so for the reader the rows are picked from, for a reader of
+        a file this run wrote from such rows, and for a component whose
+        inputs, lookups apart, are all such flows.
+        """
+        if isinstance(component, Source):
+            only = self.settings.only
+            if only is not None and only.source == component.id:
+                return True
+            path = component.config.get("path")
+            return isinstance(path, str) and os.path.realpath(path) in self._small
+        looked_up = component.lookup_inputs(names)
+        own = [name for name in names if name not in looked_up]
+        return bool(own) and all(name in state.traced for name in own)
+
+    def _hold(
+        self, component: Component, names: List[str], outputs: Dict[str, pl.LazyFrame], state: _Subjob
+    ) -> Dict[str, pl.DataFrame]:
+        """Take the rows of a traced component's outputs in hand, note them in the trace and say them in the log.
+
+        What the component asks to know about the data is found out in the
+        same pass, so that a row it fails on stops the run here, with
+        everything before it in the trace.
+        """
+        ports = list(outputs)
+        said = f"the rows {component.id} hands on"
+        rows = self._collect([outputs[port] for port in ports], state, said=said) if ports else []
+        held = dict(zip(ports, rows))
+        sources = self.run_context.sources
+        state.trace.append({
+            "id": component.id, "type": component.spec.type,
+            "outputs": {port: captured(frame, sources) for port, frame in held.items()},
+        })
+        before = next((state.in_hand[name] for name in names if name in state.traced), None)
+        by_port = {port: changes(before, frame, sources) for port, frame in held.items()}
+        several = sum(bool(notes) for notes in by_port.values()) > 1
+        noted = [f"{port}: {note}" if several else note for port, notes in by_port.items() for note in notes]
+        counts = ", ".join(f"{port} {counted(frame.height)}" for port, frame in held.items()) or "no output"
+        logger.info(one_line(f"[{component.id}] trace: " + "; ".join([counts] + noted)))
+        return held
 
     def _picked_rows(self, spec: ComponentSpec, only: Only) -> List[int]:
         """The numbers of the rows of a source that the run is for.
@@ -655,7 +741,7 @@ class Runner:
     # ------------------------------------------------------------------
 
     def _collect(
-        self, wanted: List[pl.LazyFrame], state: _Subjob, handed_to: Optional[str] = None
+        self, wanted: List[pl.LazyFrame], state: _Subjob, handed_to: Optional[str] = None, said: Optional[str] = None
     ) -> List[pl.DataFrame]:
         """Run pending writes and taps and collect wanted frames, all in one pass.
 
@@ -679,7 +765,7 @@ class Runner:
                     logger.debug(ascii_only(f"[{component_id}] writing to the temporary file {temp}"))
                 named = [f"output {component_id}" for component_id, _, _ in writes]
                 named += [f"what {component_id} asked to know" for component_id, _ in taps]
-                named += [f"the rows {handed_to} is handed"] * len(wanted)
+                named += [said or f"the rows {handed_to} is handed"] * len(wanted)
                 for name, plan in zip(named, plans + wanted):
                     logger.debug(ascii_only(f"[{self.job.name}] plan of {name}:{_given(plan)}"))
             results = pl.collect_all(plans + wanted, engine=self.engine)

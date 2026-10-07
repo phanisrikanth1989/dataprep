@@ -77,6 +77,9 @@ class Join(Transform):
         counts["NB_LINE"] = [_sides(inputs)[0]]
         return counts
 
+    def lookup_inputs(self, names: List[str]) -> List[str]:
+        return ["lookup"] if set(names) == {"main", "lookup"} else names[1:]
+
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         main, lookup = _sides(inputs)
         # The row that goes on is the main input's: a lookup's own row numbers are left behind.

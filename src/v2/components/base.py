@@ -136,6 +136,14 @@ class Component:
         """Whether this component must be handed real rows instead of a lazy frame."""
         return False
 
+    def lookup_inputs(self, names: List[str]) -> List[str]:
+        """Which of the flows that arrive are looked things up in, and are not where its rows come from.
+
+        The engine asks when it traces picked rows: a component's rows come
+        from the picked rows when every input that is not a lookup does.
+        """
+        return []
+
     def line_counts(
         self, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]
     ) -> Dict[str, List[pl.LazyFrame]]:

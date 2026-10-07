@@ -220,6 +220,9 @@ class Map(Transform):
                 )
         return found
 
+    def lookup_inputs(self, names: List[str]) -> List[str]:
+        return [name for name in names if name != self.config["inputs"]["main"]["name"]]
+
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         main = self.config["inputs"]["main"]
         joined = self._filtered(self._input(inputs, main["name"], "inputs.main.name"), main, "inputs.main")
