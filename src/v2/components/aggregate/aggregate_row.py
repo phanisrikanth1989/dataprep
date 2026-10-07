@@ -95,9 +95,10 @@ class _Parts:
 class AggregateRow(Transform):
     """Group rows and compute one value per group.
 
-    Groups come out in the order their first row arrives. A row with a
-    missing value in a group column belongs to no group. No input rows give
-    no output rows, also without group columns.
+    Groups come out in the order their first row arrives. A missing value
+    in a group column is a value like any other, as in Talend: the rows that
+    miss it are a group of their own, whose key is missing. (v1 leaves such
+    rows out.) No input rows give no output rows, also without group columns.
 
     Numbers are always added exactly, a float as the decimal it prints as, so
     a sum does not depend on the order of the rows. With
@@ -186,10 +187,9 @@ class AggregateRow(Transform):
             aggregates += parts.aggregates
             results.append(value.alias(output))
 
+        # Rows that miss a group value stay in: Polars groups them under the missing value, as Talend does.
         keys = list(dict.fromkeys(name for name, _ in groups))
-        if keys:
-            frame = frame.filter(pl.all_horizontal([pl.col(name).is_not_null() for name in keys]))
-        else:
+        if not keys:
             # The whole input is one group, grouped on a constant like any other: no rows then give no group,
             # and a plain select of aggregates comes out one row per input row on Polars' in-memory engine
             # when two of them share a part.

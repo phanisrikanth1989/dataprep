@@ -1,13 +1,19 @@
-"""Aggregate row, against v1 on the same job config and bytes."""
+"""Aggregate row, against v1 on the same job config and bytes.
+
+One thing is held against Talend and not against v1: rows that miss a group
+value are a group of their own. v1 leaves them out (see ``kept``).
+"""
 import json
 import os
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from src.v2 import load_job, run_job
 from src.v2.components.registry import REGISTRY, Registry
 from src.v2.errors import JobRefusedError
+from tests.v2 import answer_key
 from tests.v2.answer_key import assert_matches_v1
 from tests.v2.unit import kit as stand_ins
 
@@ -87,6 +93,38 @@ def same(tmp_path, config, data=ROWS, **kwargs):
     return run.files["out.csv"]
 
 
+def v1_keeping(made):
+    """Run a job on v1 with pandas told not to drop the rows that miss a group value."""
+    stock = pd.DataFrame.groupby
+
+    def groupby(self, *args, **kwargs):
+        kwargs.setdefault("dropna", False)
+        return stock(self, *args, **kwargs)
+
+    pd.DataFrame.groupby = groupby
+    try:
+        return answer_key.run_v1(made)
+    finally:
+        pd.DataFrame.groupby = stock
+
+
+def kept(tmp_path, config, data=ROWS, **kwargs):
+    """v2 writes what v1 writes once it keeps the rows that miss a group value; returns the file.
+
+    Talend keeps such rows as a group of their own: the key its tAggregateRow
+    generates holds a missing value like any other. v1 as it stands leaves
+    them out, because pandas' ``groupby`` drops them unless it is told
+    ``dropna=False``. Told so, v1 is the answer key for everything else about
+    that group: where it comes, how its key is written, what its results are.
+    """
+    made = aggregate(config, **kwargs)
+    key = answer_key.run_job(made, {"in.csv": data}, tmp_path / "v1", v1_keeping)
+    actual = answer_key.run_job(made, {"in.csv": data}, tmp_path / "v2", answer_key.run_v2)
+    assert key.succeeded and actual.succeeded, (key.error, actual.error)
+    assert answer_key.differences(key, actual) == []
+    return actual.files["out.csv"]
+
+
 def run_in(folder, made, data, **kwargs):
     """Run a job on v2 inside a folder holding its input; returns the result."""
     folder.mkdir(exist_ok=True)
@@ -161,15 +199,39 @@ def test_several_group_columns(tmp_path):
     )
 
 
+def test_no_row_is_lost_to_a_missing_group_value(tmp_path):
+    # Two of the five rows have no dept. They are a group, as in Talend: v1 writes 1;4 and 2;5 and loses 42.
+    written = kept(tmp_path, by_dept(op("sum", "amount", "total")), b"1;1\n;2\n1;3\n;40\n2;5\n",
+                   schema="dept:int, amount:int", out="dept:int, total:int")
+    assert written == b"dept;total\n1;4\n;42\n2;5\n"
+
+
+def test_group_of_the_missing_value_is_counted_among_the_rows_handed_on(tmp_path):
+    made = aggregate(by_dept(op("sum", "amount", "total")), schema="dept:int, amount:int", out="dept:int, total:int")
+    result = run_in(tmp_path, made, b"1;1\n;2\n1;3\n;40\n2;5\n", row_counts=True)
+    assert result.counts["it"] == {"NB_LINE": 5, "NB_LINE_OK": 3, "NB_LINE_REJECT": 0}
+
+
 @pytest.mark.parametrize("key, kind", [("qty", "int"), ("price", "float"), ("day", DAY)])
-def test_rows_with_a_missing_group_value_are_left_out(tmp_path, key, kind):
+def test_rows_with_a_missing_group_value_are_a_group_of_their_own(tmp_path, key, kind):
     config = {"groupbys": [group(key, "k")], "operations": [op("count", "dept", "n")]}
-    assert len(same(tmp_path, config, out=f"k:{kind}, n:int").splitlines()) == 5
+    written = kept(tmp_path, config, out=f"k:{kind}, n:int").splitlines()
+    # The group comes where its first row arrives, like any other, and its key is written as nothing.
+    assert len(written) == 6 and written[4] == b";2"
 
 
 def test_missing_group_value_in_one_of_several_group_columns(tmp_path):
     config = {"groupbys": [group("dept"), group("qty")], "operations": [op("sum", "amt", "total")]}
-    assert b"misc" not in same(tmp_path, config, out="dept:str, qty:int, total:Decimal#2")
+    written = kept(tmp_path, config, out="dept:str, qty:int, total:Decimal#2")
+    assert b"\nfood;;0.25\nmisc;;7.00\n" in written
+
+
+def test_group_of_the_rows_that_miss_the_group_value_is_computed_like_any_other(tmp_path):
+    operations = [op("count", "amt", "n"), op("sum", "amt", "total"), op("min", "amt", "low"), op("max", "amt", "high"),
+                  op("first", "amt", "a"), op("last", "amt", "z"), op("list", "amt", "every"),
+                  op("count_distinct", "amt", "kinds")]
+    out = "qty:int, n:int, total:Decimal#2, low:Decimal#2, high:Decimal#2, a:Decimal#2, z:Decimal#2, every:str, kinds:int"
+    assert b"\n;2;7.25;0.25;7.00;0.25;7.00;0.25,7.00;2\n" in kept(tmp_path, by("qty", *operations), out=out)
 
 
 @pytest.mark.parametrize(
@@ -177,7 +239,7 @@ def test_missing_group_value_in_one_of_several_group_columns(tmp_path):
 )
 def test_group_by_every_type(tmp_path, key, kind):
     data = ROWS + b"toys;ball;3;3.30;1.1;2024-01-03;true\nfood;;5;;0.250;;false\n"
-    same(tmp_path, by(key, op("count", "dept", "n")), data=data, out=f"{key}:{kind}, n:int")
+    kept(tmp_path, by(key, op("count", "dept", "n")), data=data, out=f"{key}:{kind}, n:int")
 
 
 def test_empty_text_is_a_group_of_its_own(tmp_path):
@@ -793,6 +855,7 @@ def test_results_in_a_column_that_declares_no_number_type(tmp_path):
 
 def test_a_float_that_is_not_a_number_is_a_missing_value(tmp_path):
     # No file holds one: a file input reads the text NaN as a missing value. Rows written in the config can.
+    # As a group value it is the missing value too: its row is in the group of the rows that miss it.
     registry = Registry()
     for cls in (stand_ins.Rows, stand_ins.Save, REGISTRY.get("aggregate_row")):
         registry.register(cls)
@@ -806,7 +869,8 @@ def test_a_float_that_is_not_a_number_is_a_missing_value(tmp_path):
         [("row1", "in", "it", "flow"), ("row2", "it", "out", "flow")],
     )
     assert run_job(made, registry=registry).status == "success"
-    assert stand_ins.lines(tmp_path / "out.csv") == ["k,n,s,l,strict", '1.0,1,1.5,"a,a",', "2.0,1,2.0,c,2.0"]
+    assert stand_ins.lines(tmp_path / "out.csv") == [
+        "k,n,s,l,strict", '1.0,1,1.5,"a,a",', ",0,0.0,b,", "2.0,1,2.0,c,2.0"]
 
 
 # ------------------------------------------------------------------

@@ -424,10 +424,10 @@ in this line and in the line of a failure.
 Nothing is said when a flow takes the rejects (the rows are then in the
 job's hands), nothing for the rows a filter, a unique row or a join turns
 away (that is the job's own doing), and nothing in a subjob that fails (it
-writes nothing, so it dropped nothing). Two more kinds of row go missing
-without a word, as they do in v1: an aggregate row leaves out the rows that
-have no value in a group column, and a context load skips a row with no
-key.
+writes nothing, so it dropped nothing). One more kind of row goes missing
+without a word, as it does in v1 and in Talend: a context load skips a row
+with no key. (An aggregate row keeps the rows that have no value in a group
+column, as a group of their own; see "Differences from v1".)
 
 v1 shows a reader's loss as the REJECT count it logs for every component,
 for its delimited and JSON readers. A row dropped for a missing value it
@@ -627,6 +627,12 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 **Aggregate row**
 
+- Rows that miss a group value are a group of their own, whose key is
+  written as nothing, as in Talend: the key its tAggregateRow generates
+  holds a missing value like any other. v1 leaves such rows out without a
+  word (pandas' `groupby` drops them), so v2 writes a row there that v1
+  does not: of `1;1`, `;2`, `1;3`, `;40`, `2;5` summed by the first column,
+  v1 writes `1;4` and `2;5`, and v2 writes `;42` as well.
 - Sums and averages of floats are exact and do not depend on the order of
   the rows: 0.1 + 0.2 + 0.3 is 0.6. That is v1 with
   `use_financial_precision` (the converter's default); with it off, v1 has

@@ -278,6 +278,10 @@ are designed.
 - [Single-record debug run](issues/49-single-record-debug-run.md)
   -- built: `trace` puts what every component did with the picked rows in
   the result, through all stages, and a short version in the log.
+- [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
+  -- decided from Talend's source: such rows are a group of their own
+  there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such
+  data.
 - [Say when rows are dropped for a fault](issues/46-say-when-rows-are-dropped-for-a-fault.md)
   -- built: one WARNING for each component that dropped rows for a fault
   when no flow takes its rejects, with the count and the first row's place.
