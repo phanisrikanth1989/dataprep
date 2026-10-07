@@ -99,6 +99,39 @@ join by itself: that part would be v2's own.
 Found on the way:
 [A conversion guarded by `and` or `or` fails on v2 and not on v1](39-a-conversion-guarded-by-and-or-or-fails-on-v2.md).
 
+### Two more questions from the dev, 2026-10-07
+
+**Does listing twenty bad rows mean `die_on_error` is passed over?** No.
+Tried: 200,000 rows, three of them bad and far apart, `die_on_error` on.
+The job fails, no file is written, and the message already reads "failed
+for 3 row(s); first error: ...". v2 does not go row by row: the check runs
+over the whole file in the pass, and the job fails when the pass is done.
+So every bad row is known by the time it stops; twenty is how many are
+shown, not how many are let through. The other side of it: a job that is
+going to fail reads its whole file first, where Talend stops at the first
+bad row.
+
+**Can the row still be followed past an aggregate, Python code, a
+transpose?** A row's identity need not stay one number; each kind of step
+can say what becomes of it. Tried on 1,000,000 rows:
+
+- An aggregate that also keeps, for each group, the lowest source row
+  number and how many rows went in: 0.08 s with and without. A failure
+  after it can name the group by its key columns and say "built from 11,112
+  rows, the first is row 8".
+- Finding a source row again by the value of its key column, once the
+  number is gone: one filtered read of the source, 0.09 s. That reaches
+  past Python code whatever the code did, as long as its result still has
+  the key column.
+- pandas keeps a row's label through a filter, a sort, a new column, a
+  row-wise apply, an explode and a transpose (there the labels become the
+  column names); it loses it in a groupby, a merge, a `reset_index` and a
+  melt. The number could ride on the labels, but v1 hands user code labels
+  from 0, and changing them can change what the code sees.
+
+What cannot be had by any means: "the" row behind a row that many rows
+were combined into. Only the group and the rows that went into it.
+
 ## To decide
 
 - Which failures come first: the ones a reader finds (a value that is not
