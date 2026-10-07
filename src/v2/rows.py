@@ -30,6 +30,8 @@ KEY = HIDDEN + "key:"
 ROWS = HIDDEN + "rows:"
 # The most characters of a value that a message shows.
 SHOWN = 100
+# The most characters of what is wrong with a row, the value it holds among them, that a message shows.
+REASON = 200
 
 
 def row_column(source_id: str) -> str:
@@ -68,10 +70,10 @@ def first_of(frame: pl.LazyFrame) -> List[pl.Expr]:
     return [pl.col(name).first().alias(name) for name in hidden(frame.collect_schema().names())]
 
 
-def shown(value: Any) -> str:
+def shown(value: Any, most: int = SHOWN) -> str:
     """A value as a message shows it: as text, and cut where it is long."""
     text = str(value)
-    return text if len(text) <= SHOWN else text[:SHOWN] + "..."
+    return text if len(text) <= most else text[:most] + "..."
 
 
 def described(row: Mapping[str, Any], sources: Mapping[str, "Source"]) -> str:

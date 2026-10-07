@@ -23,7 +23,7 @@ from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional
 
 import polars as pl
 
-from ..components.base import CheckFailed, Component, Sink, Source, Tap, Write, ascii_only
+from ..components.base import CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only, one_line
 from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place
 from ..job.graph import subjobs
@@ -99,6 +99,7 @@ class _Subjob:
 
     writes: List[Tuple[str, Write, List[int]]] = field(default_factory=list)
     taps: List[Tuple[str, Tap]] = field(default_factory=list)
+    noticed: List[Tuple[str, Noticed]] = field(default_factory=list)
     produced: List[Tuple[str, pl.LazyFrame]] = field(default_factory=list)
     written: List[Tuple[str, Write, str, int]] = field(default_factory=list)
     temps: List[str] = field(default_factory=list)
@@ -285,7 +286,8 @@ class Runner:
             logger.info(_one_line(f"{ends} fired: {sets_off}"))
 
     def _record(self, result: JobResult, component_id: Optional[str], reason: str) -> None:
-        logger.error(f"[{self.job.name}] failed at {component_id}: {reason}")
+        # The reason may show a value from the data: it is kept to one line of the log.
+        logger.error(one_line(f"[{self.job.name}] failed at {component_id}: {reason}"))
         result.failures.setdefault(component_id or "job", reason)
         if not result.error:
             result.error = reason
@@ -340,7 +342,6 @@ class Runner:
         """Build and run one subjob once."""
         state = _Subjob()
         self.run_context.used_fast_read = False
-        self.run_context.dropped.clear()
         started = time.perf_counter()
         logger.info(f"[{self.job.name}] subjob starting: {', '.join(component_ids)}")
         try:
@@ -354,20 +355,36 @@ class Runner:
             # A run that is stopped (Ctrl-C) leaves no file half written either.
             _discard(state)
             raise
-        self._say_dropped()
+        self._say_dropped(state)
         if self.row_counts:
             self._say_counts(component_ids)
         logger.info(f"[{self.job.name}] subjob finished in {time.perf_counter() - started:.2f}s")
         return None
 
-    def _say_dropped(self) -> None:
+    def _say_dropped(self, state: _Subjob) -> None:
         """Warn of the rows that components dropped for a fault in a subjob that finished.
 
-        Said only now: a subjob that fails writes nothing, and so has dropped nothing.
+        Said only now: a subjob that fails writes nothing, and so has dropped
+        nothing. A component noticed such rows as they passed. How many they
+        were and which was the first is asked here, in a reading of its own,
+        and only of the components that noticed any: a subjob that dropped
+        nothing is not read a second time. The subjob has finished, so a
+        reading that fails does not fail it; the log then says that much.
         """
-        for component_id, said in self.run_context.dropped:
-            logger.warning(ascii_only(f"[{component_id}] {said}"))
-        self.run_context.dropped.clear()
+        asked = [(component_id, noticed) for component_id, noticed in state.noticed if noticed.any()]
+        if not asked:
+            return
+        try:
+            found: List[Optional[pl.DataFrame]] = list(
+                pl.collect_all([noticed.frame for _, noticed in asked], engine=self.engine)
+            )
+            why_not = ""
+        except Exception as exc:  # noqa: BLE001 -- whatever stops the asking must not undo a subjob that finished
+            found, why_not = [None] * len(asked), _reason(exc)
+        for (component_id, noticed), result in zip(asked, found):
+            said = noticed.said(result, why_not)
+            if said:
+                logger.warning(one_line(f"[{component_id}] {said}"))
 
     def _say_counts(self, component_ids: List[str]) -> None:
         """Keep and log the row counts of a subjob that finished, component by component, as v1 words them."""
@@ -435,6 +452,7 @@ class Runner:
                 frames[flow.name] = outputs[flow.port]
             state.produced += [(component_id, frame) for frame in outputs.values()]
             state.taps += [(component_id, tap) for tap in component.taps]
+            state.noticed += [(component_id, noticed) for noticed in component.noticed]
 
     def _instantiate(self, spec: ComponentSpec) -> Component:
         config, refusals = normalize_config(
@@ -481,6 +499,8 @@ class Runner:
                 main = main.drop(VIOLATION)
             elif violation is not None:
                 broken = main.filter(violation.is_not_null())
+                # Told in the log when the rows have nowhere to go.
+                main = component.tell_dropped(main, violation.is_not_null(), violation)
                 main = main.filter(violation.is_null()).drop(VIOLATION)
                 if "reject" in type(component).outputs:
                     rejected = broken.with_columns(
@@ -488,7 +508,6 @@ class Runner:
                     ).drop(VIOLATION)
                     own = outputs.get("reject")
                     outputs["reject"] = rejected if own is None else pl.concat([own, rejected], how="diagonal_relaxed")
-                component.tell_dropped(broken, violation)
             outputs["main"] = main
         if "reject" in outputs and spec.reject_schema and component.conforms:
             columns = [dataclasses.replace(column, nullable=True) for column in spec.reject_schema]

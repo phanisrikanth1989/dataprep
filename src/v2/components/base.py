@@ -22,7 +22,7 @@ import polars as pl
 
 from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
-from ..rows import described, first_of, key_column, row_column, shown, visible
+from ..rows import REASON, described, first_of, key_column, row_column, shown, visible
 
 if TYPE_CHECKING:
     from ..engine.context import RunContext
@@ -55,6 +55,21 @@ def is_on(value: Any) -> bool:
 def ascii_only(text: str) -> str:
     """A text as plain ASCII, for the log: any other character is written as its escape."""
     return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
+# A line break and every other control character, each as the escape it is written with.
+_CONTROL = {code: f"\\x{code:02x}" for code in (*range(32), 127)}
+_CONTROL.update({9: "\\t", 10: "\\n", 13: "\\r"})
+
+
+def one_line(text: str) -> str:
+    """A text as one line of plain ASCII, for a log line that shows values from the data.
+
+    A line break, any other control character and whatever is beyond ASCII
+    are written as escapes, so that a value can neither start a line of its
+    own nor act on the terminal the log is read in.
+    """
+    return ascii_only(text).translate(_CONTROL)
 
 
 class Component:
@@ -111,6 +126,7 @@ class Component:
         self.input_schema: List["Column"] = spec.input_schema
         self.run_context = run_context
         self.taps: List[Tap] = []
+        self.noticed: List[Noticed] = []
         # Every scope handed out: each has to be checked for conversions before the component is done building.
         self.scopes: List[Scope] = []
         # The output ports a flow leaves by. The engine fills it in; a component may do less for a port nobody reads.
@@ -279,8 +295,8 @@ class Component:
 
         self.tap(frame, receive)
 
-    def tell_dropped(self, turned_away: pl.LazyFrame, wrong: pl.Expr) -> None:
-        """Have the log say, once the subjob has finished, that rows were dropped for a fault.
+    def tell_dropped(self, frame: pl.LazyFrame, turned_away: pl.Expr, wrong: pl.Expr) -> pl.LazyFrame:
+        """Have the log say that rows of a frame are dropped for a fault. Returns the frame to go on with.
 
         For the rows a component turns away because something is wrong with
         them (a value that cannot be read, a missing value where none is
@@ -290,23 +306,41 @@ class Component:
         with. Nothing is said either when the subjob fails: nothing was
         written, so nothing was dropped.
 
+        Such rows are noticed as they pass, which costs nothing. Only a
+        subjob that had some is asked, once it has finished, how many they
+        were and which was the first: that is a second reading.
+
         Args:
-            turned_away: The rows, with the hidden columns they came with.
-            wrong: What is wrong with a row, as text.
+            frame: The rows, the turned-away ones among them, with the
+                hidden columns they came with.
+            turned_away: True for a row that is turned away.
+            wrong: What is wrong with such a row, as text.
+
+        Returns:
+            The frame to take the rows that go on from, in place of
+            ``frame``: it is what notices the rows.
         """
         if "reject" in self.wired:
-            return
+            return frame
         untaken = " (no flow takes this component's rejects)" if "reject" in type(self).outputs else ""
 
-        def receive(found: pl.DataFrame) -> None:
+        def said(found: Optional[pl.DataFrame], why_not: str = "") -> Optional[str]:
+            if found is None:
+                return f"rows were dropped{untaken}; how many and which could not be found: {why_not}"
             rows = found[_DROPPED].item()
-            if rows:
-                said = f"1 row was dropped{untaken}: " if rows == 1 else f"{rows} rows were dropped{untaken}; the first: "
-                self.run_context.dropped.append((self.id, f"{said}{found[_WRONG].item()}{self.where(found)}"))
+            if not rows:
+                return None
+            start = f"1 row was dropped{untaken}: " if rows == 1 else f"{rows} rows were dropped{untaken}; the first: "
+            return f"{start}{shown(found[_WRONG].item(), REASON)}{self.where(found)}"
 
-        self.tap(
-            turned_away.select(pl.len().alias(_DROPPED), wrong.first().alias(_WRONG), *first_of(turned_away)), receive
+        rows = frame.filter(turned_away)
+        # Counted as a sum: Polars 1.44 miscounts a plain row count of some frames (see the component guide).
+        asked = rows.select(
+            turned_away.sum().alias(_DROPPED), wrong.first().str.slice(0, REASON + 1).alias(_WRONG), *first_of(rows)
         )
+        noting, any_passed = self.run_context.noticing(frame, turned_away)
+        self.noticed.append(Noticed(asked, any_passed, said))
+        return noting
 
     def where(self, found: pl.DataFrame) -> str:
         """The words that name the row a check found, to end its message with.
@@ -368,6 +402,24 @@ class Tap:
 
     frame: pl.LazyFrame
     receive: Callable[[pl.DataFrame], None]
+
+
+@dataclass
+class Noticed:
+    """Rows a component turned away for a fault and noticed as they passed (``Component.tell_dropped``).
+
+    Attributes:
+        frame: What to ask when any passed: how many they were, what was
+            wrong with the first, and where that one came from.
+        any: Whether any passed, once the subjob has run.
+        said: The words for the log, given the frame's result; or, when the
+            frame could not be computed, given None and why not. None when
+            there is nothing to say.
+    """
+
+    frame: pl.LazyFrame
+    any: Callable[[], bool]
+    said: Callable[..., Optional[str]]
 
 
 class CheckFailed(Exception):

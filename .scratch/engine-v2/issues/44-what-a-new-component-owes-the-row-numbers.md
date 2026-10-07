@@ -88,9 +88,11 @@ not each column's own first bad value (ticket 45 found a map naming one
 row and showing another's value).
 
 If the component goes on without the row instead (`die_on_error` off, or a
-row it always turns away), it tells the log: `self.tell_dropped(rows,
-wrong)` on that branch, with the rows it turned away and what is wrong with
-each. The engine then warns once the subjob has finished, with the count
+row it always turns away), it tells the log on that branch, before it
+filters the rows out: `frame = self.tell_dropped(frame, turned_away,
+wrong)`, with the frame that still holds the rows, what is true for a row
+turned away, and what is wrong with it; it goes on with the frame handed
+back. The engine then warns once the subjob has finished, with the count
 and the first row's place, unless a flow takes the reject output
 ([Say when rows are dropped for a fault](46-say-when-rows-are-dropped-for-a-fault.md)).
 The engine does this itself for a missing value in a column that may not

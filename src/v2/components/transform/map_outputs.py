@@ -12,7 +12,7 @@ import polars as pl
 from ...errors import ExpressionError
 from ...expressions import Scope, translate, translate_condition
 from ...job.model import TYPE_NAMES, Column
-from ...rows import hidden
+from ...rows import hidden, shown
 from ...types import conform, from_text, polars_type
 from .map_joins import MISSED
 
@@ -198,5 +198,8 @@ def _unreadable_problem(found: pl.DataFrame, output: str, kinds: Dict[str, str],
         value = found[name].item()
         if rows and value is not None:
             count = "1 row of the output holds" if rows == 1 else f"{rows} rows of the output hold"
-            return f"output '{output}' column '{name}': '{value}' cannot be read as {kind} ({count} such a value){row}"
+            return (
+                f"output '{output}' column '{name}': '{shown(value)}' cannot be read as {kind} "
+                f"({count} such a value){row}"
+            )
     return None

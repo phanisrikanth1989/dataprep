@@ -207,13 +207,16 @@ finished, in v1's words. The same numbers are in the summary, under
 [format_check] NB_LINE:4000 OK:3920 REJECT:80
 ```
 
-At WARNING, and so on standard error: one line for every component that
-dropped rows because something was wrong with them, when its subjob has
-finished. That is a row a reader could not read, a JSON record a path could
-not be followed on, or a missing value in a column that may not hold one,
-where the component is told to go on (`die_on_error` off) and no flow takes
-its reject output. The line has the count, what was wrong with the first
-row, and that row's place and key, as a failure has them:
+At WARNING, and so on standard error: a line for a component that dropped
+rows because something was wrong with them, when its subjob has finished.
+That is a row a reader could not read or a missing value in a column that
+may not hold one, where the component is told to go on (`die_on_error`
+off); and a JSON record a path could not be followed on, which is turned
+away whatever `die_on_error` says. It is said when no flow takes the
+component's reject output. The line has the count, what was wrong with the
+first row in the words its reject output would have, and that row's place
+and key as a failure has them. A component that dropped rows for two kinds
+of fault has a line for each:
 
 ```
 [payments_in] 1 row was dropped (no flow takes this component's rejects): Column 'amount': could not convert string to Decimal: '9600x81.20'; the row is line 654322 of /data/payments.csv (txn_id=654321)
@@ -221,14 +224,27 @@ row, and that row's place and key, as a failure has them:
 [by_date] 1 row was dropped: Column 'amount': non-nullable column has null; the row is line 7 of /data/orders.csv
 ```
 
-The job still finishes and writes the same files. Nothing is said when a
-flow takes the rejects (the rows are then in the job's hands), nothing for
-the rows a filter, a unique row or a join turns away (that is the job's own
-doing), and nothing in a subjob that fails (it writes nothing, so it
-dropped nothing). v1 shows the same loss as the REJECT count it logs for
-every component. The line costs a second reading of the typed columns of
-the file: 0.17 s for the million rows of the payments scenario (2.13 s
-without it, 2.30 s with).
+The job still finishes and writes the same files. A value a message shows
+is cut (at 100 characters; a reader's whole reason at 200), and a line
+break or any other control character in it is written as an escape (`\n`),
+in this line and in the line of a failure.
+
+Nothing is said when a flow takes the rejects (the rows are then in the
+job's hands), nothing for the rows a filter, a unique row or a join turns
+away (that is the job's own doing), and nothing in a subjob that fails (it
+writes nothing, so it dropped nothing). Two more kinds of row go missing
+without a word, as they do in v1: an aggregate row leaves out the rows that
+have no value in a group column, and a context load skips a row with no
+key.
+
+v1 shows a reader's loss as the REJECT count it logs for every component,
+for its delimited and JSON readers. A row dropped for a missing value it
+counts as passed on, so its log does not show that loss.
+
+The rows are noticed as they pass, which costs nothing a run can show: the
+payments scenario at 1,000,000 rows takes 2.05 s, against 2.01 s before
+there was a warning. Only a subjob that did drop rows is read once more,
+to count them and find the first: 2.24 s with one bad amount in the file.
 
 `--log-level DEBUG` adds what a person needs when a job does not do what
 they expected:

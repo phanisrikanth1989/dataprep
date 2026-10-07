@@ -58,6 +58,11 @@ def main(argv: List[str]) -> int:
     stage_logger.setLevel(logging.INFO)
     stage_logger.addHandler(clock)
     stage_logger.propagate = False
+    # Cut off from the root logger so that its INFO lines are not printed; what it warns of still is.
+    loud = logging.StreamHandler(sys.stderr)
+    loud.setLevel(logging.WARNING)
+    loud.setFormatter(logging.Formatter("%(levelname)s %(name)s - %(message)s"))
+    stage_logger.addHandler(loud)
 
     with open(job_path, encoding="utf-8") as handle:
         job = json.load(handle)

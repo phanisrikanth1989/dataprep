@@ -16,7 +16,7 @@ from ...errors import ConfigurationError
 from ...files import as_utf8, codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
-from ...rows import first_of
+from ...rows import REASON, first_of, shown
 from ...types import finish_value, parse_text, polars_schema, unreadable
 from ..base import Source, ascii_only
 from ..registry import REGISTRY
@@ -354,7 +354,6 @@ class FileInputDelimited(Source):
             return {"main": frame.select(values + carried), "reject": self._no_rejects(names)}
 
         flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
-        main = flagged.filter(~pl.col(_BAD)).select(values + carried)
         code, message = self._reasons(typed, counted, len(names), native)
         reason = {"errorCode": code.alias("errorCode"), "errorMessage": message.alias("errorMessage")}
         # A data column with one of the two names gives its place to the reason, as in v1.
@@ -364,13 +363,12 @@ class FileInputDelimited(Source):
             *carried,
         )
         if self.config["die_on_error"]:
-            self.check(
-                reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
-                lambda found: fatal(found, self.where(found)),
-            )
+            self.check(reject.select(pl.len().alias("rows"), first_reason(), *first_of(reject)),
+                       lambda found: fatal(found, self.where(found)))
         else:
             # The file's line follows what is said; v1's own count of the row would be a second number.
-            self.tell_dropped(reject, pl.col("errorMessage").str.replace(_V1_LINE.pattern, ""))
+            flagged = self.tell_dropped(flagged, pl.col(_BAD), message.str.replace(_V1_LINE.pattern, ""))
+        main = flagged.filter(~pl.col(_BAD)).select(values + carried)
         return {"main": main, "reject": reject}
 
     @staticmethod
@@ -425,12 +423,17 @@ def unreadable_text(column: Column) -> str:
     return f"Column '{name}': time data '{{}}' does not match format '{pattern}'"
 
 
+def first_reason() -> pl.Expr:
+    """What is wrong with the first row of a reject output, for ``fatal``: no more of it than a message shows."""
+    return pl.col("errorMessage").first().str.slice(0, REASON + 1).alias("why")
+
+
 def fatal(found: pl.DataFrame, where: str = "") -> Optional[str]:
     """What a reader fails with when rows could not be read: how many, the first one's fault, and where it is."""
     rows = found["rows"].item()
     if not rows:
         return None
-    why = found["why"].item()
+    why = shown(found["why"].item(), REASON)
     if where:
         # The row's line in the file follows; v1's own count of the row beside it would be a second number.
         why = _V1_LINE.sub("", why)

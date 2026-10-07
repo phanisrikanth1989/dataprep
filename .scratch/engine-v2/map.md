@@ -267,8 +267,9 @@ are designed.
   makes carries the number of the row it came from.
 - [Say when rows are dropped for a fault](issues/46-say-when-rows-are-dropped-for-a-fault.md)
   -- built: one WARNING for each component that dropped rows for a fault
-  when no flow takes its rejects, with the count and the first row's place;
-  0.17 s per million rows on the payments scenario.
+  when no flow takes its rejects, with the count and the first row's place.
+  The rows are noticed as they pass; only a subjob that dropped some is
+  read once more.
 - [Review of the row numbers build](issues/45-review-of-the-row-numbers-build.md)
   -- a second reader found faults in tickets 40 to 43; each was reproduced
   as a failing test (on v1 too) and fixed, and what it taught is in ticket

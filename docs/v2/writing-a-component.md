@@ -259,11 +259,20 @@ So do not reorder or cast to the declared schema yourself. Do declare
 Rows that are dropped for a fault are told in the log. The engine does it
 for the missing value above. A component that turns rows away itself
 because something is wrong with them, and goes on without them, says so
-with `self.tell_dropped(rows, wrong)`: the rows with their hidden columns,
-and an expression giving what is wrong with each. The engine then logs one
-WARNING when the subjob has finished, with the count and the first row's
-place, unless a flow takes the component's reject output. Call it on the
-branch that goes on, not on the one that fails the component
+before it filters them out:
+
+```python
+flagged = self.tell_dropped(flagged, pl.col("__bad"), message)   # the frame to go on with
+main = flagged.filter(~pl.col("__bad"))
+```
+
+It is handed the frame that still holds the rows, an expression that is
+true for a row turned away, and one giving what is wrong with it; it hands
+back the frame to filter. The engine notices such rows as they pass, at no
+cost, and when the subjob has finished it asks how many they were and which
+was the first (a second reading, only when there were any) and logs one
+WARNING. Nothing is said when a flow takes the component's reject output.
+Call it on the branch that goes on, not on the one that fails the component
 (`die_on_error`), and not for rows the job itself turns away (a filter's, a
 join's): see `_typed` in `file_input_delimited.py`.
 

@@ -521,3 +521,12 @@ def test_line_is_still_named_after_a_normalize(tmp_path):
     error = failed(tmp_path, made, {"in.csv": data})
     assert error == ("outputs[0].columns[1].expression: int() could not read 'x1' (in: int(row2.age)); "
                      "1 row failed; the row is line 3 of in.csv (id=2)")
+
+
+def test_long_text_a_map_cannot_read_is_cut_in_the_message(tmp_path):
+    kept = [("id", "row1.id", "int"), ("n", "row1.name", "int")]
+    made = through({"type": "PyMap", "config": map_config([map_out("row2", kept)]),
+                    "schema": {"inputs": {"row1": columns(PEOPLE)}}}, PEOPLE, "id:int, n:int")
+    error = failed(tmp_path, made, {"in.csv": b"id;name;age\n1;" + b"x" * 5000 + b";30\n"})
+    assert error == ("output 'row2' column 'n': '" + "x" * 100 + "...' cannot be read as int "
+                     "(1 row of the output holds such a value); the row is line 2 of in.csv")

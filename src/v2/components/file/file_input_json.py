@@ -24,6 +24,8 @@ from .file_input_delimited import encoding
 logger = logging.getLogger(__name__)
 
 _NO_SCHEMA = "Acted on by v1 only with a `schema` inside the config, which the converter does not write."
+# A working column: what the log says of a record that is turned away, missing for the others.
+_TOLD = "__json_told"
 
 
 def _unquoted(value: str) -> str:
@@ -131,10 +133,12 @@ class FileInputJSON(Source):
         mapping = [(entry["column"], entry["jsonpath"], _parsed(entry["jsonpath"])) for entry in config["mapping"]]
         cells: Dict[str, List[Optional[str]]] = {column: [] for column, _, _ in mapping}
         turned_away: List[Optional[str]] = []
+        told: List[Optional[str]] = []
         for where, record in records:
             self._paths.append(where)
-            row, why = _row(record, mapping)
+            row, why, wrong = _row(record, mapping)
             turned_away.append(why)
+            told.append(wrong)
             for column, cell in cells.items():
                 cell.append(row.get(column))
         if not cells:
@@ -149,12 +153,11 @@ class FileInputJSON(Source):
         why = pl.Series(turned_away, dtype=pl.String)
         reject = rows.filter(why.is_not_null()).with_columns(
             pl.lit("PARSE_ERROR").alias("errorCode"), why.drop_nulls().alias("errorMessage")
-        ).lazy()
-        # Turned away whatever die_on_error says, so told whatever it says.
-        self.tell_dropped(
-            reject, pl.format("a path could not be followed on the record ({})", pl.col("errorMessage"))
         )
-        return {"main": rows.filter(why.is_null()).lazy(), "reject": reject}
+        # Turned away whatever die_on_error says, so told whatever it says.
+        marked = rows.with_columns(pl.Series(_TOLD, told, dtype=pl.String)).lazy()
+        main = self.tell_dropped(marked, pl.col(_TOLD).is_not_null(), pl.col(_TOLD))
+        return {"main": main.filter(pl.col(_TOLD).is_null()).drop(_TOLD), "reject": reject.lazy()}
 
     def _records(self, document: Any) -> List[Tuple[str, Any]]:
         """The records the loop finds, each with its path in the document."""
@@ -191,21 +194,29 @@ def _said(error: BaseException) -> str:
     return text.splitlines()[0] if text else type(error).__name__
 
 
-def _row(record: Any, mapping: List[Tuple[str, str, Any]]) -> Tuple[Dict[str, Optional[str]], Optional[str]]:
+def _row(
+    record: Any, mapping: List[Tuple[str, str, Any]]
+) -> Tuple[Dict[str, Optional[str]], Optional[str], Optional[str]]:
     """One record's values as text, by column; and why the record is turned away, when it is.
 
     Asked for an item of something that is no list, the library raises where
     it could find nothing. v1 turns such a record away with what the library
     said, keeping the values read before that path; so does this.
+
+    Returns:
+        The values; then, for a record that is turned away, what the
+        library said (the reject output's ``errorMessage``, as in v1) and
+        what the log says of it, which names the column and its path too.
     """
     row: Dict[str, Optional[str]] = {}
     for column, written, query in mapping:
         try:
             found = query.find(record)
         except Exception as exc:  # noqa: BLE001 -- whatever the library raises, as v1 has it
-            return row, str(exc)
+            said = str(exc)
+            return row, said, f"Column '{column}': the path {written} could not be followed on the record ({said})"
         row[column] = _as_text(_value(written, found))
-    return row, None
+    return row, None, None
 
 
 def _value(written: str, matches: List[Any]) -> Any:

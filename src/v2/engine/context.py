@@ -6,6 +6,8 @@ import re
 import tempfile
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
+import polars as pl
+
 from ..errors import ConfigurationError
 
 _TEMPLATE = re.compile(r"\$\{context\.(\w+)\}")
@@ -49,8 +51,35 @@ class RunContext:
         self.used_fast_read = False
         # The sources of the subjob being run, by id: a failure asks them where a row's number is.
         self.sources: Dict[str, Any] = {}
-        # What components of the subjob being run dropped for a fault: (component id, what the log is to say).
-        self.dropped: List[Tuple[str, str]] = []
+
+    @staticmethod
+    def noticing(frame: pl.LazyFrame, kind: pl.Expr) -> Tuple[pl.LazyFrame, Callable[[], bool]]:
+        """A frame that notes whether a row of a kind passes through it.
+
+        The frame hands every row on as it is, and looks at each batch of
+        rows as the subjob's pass brings it by. That costs no reading of its
+        own, which a second frame over the same rows would: the engine
+        counts the rows handed to a file output the same way.
+
+        Args:
+            frame: The rows.
+            kind: True for a row of the kind looked for.
+
+        Returns:
+            The frame to go on with, and the question, to be asked once the
+            subjob has run, whether any such row passed.
+        """
+        passed: List[bool] = []
+
+        def notice(batch: pl.DataFrame) -> pl.DataFrame:
+            # Batches arrive from several threads; adding to a list is safe from all of them.
+            if batch.select(kind.any()).item():
+                passed.append(True)
+            return batch
+
+        # A filter on the kind has to stay above this, or rows of the kind would never be seen here.
+        noting = frame.map_batches(notice, streamable=True, validate_output_schema=False, predicate_pushdown=False)
+        return noting, lambda: bool(passed)
 
     def reads(self, key: str) -> bool:
         """Whether anything in the job reads a globalMap entry.
@@ -115,7 +144,6 @@ class RunContext:
         self._scratch.clear()
         self.utf8_copies.clear()
         self.sources.clear()
-        self.dropped.clear()
 
 
 def _as_text(value: Any) -> str:

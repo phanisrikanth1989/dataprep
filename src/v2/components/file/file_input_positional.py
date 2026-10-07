@@ -19,7 +19,7 @@ from ...types import from_text
 from ...rows import first_of, hidden
 from ..base import Source
 from ..registry import REGISTRY
-from .file_input_delimited import encoding, fatal, unreadable_text
+from .file_input_delimited import encoding, fatal, first_reason, unreadable_text
 from .file_input_fullrow import (
     BYTE_ORDER_MARK,
     DEFAULT_ENCODING,
@@ -210,22 +210,21 @@ class FileInputPositional(Source):
 
         held = {column.name for column in typed}
         carried = hidden(frame.collect_schema().names())
-        main = flagged.filter(~pl.col(_BAD)).select(
-            [pl.col(_VALUE + name).alias(name) if name in held else pl.col(name) for name in names] + carried
-        )
+        message = pl.coalesce([pl.when(wrong).then(reason) for wrong, _, reason in cases])
         reject = flagged.filter(pl.col(_BAD)).select(
             *[pl.col(name) for name in names],
             pl.coalesce([pl.when(wrong).then(pl.lit(code)) for wrong, code, _ in cases]).alias("errorCode"),
-            pl.coalesce([pl.when(wrong).then(reason) for wrong, _, reason in cases]).alias("errorMessage"),
+            message.alias("errorMessage"),
             *carried,
         )
         if self.config["die_on_error"]:
-            self.check(
-                reject.select(pl.len().alias("rows"), pl.col("errorMessage").first().alias("why"), *first_of(reject)),
-                lambda found: fatal(found, self.where(found)),
-            )
+            self.check(reject.select(pl.len().alias("rows"), first_reason(), *first_of(reject)),
+                       lambda found: fatal(found, self.where(found)))
         else:
-            self.tell_dropped(reject, pl.col("errorMessage"))
+            flagged = self.tell_dropped(flagged, pl.col(_BAD), message)
+        main = flagged.filter(~pl.col(_BAD)).select(
+            [pl.col(_VALUE + name).alias(name) if name in held else pl.col(name) for name in names] + carried
+        )
         return {"main": main, "reject": reject}
 
 

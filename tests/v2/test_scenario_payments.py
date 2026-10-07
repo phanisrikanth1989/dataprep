@@ -217,3 +217,27 @@ def test_data_script_refuses_a_row_count_below_one(tmp_path):
                           cwd=tmp_path, capture_output=True, text=True)
     assert done.returncode == 2 and "at least 1" in done.stderr
     assert not (tmp_path / "inputs").exists()
+
+
+def test_timed_run_still_shows_what_the_engine_warns_of(tmp_path):
+    # The process that is timed listens to the engine's log for the start of each stage; what the engine
+    # warns of there (a row dropped for a fault) has to reach the run's own log all the same.
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from tests.v2.components.kit import flow, job, reader, writer
+
+    (tmp_path / "in.csv").write_bytes(b"id;amount\n1;10\n2;x\n")
+    made = job([reader("id:int, amount:int", path=str(tmp_path / "in.csv"), header_rows=1),
+                writer("id:int, amount:int", path=str(tmp_path / "out.csv"), inputs=("row1",))],
+               [flow("row1", "in", "out")])
+    (tmp_path / "job.json").write_text(json.dumps(made))
+    done = subprocess.run(
+        [sys.executable, "-m", "scenarios.payments.engine_run", "v2", str(tmp_path / "job.json"), str(tmp_path / "note.json")],
+        cwd=Path(__file__).parents[2], capture_output=True, text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "[in] 1 row was dropped" in done.stderr and "the row is line 3 of" in done.stderr
+    assert json.loads((tmp_path / "note.json").read_text())["status"] == "success"
