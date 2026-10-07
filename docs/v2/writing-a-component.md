@@ -37,6 +37,10 @@ for the words used here (config key, alias, refusal report, answer key).
    supported, ignored, or refused. An undeclared key refuses the job.
 8. **ASCII only** in log messages and source. Log with
    `logger.info(f"[{self.id}] ...")`.
+9. **A failure names its row.** Every row carries, unseen, the number it
+   had in its source. A component must not lose it without saying so, and
+   must not let it show. What that asks of each kind of component is in
+   "Row numbers" below.
 
 ## Skeleton
 
@@ -185,6 +189,17 @@ the offending text; let them propagate.
 What the language covers is listed in `expressions/functions.py`. If a v1
 job needs a function that is missing, do not add it yourself: report it.
 
+A conversion written in an expression (`int()`, `float()`, `strptime()`)
+does not raise. It gives nothing where it fails, and the translation notes
+those rows in the scope (`scope.failures`), counting only the rows Python
+would work the conversion out for. After translating, hand the frame the
+expressions run on to `self.check_conversions(frame, scope)`: it fails the
+component with the expression, the value, how many rows failed and the
+first one's place. The engine fails the job when a component translated a
+conversion and did not check it, so one cannot go missing silently. A new
+function that can fail on a row is built the same way, with
+`tr.fallible(what, value, made)` (`_int` in `expressions/functions.py`).
+
 ## Types (`src/v2/types.py`)
 
 Declared column types are `str`, `int`, `float`, `bool`, `datetime`, `date`,
@@ -238,6 +253,74 @@ anything else that counts a frame it did not build: on Polars 1.44 that
 gives a wrong number for frames put one after another and then cut
 (`concat` under `slice` or `head`; reproduction in
 `.scratch/engine-v2/research/probes/probe_polars_count_of_a_cut_union.py`).
+
+## Row numbers: where a row came from (`src/v2/rows.py`)
+
+Every source numbers its rows as it reads them, from 1. The number travels
+with the row as a hidden column, with copies of the columns the source's
+schema marks as key. When the engine finds a row it cannot go on with, the
+failure's message ends with the row's place:
+`; the row is line 4 of in.csv (id=3)`.
+
+How a user asks for a key: `"key": true` on a column of the source's
+schema, which is what Talend's key flag converts to. Nothing else is
+configured, and a new component declares no config key for any of this.
+
+The names: hidden columns start with `__v2_`, and no column of a job may.
+`__v2_row:<source id>` is the number, `__v2_key:<source id>:<column>` the
+copy of a key column, `__v2_rows:<source id>` how many rows of the source
+were combined into this one.
+
+What the engine does for every component: it drops the hidden columns
+before a sink is handed its frame, leaves them out of the scope an
+expression is translated in (`row_scope`), and out of debug lines. No file
+ever holds one; every test that compares v2's files with v1's would fail if
+one did.
+
+What a component owes, by what it does with rows:
+
+| The component | What it does about the hidden columns |
+|---|---|
+| reads a source | numbers its records and says where a number is (next list) |
+| keeps its rows and hands on every column (a filter, a sort) | nothing: they pass |
+| picks the columns it hands on (`select`) | picks `rows.hidden(names)` as well |
+| makes several rows of one (normalize, unpivot) | nothing where it explodes a column, since the other columns repeat; otherwise every row made carries the hidden columns of the row it came from |
+| makes one row of several (an aggregate, a pivot, a denormalize) | keeps, for each source, the lowest row number, that row's key copies, and how many rows went in: `_carried` in `aggregate_row.py` |
+| joins a lookup to a main input | hands on the main input's; drops the lookup's (`rows.without`) |
+| reads columns by their place, or treats every column alike (prints all, compares all) | leaves the hidden ones out (`rows.visible(names)`) |
+| hands rows to code the engine cannot see into | sets `sees_hidden_columns = False`: the engine hands it frames without them, and what it hands on has lost them |
+
+A source:
+
+- numbers its records where it reads them, before it drops any (a blank
+  line, a row a limit cuts), in the column `self.row_number`:
+  `row_index_name=self.row_number, row_index_offset=1` on a Polars scan, or
+  `with_row_index(self.row_number, offset=1)`. The number counts from the
+  first record after what the reader's config skips at the top, so that
+  `locate` can add the header rows back;
+- hands on, with every output, that column and `self.key_copies()`, taken
+  before a value is trimmed or typed: a key is shown as it stands in the
+  source;
+- implements `locate(number)`: the words a person looking for the record
+  would use, ending in the path as the job gives it. `line 7 of in.csv`,
+  `row 3 of sheet 'Q1' of book.xlsx`, `record 2 ($.orders[1]) of in.json`.
+  Give the position the source's own tool shows (an editor's line, a
+  sheet's row). Where that cannot be vouched for, as with a record that can
+  span lines, give the record's number and call it a record.
+
+A check that fails on rows names the first. Ask for the hidden columns of
+the first failing row beside the count, and end the message with
+`self.where(found)`:
+
+```python
+from ...rows import first_of
+
+bad = frame.filter(flag)
+self.check(
+    bad.select(pl.len().alias("rows"), pl.col(name).first().alias("value"), *first_of(bad)),
+    lambda found: f"... {found['value'].item()!r}{self.where(found)}" if found["rows"].item() else None,
+)
+```
 
 ## Asking about the data: `tap` and `check`
 
@@ -321,6 +404,13 @@ bad value), error messages, v2-only spellings. Build the job dict and call
 Run: `.venv/bin/python -m pytest tests/v2/components/test_<name>.py -o addopts="" -q -p no:cacheprovider`
 and, before you finish, the whole of `tests/v2` the same way.
 
+**Row-number tests** go in `tests/v2/test_row_numbers.py`, which has the
+helpers (`chain`, `keyed`, `failed`). For a source: that a failure names the
+right place on every way the reader reads (a header, blank records, each of
+its read paths), and shows the key. For any other component: that a failure
+after it still names the source row, or, for one that hands rows to foreign
+code, that the row is no longer named.
+
 Also add one test that the converter's own sample for the component loads:
 take the component's `config` and `schema` from
 `tests/talend_xml_samples/converted_jsons/Job_t<Name>_0.1.json` (when there
@@ -329,6 +419,7 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
 ## Done means
 
 - one file, declared keys with v1 aliases, docstrings;
+- the row numbers kept, by the table in "Row numbers", and a test of it;
 - answer-key tests for every supported key, unit tests for refusals;
 - the whole `tests/v2` suite green;
 - a short report: keys supported / ignored / refused (with reasons), every

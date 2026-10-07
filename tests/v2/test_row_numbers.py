@@ -214,6 +214,17 @@ def test_number_travels_through_a_map(tmp_path):
     assert failed(tmp_path, made, {"in.csv": PEOPLE_DATA}) == NAMED
 
 
+@pytest.mark.parametrize("step", [
+    ("UniqueRow", {"key_columns": [{"column": "id"}]}, PEOPLE),
+    ("UniqueRow", {}, PEOPLE),
+    ("LogRow", {}, PEOPLE),
+    ("SortRow", {"criteria": [{"column": "name", "sort_type": "alpha", "order": "desc"}]}, PEOPLE),
+    ("FilterRows", {"conditions": [{"column": "id", "operator": ">", "function": "", "value": "0"}]}, PEOPLE),
+], ids=["unique row", "unique row without keys", "log row", "sort row", "filter rows"])
+def test_number_travels_through_a_step_that_keeps_its_rows(tmp_path, step):
+    assert failed(tmp_path, chain(step), {"in.csv": PEOPLE_DATA}) == NAMED
+
+
 def test_number_travels_through_two_maps_and_a_filter(tmp_path):
     kept = [("id", "row1.id", "int"), ("name", "row1.name", "str"), ("age", "row1.age", "int")]
     again = map_config([map_out("row4", [("id", "row3.id", "int"), ("name", "row3.name", "str"),

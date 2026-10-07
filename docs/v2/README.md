@@ -80,10 +80,10 @@ when they hold more than ASCII).
    sets, a row count).
 2. Rewrite every Java expression (`{{java}}...`) in Python. See
    "Expressions" below.
-3. Replace or remove components v2 does not have. v2 has sixteen: delimited
-   file input and output, positional, full-row and Excel input, filter rows,
-   filter columns, sort row, unique row, aggregate row, join, unite, map,
-   Python dataframe, log row and context load.
+3. Replace or remove components v2 does not have. v2 has eighteen:
+   delimited file input and output, positional, full-row, Excel and JSON
+   input, filter rows, filter columns, sort row, unique row, aggregate row,
+   join, unite, map, normalize, Python dataframe, log row and context load.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -223,6 +223,54 @@ None of this is put together unless the level is DEBUG: a run at INFO pays
 nothing for it. A plan takes many lines; the payments scenario's job logs
 about six hundred lines at DEBUG. A plan Polars cannot print is said to be
 so in the log; it does not fail the job.
+
+## Finding the row that failed
+
+When a job fails on a row, the failure's message ends with where that row
+is in its source, and the same message is in the log and in the summary:
+
+```
+failed at payments_in: Schema/coercion failed for 1 row(s); first error: Column 'amount': could not convert string to Decimal: '12x.50'; the row is line 654322 of /data/payments.csv (txn_id=654321)
+failed at prepare: outputs[0].columns[16].expression: int() could not read 'x320' (in: int(joined.operator_id[2:])); 2 rows failed; the row is line 654322 of /data/payments.csv (txn_id=654321)
+```
+
+- **The place** is the source's own: a line of a text file, as an editor
+  numbers it; `row 3 of sheet 'Q1'` of a workbook; `record 2 ($.orders[1])`
+  of a JSON document. A delimited file read with `csv_option` gives the
+  record's number and no line: a field may hold a line break there.
+- **The key.** Mark a column of the source's schema as key (`"key": true`,
+  which is what Talend's key flag converts to) and its value is shown beside
+  the place. Several key columns are all shown. The value is taken as it
+  stands in the source and cut at 100 characters. The place is always given,
+  key or no key.
+- **The first row and how many.** `die_on_error` is unchanged: the job
+  fails and writes nothing. v2 does not go row by row, so by the time it
+  fails it has seen every row: the message counts all that failed and names
+  the first.
+
+How it works: every source numbers its rows as it reads them, and the
+number travels with the row as a column the job never sees. It is never
+written to a file and never handed to user Python. It costs nothing a run
+can show (the payments scenario at 1,000,000 rows: 1.9 s with and without).
+
+What becomes of the number on the way:
+
+| Step | The row that goes on |
+|---|---|
+| filter rows, filter columns, sort row, unique row, log row, map, unite | keeps its number |
+| join | keeps the main input's number; a lookup's is left behind |
+| normalize | every row made carries the number of the row it came from |
+| aggregate row | carries the lowest number of its group, and the message says "the first of 11,112 rows that were combined" |
+| Python dataframe | has none: what the code hands back is a table of its own making |
+| context load | hands no rows on |
+
+Which failures name their row: a reader that cannot read a row, a missing
+value in a column that may not hold one (after any component), text a map
+cannot read as its output column's type, and a conversion in an expression
+(`int()`, `float()`, `strptime()`). A failure Polars raises by itself still
+names the value and no row. Few are left to it: user Python, and a whole
+number asked of something that is not a number in `round()` or
+`math.floor()`.
 
 ## Types and missing values
 
@@ -400,11 +448,14 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   them all).
 - An expression that fails on a row fails the component, whatever
   `die_on_error` says: `int(row1.code)` on text that is not a number, for
-  instance. An operation on a missing value never fails; it gives a missing
-  value. Rows are not sent to a catch output.
-- An output column nothing in the job reads is never worked out, so an
-  expression there that would fail on a row does not fail the job. v1 works
-  out every column of every output.
+  instance. As in Python, it fails only on a row the conversion is worked
+  out for: not behind an `and` that is already false, an `or` that is
+  already true, or in the branch of an `if` that is not taken. An operation
+  on a missing value never fails; it gives a missing value. Rows are not
+  sent to a catch output.
+- An output column nothing in the job reads is never worked out. A
+  conversion in it that fails on a row still fails the job, as in v1, which
+  works out every column of every output.
 - In an expression a missing value is `None`. v1 hands expressions pandas'
   `nan` or `<NA>`, so `x is None`, `str(x)` and `x or default` can answer
   differently there.
@@ -444,6 +495,25 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - The flow's `key` and `value` columns are checked even when it has no
   rows. v1 checks once a row arrives.
 - A policy other than ERROR, WARNING, INFO or NO_WARNING is refused at load.
+
+**JSON input**
+
+- One rule per value. v1 lets pandas pick one type for a column, so a whole
+  number beside a fraction or a missing value comes out as `1.0`, in a text
+  column too. v2 writes `1`.
+- A path that is not a JSONPath refuses the job. v1 runs, rejects every
+  record with "Parse error" and writes no row.
+- Reading from a URL (`useurl`) is refused: v2 reads files.
+- A `schema` inside the config, v1's older way of typing values, is
+  refused; with it go `advanced_separator`, `check_date` and their keys,
+  which v1 reads only then.
+- As everywhere, a wired reject flow that gets no rows is written empty; v1
+  stalls.
+
+**Normalize**
+
+- A column of dates is refused. Text and numbers are split as their text.
+- `csv_option` and its two keys are accepted and change nothing, as in v1.
 
 **Positional input**
 

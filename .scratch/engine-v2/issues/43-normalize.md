@@ -1,6 +1,6 @@
 # 43 - Normalize
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 40
 
@@ -23,3 +23,17 @@ on a step that makes several rows out of one. Normalize was taken.
 - The component, every config key declared, held against v1.
 - Each row it makes carries the number of the row it came from.
 - The docs and the lists that count v2's components.
+
+## Answer
+
+Built on 2026-10-07 (`src/v2/components/transform/normalize.py`; 21 tests
+in `tests/v2/components/test_normalize.py`, against v1).
+
+- Keys: `normalize_column`, `item_separator` (`itemseparator`), `trim`,
+  `discard_trailing_empty_str`, `deduplicate`. `csv_option`,
+  `text_enclosure`, `escape_char` and `die_on_error` are accepted and
+  ignored, as in v1.
+- v1's order is kept: the empty pieces a cell ends on are discarded, then
+  each piece is trimmed, then repeats are left out.
+- Text and numbers are split as their text. A column of dates is refused.
+- Every row it makes carries the row number of the row it came from.

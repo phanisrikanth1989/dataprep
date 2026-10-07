@@ -252,10 +252,27 @@ are designed.
   and is named, with the key column's value, in the log line of a failure;
   conversions in expressions are checked by the engine so that the row is
   in hand.
+- [Every source numbers its rows](issues/40-every-source-numbers-its-rows.md)
+  -- built: the four readers number their rows, the number travels hidden
+  and is never written, and three kinds of failure end with "the row is
+  line 4 of in.csv (id=3)".
+- [Conversions in expressions are checked by the engine](issues/41-conversions-in-expressions-are-checked-by-the-engine.md)
+  -- built: `int()`, `float()` and `strptime()` no longer raise; the engine
+  counts the rows they fail on, by Python's rules, and names the first.
+- [A conversion guarded by `and` or `or` fails on v2 and not on v1](issues/39-a-conversion-guarded-by-and-or-or-fails-on-v2.md)
+  -- corrected with ticket 41.
+- [JSON file input](issues/42-json-file-input.md) -- built against v1; a
+  failure names "record 2 ($.orders[1]) of in.json".
+- [Normalize](issues/43-normalize.md) -- built against v1; every row it
+  makes carries the number of the row it came from.
+- [What a new component owes the row numbers](issues/44-what-a-new-component-owes-the-row-numbers.md)
+  -- the rules are in `docs/v2/writing-a-component.md`; the ticket is the
+  list to hand a builder, with what an XML input and an unpivot would need.
 
 ## Not yet specified
 
-The destination is reached: the engine and its sixteen components are built
+The destination is reached: the engine and its components (sixteen at
+first, eighteen since 2026-10-07) are built
 and pass their answer-key tests. What is left is for the dev to test and
 decide, not fog on the way there.
 
@@ -274,15 +291,9 @@ decide, not fog on the way there.
 - Parked by the dev as the next enhancement: a lookup by regular
   expressions kept in a file
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
-- Being built, as settled with the dev on 2026-10-07:
-  [Every source numbers its rows](issues/40-every-source-numbers-its-rows.md);
-  [Conversions in expressions are checked by the engine](issues/41-conversions-in-expressions-are-checked-by-the-engine.md),
-  which corrects
-  [A conversion guarded by `and` or `or` fails on v2 and not on v1](issues/39-a-conversion-guarded-by-and-or-or-fails-on-v2.md);
-  [JSON file input](issues/42-json-file-input.md);
-  [Normalize](issues/43-normalize.md);
-  [What a new component owes the row numbers](issues/44-what-a-new-component-owes-the-row-numbers.md).
-- Left for later from the same discussion. After user Python the row number
+- Left for later from
+  [How v2 points at the input row that failed a job](issues/38-how-v2-points-at-the-input-row-that-failed-a-job.md).
+  After user Python the row number
   is gone; where the result still has the source's key column, the row can
   be found again by one filtered read of the source (0.09 s for a million
   rows). For an error Polars still raises by itself, the row can be found by

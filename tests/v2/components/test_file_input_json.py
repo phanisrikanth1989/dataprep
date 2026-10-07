@@ -166,12 +166,25 @@ def test_loop_that_finds_nothing_gives_no_rows(tmp_path, document):
     assert rows(same(tmp_path, document, "id:int", paths("id"))) == []
 
 
+def test_loop_that_is_the_document_itself_gives_one_row(tmp_path):
+    document = {"id": 7, "n": None}
+    assert rows(same(tmp_path, document, "id:int", paths("id"), loop="$")) == ["7"]
+    result, _ = v2(tmp_path / "direct", document, "id:int, n:int!", paths("id", "n"), loop="$")
+    # The one record is the document: its path is the bare `$`.
+    assert result.error == "Column 'n' has NULL values but is not nullable; the row is record 1 ($) of in.json"
+
+
 # ------------------------------------------------------------------
 # Columns
 # ------------------------------------------------------------------
 
 def test_declared_column_without_a_path_is_empty(tmp_path):
     assert rows(same(tmp_path, ITEMS, "id:int, extra:str", paths("id"))) == ["1;", "2;", "3;"]
+
+
+def test_no_path_at_all_gives_no_rows(tmp_path):
+    # Without a path there is no column, and a table without columns has no rows.
+    assert rows(same(tmp_path, ITEMS, "id:int, name:str", [])) == []
 
 
 def test_path_for_a_column_the_schema_lacks_still_gives_the_column(tmp_path):
@@ -232,6 +245,15 @@ def test_path_that_is_no_jsonpath_refuses_the_job(tmp_path):
     with pytest.raises(JobRefusedError) as caught:
         load_job(json_job("id:int", paths("id"), loop="$.items["))
     assert "json_loop_query" in caught.value.report.format()
+
+
+def test_machine_without_the_jsonpath_library_is_told_what_to_install(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "jsonpath_ng.ext", None)
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(json_job("id:int", paths("id")))
+    assert "needs the jsonpath-ng package" in caught.value.report.format()
 
 
 def test_reading_from_a_url_is_refused():

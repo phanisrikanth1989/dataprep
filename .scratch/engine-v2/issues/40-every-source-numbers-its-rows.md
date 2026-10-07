@@ -1,6 +1,6 @@
 # 40 - Every source numbers its rows
 
-Status: claimed
+Status: resolved
 Type: task
 
 ## Question
@@ -53,3 +53,36 @@ million-row run can show.
 
 Not here: reject files keep the bytes v1 writes, so a rejected row's own
 message gains nothing.
+
+## Answer
+
+Built on 2026-10-07 (`src/v2/rows.py`; tests in `tests/v2/test_row_numbers.py`).
+
+- The four readers that were there number their rows where they read them,
+  and each says where a number is: `line 7 of in.csv` (delimited,
+  positional, full row), `record 7 of in.csv` for a delimited file read with
+  `csv_option`, `row 3 of sheet 'Q1' of book.xlsx`.
+- The number and the copies of the key columns travel hidden. The engine
+  drops them before a file output is handed its frame and before the Python
+  dataframe or the context load is handed rows, and leaves them out of
+  expression scopes and debug lines.
+- Filter columns and the map's outputs hand them on; a join and a map leave
+  a lookup's behind; an aggregate keeps the lowest number of each group,
+  that row's key and the count; log row does not print them and unique row
+  does not take them for key columns.
+- Three failures name their row: a reader with `die_on_error`, a missing
+  value where none is allowed after any component, and text a map output
+  cannot read as its type. The words:
+  "...; the row is line 4 of in.csv (id=3)", and after an aggregate
+  "...line 3 of in.csv, the first of 2 rows that were combined (id=2)".
+- Thirteen existing tests pinned the old message and now expect the place.
+  Each named line was checked against the test's data by hand.
+- Cost: the payments scenario at 1,000,000 rows runs in 1.89 s with the
+  numbers carried, against 1.85 to 1.87 s before.
+- No file changes: the whole suite that compares v2's files with v1's
+  passes, and it fails wherever a hidden column reaches a component that
+  treats every column alike (it caught log row, unique row, the Python
+  dataframe and the context load while this was built).
+
+Not done here: a rejected row's own message in a reject file is as v1
+writes it. After the Python dataframe a row has no number.

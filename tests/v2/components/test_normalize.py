@@ -123,6 +123,13 @@ def test_column_that_is_not_there_fails_on_both(tmp_path):
     assert "there is no column 'nope' to normalize" in caught.value.report.format()
 
 
+def test_column_of_dates_is_refused():
+    # v1 splits the text pandas prints for a date; v2 does not guess at that text.
+    with pytest.raises(JobRefusedError) as caught:
+        load_job(normalize_job(schema="id:int, tags:datetime@%Y-%m-%d"))
+    assert "'tags' holds dates" in caught.value.report.format()
+
+
 def test_empty_separator_fails_on_both(tmp_path):
     same(tmp_path, itemseparator="", fails=True)
     with pytest.raises(JobRefusedError) as caught:

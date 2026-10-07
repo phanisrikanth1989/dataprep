@@ -1,6 +1,6 @@
 # 39 - A conversion guarded by `and` or `or` fails on v2 and not on v1
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 
 ## Question
@@ -39,3 +39,10 @@ A guard of this kind is a common way to write a Talend expression in Python
   a comparison on the right.
 - If ticket 38 ends in conversions the engine checks for itself, the same
   rule decides which rows count as failed, and this is built with it.
+
+## Answer
+
+Corrected on 2026-10-07 with
+[Conversions in expressions are checked by the engine](41-conversions-in-expressions-are-checked-by-the-engine.md).
+The three expressions of the table above, and chains of three parts, now
+give v1's rows (`tests/v2/test_conversions.py`).

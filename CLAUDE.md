@@ -4,7 +4,7 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine — feature parity with Talend is non-negotiable.
 
-**Two engines.** `src/v1` is the pandas engine described in most of this file. `src/v2` is a second engine, pure Python on Polars, that runs the same v1 job configs for sixteen components and must write the same files v1 writes (v1 is its answer key). Start at [`docs/v2/README.md`](./docs/v2/README.md); the vocabulary is in [`src/v2/CONTEXT.md`](./src/v2/CONTEXT.md) and the component contract in [`docs/v2/writing-a-component.md`](./docs/v2/writing-a-component.md). `src/v1` is never changed to suit v2.
+**Two engines.** `src/v1` is the pandas engine described in most of this file. `src/v2` is a second engine, pure Python on Polars, that runs the same v1 job configs for eighteen components and must write the same files v1 writes (v1 is its answer key). Start at [`docs/v2/README.md`](./docs/v2/README.md); the vocabulary is in [`src/v2/CONTEXT.md`](./src/v2/CONTEXT.md) and the component contract in [`docs/v2/writing-a-component.md`](./docs/v2/writing-a-component.md). `src/v1` is never changed to suit v2.
 
 ## Constraints
 
@@ -235,7 +235,7 @@ Phase 14 locked the final per-module table on 2026-05-11. Historical per-module 
 
 **Engine services** — `src/v1/engine/` (top-level files). `GlobalMap`, `ContextManager`, `TriggerManager`, `JavaBridgeManager`, `PythonRoutineManager`, `exceptions.py`. Used by engine core and all components.
 
-**v2 engine** — `src/v2/`. `job/` loads a v1-shaped job config against each component's declared config keys and collects everything v2 will not run with into one refusal report; `expressions/` translates Python expressions into Polars expressions once, at load; `engine/` builds each subjob as one lazy Polars plan, runs it in one pass, and puts files in place only when the whole subjob succeeded; `components/` holds the sixteen components, one file each, registered by decorator as in v1. No Java anywhere. Tests in `tests/v2` run the same job on v1 and on v2 and compare the bytes written (`tests/v2/answer_key`).
+**v2 engine** — `src/v2/`. `job/` loads a v1-shaped job config against each component's declared config keys and collects everything v2 will not run with into one refusal report; `expressions/` translates Python expressions into Polars expressions once, at load; `engine/` builds each subjob as one lazy Polars plan, runs it in one pass, and puts files in place only when the whole subjob succeeded; `components/` holds the eighteen components, one file each, registered by decorator as in v1. `rows.py` is how a failure names the input row: every source numbers its rows, the number travels with the row as a hidden column that is never written, and a failing check ends its message with the row's place and key (see `docs/v2/writing-a-component.md`). No Java anywhere. Tests in `tests/v2` run the same job on v1 and on v2 and compare the bytes written (`tests/v2/answer_key`).
 
 **Java bridge** — `src/v1/java_bridge/`. `JavaBridge` Python client (`bridge.py`), Java server (`java/src/main/java/com/citi/gru/etl/JavaBridge.java`, `RowWrapper.java`). Executes Java/Groovy expressions and row-level transformations via Py4J + Arrow. Used by `JavaBridgeManager` and engine components with `{{java}}` expressions.
 

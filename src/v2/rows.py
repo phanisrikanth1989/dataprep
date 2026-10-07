@@ -90,10 +90,7 @@ def described(row: Mapping[str, Any], sources: Mapping[str, "Source"]) -> str:
         if not name.startswith(ROW) or number is None:
             continue
         source_id = name[len(ROW):]
-        source = sources.get(source_id)
-        if source is None:
-            continue
-        place = source.locate(int(number))
+        place = sources[source_id].locate(int(number))
         combined = row.get(rows_column(source_id))
         if combined is not None and combined > 1:
             place += f", the first of {combined} rows that were combined"

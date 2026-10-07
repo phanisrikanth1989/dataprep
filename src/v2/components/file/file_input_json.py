@@ -134,12 +134,11 @@ class FileInputJSON(Source):
             row = {column: _as_text(_value(written, query.find(record))) for column, written, query in mapping}
             for column, cell in cells.items():
                 cell.append(row[column])
-        rows = pl.DataFrame(cells, schema={column: pl.String for column in cells})
         if not cells:
-            # No path at all: the records are still counted, each a row with no column of its own.
-            rows = pl.DataFrame({self.row_number: range(1, len(records) + 1)}, schema={self.row_number: pl.UInt32})
-        else:
-            rows = rows.with_row_index(self.row_number, offset=1)
+            # No path, so no column, and a table without columns has no rows: v1 writes none either.
+            return self.declared_outputs()
+        rows = pl.DataFrame(cells, schema={column: pl.String for column in cells})
+        rows = rows.with_row_index(self.row_number, offset=1)
         present = [copy for column, copy in zip([c for c in self.schema if c.key], self.key_copies())
                    if column.name in cells]
         rows = rows.with_columns(present)
@@ -216,9 +215,8 @@ def _steps(node: Any) -> str:
     if kind == "Index":
         indices = getattr(node, "indices", None) or (node.index,)
         return "".join(f"[{index}]" for index in indices)
-    if kind in ("Root", "This"):
-        return ""
-    return f".{node}"
+    # What is left is the document itself, which the leading `$` stands for.
+    return ""
 
 
 def _no_rejects(main: pl.LazyFrame) -> pl.LazyFrame:

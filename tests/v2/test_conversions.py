@@ -65,6 +65,17 @@ def test_conversion_in_a_branch_not_taken_does_not_fail(tmp_path, expression, wa
     assert [line.split(";")[1] for line in lines_of(run)[1:]] == want
 
 
+def test_output_filter_is_not_worked_out_for_a_row_an_inner_join_turned_away(tmp_path):
+    # Row 2 finds no name and never reaches the output, so its code is never converted; row 4's
+    # empty code is not converted either. The rows that do come through all hold numbers.
+    outputs = [out("o", [("id", "row1.id", "int")], filter="int(row1.code) > 9", activate_filter=True),
+               out("lost", [("id", "row1.id", "int")], inner_join_reject=True)]
+    made = mapping(config(outputs, lookups=[lookup("names", [("id", "row1.id")], join_mode="INNER_JOIN")]),
+                   {"row1": CODES, "names": "id:int, name:str"}, {"o": "id:int", "lost": "id:int"})
+    run = same(tmp_path, made, {"row1.csv": DATA, "names.csv": b"id;name\n1;a\n3;c\n5;e\n"})
+    assert lines_of(run)[1:] == ["1", "3"] and lines_of(run, "lost.csv")[1:] == ["2", "4"]
+
+
 def test_conversion_guarded_in_an_output_filter(tmp_path):
     outputs = [out("o", [("id", "row1.id", "int")], filter="row1.code.isdigit() and int(row1.code) > 9",
                    activate_filter=True)]
