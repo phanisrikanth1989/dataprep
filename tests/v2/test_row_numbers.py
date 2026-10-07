@@ -249,6 +249,13 @@ def test_row_of_a_group_is_named_by_the_first_row_that_went_into_it(tmp_path):
                      "the first of 2 rows that were combined (id=2)")
 
 
+def test_every_row_a_normalize_makes_carries_the_number_of_the_row_it_came_from(tmp_path):
+    # The third data row holds two ages; the second of them is no number, and the sort after it needs one.
+    data = b"id;name;age\n1;ann;30\n2;bob;41\n3;cy;25,old\n4;di;7\n"
+    made = chain(("Normalize", {"normalize_column": "age"}, "id:int, name:str, age:int"), schema="id:int, name:str, age:str")
+    assert failed(tmp_path, made, {"in.csv": data}) == NAMED
+
+
 # ------------------------------------------------------------------
 # Who does not see it
 # ------------------------------------------------------------------
