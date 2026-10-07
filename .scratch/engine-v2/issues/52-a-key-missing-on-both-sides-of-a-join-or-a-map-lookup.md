@@ -79,3 +79,19 @@ Run on 2026-10-07 with main rows `1;10`, `;20`, `3;30` and lookup rows
 Where I lean: do as Talend does in both. Same reason as in ticket 51: the
 same as Talend is the first rule, and a row that silently gets no match is
 a wrong result nobody is told about.
+
+## Next (2026-10-07)
+
+The dev will try it in Talend before anything is changed: "let me test
+this in talend and then we will work on it". The test, so that it matches
+the table above:
+
+- Main file: `id;amount` with the rows `1;10`, `;20`, `3;30`. Lookup file:
+  `id;name` with the rows `1;ann`, `;nobody`. `id` is an Integer that may
+  be missing (nullable) in both.
+- A tJoin on `id` that takes `name` from the lookup, inner join off. Does
+  the row with no `id` get `nobody`?
+- A tMap with the lookup joined on `id` (left outer join). The same
+  question. Then make the lookup's `id` not nullable (a plain int) and run
+  again: by the source it should then get nothing.
+- Once more with `id` as a Date in both files.
