@@ -56,6 +56,49 @@ Not tried yet: a failure whose bad row sits in a lookup and not in the main
 input; a component that needs rows in hand before the one that fails (the
 search would run its Python again on every try); files with enclosures.
 
+### The dev's idea, 2026-10-07
+
+Let the user mark a column of a source as its key, and show that column's
+value when a row fails, in either kind of failure. Where no key is marked,
+give every row of the source a number from 1 as it is read, whatever kind
+of source it is, and report that number. The dev's doubt: whether this can
+be done at all in Polars, which works on columns and not on rows.
+
+Tried the same day (probe:
+`research/probes/probe_row_number_and_checked_conversion.py`):
+
+- **It can be done.** A row's number is one more column, and Polars keeps a
+  row's values together through a filter, a sort and a join. The schema
+  already has a `key` flag on every column; no v2 component reads it yet.
+- **Carrying it costs nothing that shows.** The payments job with one more
+  whole-number column read from the file, passed through both maps and
+  written to every output, which is more than a hidden column would cost:
+  1.87 s without, 1.89 s with, 1.85 s without again (1,000,000 rows).
+- **The number alone does not find a row Polars fails on.** Polars' message
+  prints the value and nothing else of the row. The number is of use where
+  the engine holds the failing row itself.
+- **So the engine has to make the check, and can.** The conversion built
+  without raising, a row flagged when its text was there and gave no
+  number, and one small plan beside the job asking for the count, the
+  lowest row number, that row's value and its key: 0.17 s against 0.17 s
+  on a clean file, and on a file with two bad rows "2 rows, first 654321,
+  value 'OPx320', key '654321'" in the pass that fails today with no row.
+  No second look at the data is needed for these.
+- **What it does not reach:** a row after an aggregate (many rows have
+  become one), a row after user Python that builds a new table, and an
+  error Polars raises that the engine does not check for itself. Looking
+  again (above) stays the way for the last.
+
+What the others do, from the research note: Snowflake, Spark, DuckDB and
+Delta Lake give a row number or row id as a column asked for at the read;
+Great Expectations and dbt name a failing row by the key columns the user
+lists; Talend and Integration Services hand on the failing row with its
+columns. None of the pages read speaks of carrying the number through a
+join by itself: that part would be v2's own.
+
+Found on the way:
+[A conversion guarded by `and` or `or` fails on v2 and not on v1](39-a-conversion-guarded-by-and-or-or-fails-on-v2.md).
+
 ## To decide
 
 - Which failures come first: the ones a reader finds (a value that is not

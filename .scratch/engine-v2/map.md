@@ -271,6 +271,8 @@ decide, not fog on the way there.
   ([Pattern lookup from a file](issues/30-pattern-lookup-from-a-file.md)).
 - Being settled with the dev, after the research of 2026-10-06:
   [How v2 points at the input row that failed a job](issues/38-how-v2-points-at-the-input-row-that-failed-a-job.md).
+- A fault found on 2026-10-07, not yet corrected:
+  [A conversion guarded by `and` or `or` fails on v2 and not on v1](issues/39-a-conversion-guarded-by-and-or-or-fails-on-v2.md).
 - Not verified here: any Polars version other than 1.44.2, the target RHEL
   servers, and files beyond a few hundred MB (the dev's largest are 30 to
   100 GB).
