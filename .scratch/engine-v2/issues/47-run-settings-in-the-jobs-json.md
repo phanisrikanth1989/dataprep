@@ -1,6 +1,6 @@
 # 47 - Run settings in the job's JSON
 
-Status: claimed
+Status: resolved
 Type: grilling
 
 ## Question
@@ -106,3 +106,34 @@ neither knows (`"run": {...}` at the top level):
 Related: [Run a job with one command](48-run-a-job-with-one-command.md)
 (what the command takes and what the JSON holds are two halves of one
 answer).
+
+## Answer
+
+Grilled with the dev on 2026-10-07, then built (25 tests in
+`tests/v2/unit/test_run_settings.py`).
+
+Decided:
+
+- The block is `run`, at the top level of the job config. It holds
+  `log_level`, `row_counts` and `summary_file` (the dev: "those three should
+  do"), and `only` and `trace` from tickets 50 and 49. The settings of a
+  machine (`V2_ENGINE`, `V2_TEMP_DIR`) stay out of it.
+- The command line wins over the block, and the block over the default.
+- Only the level of the log is set there, not where the log goes.
+
+Built:
+
+- `"run": {"log_level": "DEBUG", "row_counts": true, "summary_file": "/logs/pay.json"}`.
+  A key the block does not know refuses the job, and so does a context
+  variable in one of its values. v1 runs a job that has the block and takes
+  no notice of it (held by a test).
+- The command line: `--log-level`, `--summary`, `--row-counts` and
+  `--no-row-counts`, so that what the block turned on can be turned off.
+- `run_job(job, context=..., run={...})`: a caller's settings, laid over the
+  job config's key by key. `JobResult.summary()` is the result as plain
+  values, which is what the command prints.
+- A run says at its start which settings are in force and who asked:
+  "[payments] run settings: log level INFO (command line), row counts (job
+  config)".
+- `run.log_level` in `run_job` is put in force on the logger `src.v2` while
+  the job runs: two jobs run at once in one process share it.

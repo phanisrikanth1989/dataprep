@@ -1,6 +1,10 @@
 """Command line of the v2 engine.
 
     python -m src.v2 job.json [--context_param KEY=VALUE ...] [--check] [--row-counts] [--summary FILE]
+                              [--only ROWS] [--trace]
+    python /path/to/dataprep/src/v2 job.json ...        from any other folder
+
+What the command line says wins over the job config's ``run`` block.
 
 Exit code 0 when the job finished, 1 when it ran and failed, 2 when it was
 not run at all: the job config was refused, or the command line was wrong.

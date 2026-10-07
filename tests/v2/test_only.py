@@ -306,3 +306,96 @@ def test_word_that_is_a_place_and_a_column_has_to_be_said_in_full(tmp_path, caps
     (tmp_path / "job.json").write_text(json.dumps(made))
     assert main([str(tmp_path / "job.json"), "--only", "in:line=1"]) == 2
     assert "'line' is a column of 'in' and a place as well" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------
+# More of what can be asked wrongly
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("picked, key, said", [
+    ({"lines": []}, "run.only.lines", "names no row"),
+    ({"where": {}}, "run.only.where", "names no column"),
+    ({"where": {"id": [None]}}, "run.only.where", "column 'id': give the value a picked row holds, or a list of such values"),
+    ({"where": {"id": [[1]]}}, "run.only.where", "column 'id': give the value a picked row holds, or a list of such values"),
+])
+def test_way_of_picking_that_names_nothing_refuses_the_job(picked, key, said):
+    found = refusals(only(copying(header_rows=1), **picked))
+    assert (key, said) in found
+
+
+def test_no_row_holds_both_values_of_two_columns(tmp_path):
+    result = ran(tmp_path, only(copying(header_rows=1), where={"id": 1, "amount": 20}), {"in.csv": DATA})
+    assert result.status == "failed" and result.error == "no row of 'in' has id=1 and amount=20"
+
+
+def test_workbook_is_asked_for_a_row_of_a_sheet_in_its_own_words(tmp_path):
+    sheets = book({"first": [["id", "n"], [1, 10], [2, 20]], "second": [["id", "n"], [3, 30]]})
+
+    def asked(**picked):
+        return ran(tmp_path, only(excel("id:int, n:int", header=1, all_sheets=True), **picked), {"in.xlsx": sheets})
+
+    assert asked(rows=[2]).error == "'in' has no row at row 2: say which sheet; those with rows are: first, second"
+    assert asked(rows=[2], sheet="third").error == (
+        "'in' has no row at row (of sheet 'third') 2: no sheet 'third' was read with rows; "
+        "those with rows are: first, second")
+    assert asked(rows=[9], sheet="first").error == (
+        "'in' has no row at row (of sheet 'first') 9: the rows read from sheet 'first' are 2 to 3")
+    assert asked(rows=[1], sheet="first").error == (
+        "'in' has no row at row (of sheet 'first') 1: the rows read from sheet 'first' are 2 to 3")
+    assert refusals(only(excel("id:int, n:int", header=1), lines=[2])) == [
+        ("run.only.lines", "'in' reads the sheets of a workbook: pick its rows with `rows`")]
+
+
+def test_workbook_column_held_as_another_type_than_declared_is_still_picked_by(tmp_path):
+    # The sheet holds numbers in a column the job declares as text.
+    sheets = book({"only": [["id", "n"], [1, 10], [2, 20]]})
+    result = ran(tmp_path, only(excel("id:str, n:int", header=1), where={"id": "2"}), {"in.xlsx": sheets})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["2;20"]
+
+
+def test_json_document_is_not_picked_from_by_line():
+    made = only(json_job("id:int, n:str", [("id", "$.id"), ("n", "$.n")]), lines=[2])
+    assert refusals(made) == [
+        ("run.only.lines", "'in' reads the records of a document: pick its rows with `records`")]
+
+
+def test_reader_that_no_stage_comes_to_read_is_said_and_the_summary_names_no_row(tmp_path, caplog):
+    # The second stage runs only when the first wrote nothing, which it never does here.
+    made = job(
+        [reader(IDS, header_rows=1), writer(IDS, inputs=("row1",)),
+         reader(IDS, "later", "later.csv", ("row9",), header_rows=1), writer(IDS, "last", "last.csv", ("row9",))],
+        [flow("row1", "in", "out"), flow("row9", "later", "last")],
+        triggers=[{"type": "RunIf", "from": "out", "to": "later",
+                   "condition": '((Integer)globalMap.get("out_NB_LINE")) == 0'}],
+    )
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    result = ran(tmp_path, only(made, source="later", where={"id": 1}), {"in.csv": DATA, "later.csv": DATA})
+    assert result.status == "success" and result.summary()["only"] == {"source": "later", "rows": []}
+    assert [record.getMessage() for record in caplog.records] == [
+        "[t] the run was to be for picked rows of 'later', which no stage of this run came to read: "
+        "every row of every other reader was run"]
+
+
+def test_reader_that_cannot_be_read_to_find_the_rows_fails_the_job_at_that_reader(tmp_path, monkeypatch):
+    import src.v2.engine.runner as runner
+
+    def gone(plans, **kwargs):
+        raise OSError("the file is gone")
+
+    monkeypatch.setenv("V2_SAFE_READ", "1")
+    monkeypatch.setattr(runner.pl, "collect_all", gone)
+    result = ran(tmp_path, only(copying(header_rows=1), where={"id": 3}), {"in.csv": DATA})
+    assert result.status == "failed" and result.failed_component == "in" and result.error == "the file is gone"
+
+
+@pytest.mark.parametrize("asked, said", [
+    ('{"source": "in", "where"', "not JSON"),
+    ("in:line=four", "a line is a whole number, counted from 1"),
+    ('{"source": "in", "where": {}}', "names no column"),
+    ("in:=3", "expected READER:COLUMN=VALUE"),
+])
+def test_command_line_says_what_is_wrong_with_the_rows_it_was_given(tmp_path, capsys, asked, said):
+    assert main([job_on_disk(tmp_path), "--only", asked]) == 2
+    assert said in capsys.readouterr().err
+    assert not (tmp_path / "out.csv").exists()

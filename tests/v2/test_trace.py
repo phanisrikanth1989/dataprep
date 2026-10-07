@@ -296,3 +296,40 @@ def test_log_names_a_dozen_columns_at_most_and_counts_the_rest(tmp_path, caplog)
     said, = [record.getMessage() for record in caplog.records if record.getMessage().startswith("[it] trace")]
     assert said == ("[it] trace: row2 1 row; added " + ", ".join(f"c{n}={30 + n}" for n in range(12)) + " and 3 more")
     assert len(rows_of(trace["it"], "row2")[0]) == 16
+
+
+# ------------------------------------------------------------------
+# Rows as the trace holds them
+# ------------------------------------------------------------------
+
+def test_types_and_text_of_every_kind_of_column():
+    import datetime
+    from decimal import Decimal
+
+    import polars as pl
+
+    from src.v2.engine.tracing import as_text, type_name
+
+    rows = pl.DataFrame({
+        "f": [2.5, None], "d": [datetime.date(2024, 1, 31), None], "t": [datetime.time(9, 30), None],
+        "m": [Decimal("1.50"), None],
+    }, schema={"f": pl.Float64, "d": pl.Date, "t": pl.Time, "m": pl.Decimal(38, 2)})
+    assert [type_name(dtype) for dtype in rows.dtypes] == ["float", "date", "Time", "Decimal"]
+    assert as_text(rows).rows() == [("2.5", "2024-01-31", "09:30:00", "1.50"), (None, None, None, None)]
+
+
+def test_log_says_nothing_of_a_row_that_was_not_among_those_that_came_in(tmp_path, caplog):
+    # The reader's rejects are put after its rows: the row that was turned away is new to what came in by main.
+    made = job([reader(IDS, outputs=("row1", "bad"), header_rows=1),
+                {"id": "it", "type": "Unite", "config": {}, "inputs": ["row1", "bad"], "outputs": ["all"],
+                 "schema": {"input": columns(IDS), "output": columns("id:str, amount:str")}},
+                writer("id:str, amount:str", inputs=("all",))],
+               [flow("row1", "in", "it"), flow("bad", "in", "it", "reject"), flow("all", "it", "out")])
+    caplog.set_level(logging.INFO, logger="src.v2")
+    result, trace = traced(tmp_path, made, {"in.csv": b"id;amount\n1;10\n2;x\n"}, where={"id": [1, 2]})
+    assert result.status == "success", result.error
+    assert [row[:2] for row in rows_of(trace["it"])] == [["1", "10"], ["2", "x"]]
+    said = [record.getMessage() for record in caplog.records if record.getMessage().startswith("[it] trace")]
+    # Of the first row it says the two columns the unite gave it from the reject flow; of the second, nothing.
+    assert said == ["[it] trace: main 2 rows; line 2 of in.csv: added errorCode_user=(nothing), "
+                    "errorMessage_user=(nothing)"]

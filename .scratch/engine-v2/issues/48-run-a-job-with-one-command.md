@@ -1,6 +1,6 @@
 # 48 - Run a job with one command, handing it the JSON
 
-Status: claimed
+Status: resolved
 Type: grilling
 
 ## Question
@@ -90,3 +90,37 @@ Much of this may already be there. The first thing to learn in the
 grilling is what the dev found missing when trying to run a job by command.
 
 Related: [Run settings in the job's JSON](47-run-settings-in-the-jobs-json.md).
+
+## Answer
+
+Grilled with the dev on 2026-10-07, then built (6 tests in
+`tests/v2/unit/test_started_from_anywhere.py`).
+
+Decided:
+
+- No new command name. The dev wants to give the engine's path in the
+  command and have it work from any folder.
+- Nothing is changed in `api/`. What the dev asked is that a request of the
+  shape the API has (job config, context overrides, run settings) works on
+  v2, with any change needed made inside v2.
+- A full path to a job file and full paths inside a job worked already.
+  Relative paths inside a job stay as they are: from the folder the command
+  is started in, as in v1.
+- Standard input was not asked for and is not built.
+
+Built:
+
+- `python /opt/dataprep/src/v2 /data/jobs/pay.json` runs from any folder.
+  Started by its path, Python looked for modules in the engine's folder,
+  where the relative imports failed and `types.py` would have been taken
+  for the standard library's; the entry point has it look in the project's
+  folder instead. `python -m src.v2` from the project's folder is as it
+  was.
+- The request shape, held by a test that runs it as `api/routes/jobs.py`
+  runs v1 (the job config as a dict, context overrides as text, in a
+  background thread): `run_job(job_config, context=context_overrides,
+  run=run)`, and `result.summary()` goes back as JSON. A run setting that
+  is not known is refused before anything runs.
+
+For whoever changes the API: choosing v2 is the API's own switch; the call
+above is all v2 needs.

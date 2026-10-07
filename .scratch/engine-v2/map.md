@@ -265,6 +265,19 @@ are designed.
   failure names "record 2 ($.orders[1]) of in.json".
 - [Normalize](issues/43-normalize.md) -- built against v1; every row it
   makes carries the number of the row it came from.
+- [Run settings in the job's JSON](issues/47-run-settings-in-the-jobs-json.md)
+  -- built: a `run` block (`log_level`, `row_counts`, `summary_file`,
+  `only`, `trace`); the command line wins over it.
+- [Run a job with one command](issues/48-run-a-job-with-one-command.md)
+  -- built: `python /path/to/dataprep/src/v2 job.json` from any folder; a
+  service calls `run_job(job_config, context=..., run=...)`. `api/` is not
+  changed.
+- [Run a job for one ID or row number](issues/50-run-a-job-for-one-id-or-row-number.md)
+  -- built: `only` names up to 5 rows of one reader by value or by place;
+  the whole job runs for them and writes its files.
+- [Single-record debug run](issues/49-single-record-debug-run.md)
+  -- built: `trace` puts what every component did with the picked rows in
+  the result, through all stages, and a short version in the log.
 - [Say when rows are dropped for a fault](issues/46-say-when-rows-are-dropped-for-a-fault.md)
   -- built: one WARNING for each component that dropped rows for a fault
   when no flow takes its rejects, with the count and the first row's place.

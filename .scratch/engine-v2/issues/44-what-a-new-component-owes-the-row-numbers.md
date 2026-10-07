@@ -138,6 +138,10 @@ read, on v1 too.
   reject schema.
 - **Two inputs**: a failure names the main input's row after a join or a
   lookup, and each row's own input after a unite.
+- **A run for picked rows** (tickets 50 and 49). A source: `picked`,
+  `place_kind`, `place_why` and `number_at`, with a test in
+  `tests/v2/test_only.py`. A component with lookups: `lookup_inputs`, with
+  a test in `tests/v2/test_trace.py`.
 - **Rows dropped for a fault**: the warning with its count and the first
   row's place; none when a flow takes the rejects, none when the component
   stops the job (`tests/v2/test_dropped_rows.py`).

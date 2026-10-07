@@ -361,6 +361,24 @@ A source:
   sheet's row). Where that cannot be vouched for, as with a record that can
   span lines, give the record's number and call it a record.
 
+A run may be for a few rows of a source and no others (`run.only`), and may
+list what every component did with them (`run.trace`). What that asks of a
+component:
+
+- A source keeps to the picked rows with `frame = self.picked(frame)`,
+  called where it has numbered its rows and before it types or turns away
+  any (after its own `limit`). It says what kind of place its rows have
+  (`place_kind`: `lines`, `records` or `rows`), why (`place_why`, for the
+  message when the wrong kind is asked for), and turns a place back into a
+  row's number (`number_at`, the other way round from `locate`). Where
+  Polars parses values for the whole file, it does not when `only_rows` is
+  set (`_native` in `file_input_delimited.py`).
+- A component that looks things up in some of its inputs says which
+  (`lookup_inputs`): the engine lists a component's rows when every input
+  that is not a lookup comes from the picked rows.
+- Nothing else. The engine takes the rows of such a flow in hand between
+  two components and lists them.
+
 A check that fails on rows names the first. Ask for the hidden columns of
 the first failing row beside the count, and end the message with
 `self.where(found)`. The value shown has to come from that same row: where
@@ -478,6 +496,9 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
 - the row numbers kept, by the table in "Row numbers", and a test of it;
 - rows it drops for a fault told in the log (`tell_dropped`), and a test of
   it in `tests/v2/test_dropped_rows.py`;
+- for a source: picked rows (`picked`, `place_kind`, `number_at`) with a
+  test in `tests/v2/test_only.py`; for a component with lookups:
+  `lookup_inputs`, with a test in `tests/v2/test_trace.py`;
 - answer-key tests for every supported key, unit tests for refusals;
 - the whole `tests/v2` suite green;
 - a short report: keys supported / ignored / refused (with reasons), every

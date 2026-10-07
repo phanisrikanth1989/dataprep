@@ -1,6 +1,6 @@
 # 50 - Run a job for one ID or row number
 
-Status: claimed
+Status: resolved
 Type: grilling
 
 ## Question
@@ -116,3 +116,45 @@ What then differs from the full run, because it depends on the other rows:
 Related: [Single-record debug run](49-single-record-debug-run.md) shows
 what each component did with the picked row; this ticket decides how the
 row is picked and what such a run is.
+
+## Answer
+
+Grilled with the dev on 2026-10-07, then built (50 tests in
+`tests/v2/test_only.py`).
+
+Decided:
+
+- It is for the row that failed in production, or that seems to give a
+  wrong result. The run is of the whole job, every stage, and writes its
+  files as any run does, so that the picture is of the entire run: "if
+  there are 5 stages and we will not run after stage 2, it is not
+  particularly useful for them to debug". Existing output files are
+  replaced; taking a backup is the user's or their system's.
+- Only a reader can be named. The row is named by what a column holds or
+  by its place as a failure names it. At most 5 rows.
+- It can be asked for on the command line, in the job config's `run` block,
+  and by a service in the `run` settings of a request.
+
+Built:
+
+- `"run": {"only": {"source": "payments_in", "where": {"txn_id": [654321]}}}`,
+  or by place: `"lines": [654322]`, `"records": [2]`, `"rows": [3]` with
+  `"sheet"`. On the command line `--only payments_in:txn_id=654321,654400`
+  and `--only payments_in:line=654322`, or the block itself in JSON.
+- The reader that is named hands on the picked rows and no others; every
+  other reader is read whole. It keeps to the picked rows before it types
+  any row, so a row that is wrong elsewhere in the file does not stop a run
+  for another, and a picked row that is wrong fails or is turned away as in
+  the full run.
+- A value is read as its column's type. A value or a place with no row,
+  and more than 5 rows, stop the run with a message. What is wrong with the
+  asking (no such reader, not a reader, no such column, a value that is not
+  the column's type, the wrong kind of place) refuses the job before
+  anything runs.
+- The summary has `only`: the reader and where each picked row is.
+- Measured on the payments scenario at 1,000,000 rows: 1.3 to 1.6 s for one
+  row. The reader is read twice, once to find the rows and once to run
+  them.
+
+Not built: a run that writes its files somewhere else and leaves the real
+ones alone. The dev's answer was that the files are backed up first.

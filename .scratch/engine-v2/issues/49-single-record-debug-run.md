@@ -1,6 +1,6 @@
 # 49 - Single-record debug run
 
-Status: claimed
+Status: resolved
 Type: grilling
 Blocked by: 50
 
@@ -142,3 +142,46 @@ format_check    filter rows      main: none      reject: 1 row
 
 The one question to bring the dev early is 8: a printed record is customer
 data in a log.
+
+## Answer
+
+Grilled with the dev on 2026-10-07, then built (23 tests in
+`tests/v2/test_trace.py`).
+
+Decided:
+
+- The reader reads the picked rows alone (ticket 50), and the trace covers
+  the entire run, every stage.
+- A switch of its own beside the one that picks the rows: the dev does not
+  build the frontend, and does not want it raised later that the two cannot
+  be told apart.
+- The result holds it as JSON for a frontend, with every column at every
+  component; the log has a short version. At most 5 picked rows, and at
+  most 50 rows listed of one output, with the real count said.
+- A printed row in the log and in the result is accepted.
+
+Built:
+
+- `"trace": true` under `run`, or `--trace`; it needs `only`.
+- The summary's `trace`: every component in the order it ran. One whose
+  rows come from the picked rows has each output with its row count, its
+  columns and their types, its rows as text, and where each row's picked
+  row is. A file output has the same for what it wrote. A later stage that
+  reads a file this run wrote from picked rows is traced too.
+- A component whose rows do not come from the picked rows (a lookup, a
+  stage that reads another file) runs as ever and has "its rows do not
+  come from the picked rows" in place of its outputs.
+- A row the job fails on: the trace goes as far as the failing component,
+  which holds the error.
+- The log: "[prepare] trace: prepared 1 row; added amount_usd=960081.2000;
+  changed narrative: SALARY   TRANSFER -> SALARY TRANSFER". A dozen columns
+  at most are named for a row; the output a change is on is said when a
+  component has several.
+- How: the engine takes such a flow's rows in hand between two components,
+  as it already did before a component that needs rows. A run without a
+  trace is built and run exactly as before.
+- Measured on the payments scenario at 1,000,000 rows: 0.84 s for one
+  traced row, and a summary of 34 KB for the job's 19 components.
+
+Not built: a map's expression beside each value (the frontend has the job
+config), and the lookup row behind a match.

@@ -15,7 +15,7 @@ from ..components.base import Source
 from ..job.model import Column, ComponentSpec, Job, Only
 from ..job.refusal import Refusal
 from ..rows import shown
-from ..types import from_text, polars_type
+from ..types import from_text
 
 if TYPE_CHECKING:
     from ..components.base import Component
@@ -63,8 +63,6 @@ def holds(frame: pl.LazyFrame, schema: Sequence[Column], where: Mapping[str, Seq
         column, held = declared[name], pl.col(name)
         if types[name] == pl.String and column.type != "str":
             held = from_text(held.fill_null(""), column)[0]
-        elif types[name] != polars_type(column):
-            held = held.cast(polars_type(column), strict=False)
         conditions.append(held.is_in(wanted_values(column, values).implode()))
     return pl.all_horizontal(conditions)
 
@@ -143,12 +141,9 @@ def only_from_text(text: str, job: Job) -> Dict[str, Any]:
     text = text.strip()
     if text.startswith("{"):
         try:
-            block = json.loads(text)
+            return json.loads(text)
         except ValueError as exc:
             raise ValueError(f"not JSON ({exc})") from None
-        if not isinstance(block, dict):
-            raise ValueError("expected an object")
-        return block
     source, colon, rest = text.partition(":")
     name, equals, values = rest.partition("=")
     if not colon or not equals or not source.strip() or not name.strip() or not values.strip():
