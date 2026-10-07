@@ -117,10 +117,12 @@ format_check    filter rows      main: none      reject: 1 row
 
 ## Where I lean, to be argued with
 
-- **Read the record alone.** It is quick on a file of any size, it works
-  past an aggregate and past user Python (every row in the run comes from
-  the record, so nothing has to be followed), and the engine can already
-  hold a flow's rows in hand between two components. What it gives up is
+- **Read the record alone.** It needs one read of the file to find the
+  record (0.09 s for a million rows, measured for ticket 38; larger files
+  not measured), it works past an aggregate and past user Python (every row
+  in the run comes from the record, so nothing has to be followed), and the
+  engine can already hold a flow's rows in hand between two components.
+  What it gives up is
   said in the output where it applies: "a group of this 1 row alone".
   Reading everything and showing one record gives the true totals but
   loses the record at the first aggregate, which is where people look.

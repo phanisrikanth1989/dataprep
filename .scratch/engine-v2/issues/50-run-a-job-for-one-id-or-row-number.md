@@ -32,8 +32,9 @@ Ticketed only. To be grilled with the dev before anything is built.
   read one file.
 - Nothing picks rows today except a reader's own `limit` (the first N).
 - Finding one row of a million by its key is one filtered read of the file:
-  0.09 s (measured for ticket 38). The rest of a job on one row is as good
-  as instant; lookup files are still read whole.
+  0.09 s (measured for ticket 38; larger files not measured). What the rest
+  of a job costs on one row has not been measured; the lookup files would
+  still be read whole.
 
 ## What a run for one row would be, to react to
 
