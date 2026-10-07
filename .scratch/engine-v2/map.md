@@ -266,8 +266,9 @@ are designed.
 - [Normalize](issues/43-normalize.md) -- built against v1; every row it
   makes carries the number of the row it came from.
 - [What a new component owes the row numbers](issues/44-what-a-new-component-owes-the-row-numbers.md)
-  -- the rules are in `docs/v2/writing-a-component.md`; the ticket is the
-  list to hand a builder, with what an XML input and an unpivot would need.
+  -- for any component added from now on: the rules are in
+  `docs/v2/writing-a-component.md`, and the ticket is the list to hand a
+  builder, by kind of component and by kind of source.
 
 ## Not yet specified
 

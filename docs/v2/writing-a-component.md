@@ -289,6 +289,15 @@ What a component owes, by what it does with rows:
 | joins a lookup to a main input | hands on the main input's; drops the lookup's (`rows.without`) |
 | reads columns by their place, or treats every column alike (prints all, compares all) | leaves the hidden ones out (`rows.visible(names)`) |
 | hands rows to code the engine cannot see into | sets `sees_hidden_columns = False`: the engine hands it frames without them, and what it hands on has lost them |
+| puts several inputs one after another (a unite) | nothing: each row keeps its own source's number |
+| turns rows into columns (a transpose, a pivot) | says what a row of its output stands for: a group of input rows (then as "one row of several"), or nothing (then it drops them and says so) |
+| writes an output of any kind | nothing: the engine drops them before the output is handed its frame |
+| makes no rows | nothing |
+
+This holds for every component added from now on, whatever it reads, does
+or writes. The list to work through, with what `locate` says for each kind
+of source, is in
+`.scratch/engine-v2/issues/44-what-a-new-component-owes-the-row-numbers.md`.
 
 A source:
 

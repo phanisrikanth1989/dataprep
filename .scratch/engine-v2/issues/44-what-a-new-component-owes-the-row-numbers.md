@@ -28,70 +28,104 @@ things the AI should build then."
 
 ## Answer
 
-Written on 2026-10-07. The rules are in `docs/v2/writing-a-component.md`
-(rule 9, "Row numbers", the paragraph on conversions under "Expressions",
-"Tests", "Done means"). What follows is the same thing as a list to work
-through, for a person or an AI handed "add component X to v2".
+Written on 2026-10-07. This is for **any component added to v2 from now
+on**: a reader of any kind of source, a step of any kind, an output of any
+kind. It is the list to hand to whoever builds it, a person or an AI. The
+rules themselves are in `docs/v2/writing-a-component.md` ("Row numbers").
 
-### How a user configures it
+### 1. What the user configures
 
-Nothing new. A user marks key columns with `"key": true` on the columns of
-a source's schema (Talend's key flag converts to that). A new component
-declares no config key for row numbers, and a job config needs no change.
+One thing, and it is there already: `"key": true` on a column of a source's
+schema marks it as a key column (Talend's key flag converts to that). A new
+component declares **no config key** for row numbers, and no job config
+changes.
 
-### What to build, in this order
+### 2. Find the kind of component you are building
 
-1. **Read the guide** (`docs/v2/writing-a-component.md`) and the v1
-   component. Run v1 on small inputs for every case you are unsure of
-   before deciding anything: v1 is the answer key.
-2. **Answer-key tests first**, failing: `tests/v2/components/test_<name>.py`.
-3. **The component**, one file, every key the converter writes and v1 reads
+Every component is one of these, or a mix; for a mix, do each part.
+
+| Kind | Built already | Others it covers | What it must do |
+|---|---|---|---|
+| **Source**: reads rows from anywhere | delimited, positional, full row, Excel, JSON | XML, a database query, a queue, a fixed list of rows, a row generator | Number its records from 1 where it reads them, before dropping any. Hand on the number and the key copies with every output. Implement `locate` (table 3). |
+| **Keeps its rows and all their columns** | filter rows, sort row, unique row, log row | sample, replace values | Nothing. The hidden columns pass. |
+| **Picks or renames columns** | filter columns, the map's outputs | convert type, extract fields | Pick the hidden columns as well (`rows.hidden(names)`). |
+| **One row becomes several** | normalize | unpivot, extract with a loop, replicate | Every row made carries the hidden columns of the row it came from. Free where one column is exploded; with Polars' `unpivot`, name them among the index columns. |
+| **Several rows become one** | aggregate row | denormalize, pivot, aggregate sorted | Keep, for each source: the lowest row number, that row's key copies, and how many rows went in (`_carried` in `aggregate_row.py`). |
+| **A lookup joined to a main input** | join, the map's lookups | any other join | Hand on the main input's hidden columns; drop the lookup's (`rows.without`). |
+| **Several inputs one after another** | unite | merge | Nothing. Each row keeps its own source's number. |
+| **Rows become columns** | none | transpose, pivot to columns | Say in the docstring what a row of the output stands for. If it stands for a group of input rows, do as "several rows become one". If for nothing, drop the hidden columns and say so. |
+| **Hands rows to code the engine cannot see into** | Python dataframe | Python row, an outside program | Set `sees_hidden_columns = False`. What it hands on has no number; say so in the docstring. |
+| **Reads columns by place, or treats all columns alike** | context load, log row's printing, unique row without keys | compare, checksum, schema check | Leave the hidden columns out (`rows.visible(names)`). |
+| **Output of any kind** | delimited file output | Excel, XML, JSON, database outputs | Nothing: the engine drops the hidden columns before the output is handed its frame. |
+| **Makes no rows** | none | die, warn, set variable, run job | Nothing. |
+
+### 3. What `locate` says, by kind of source
+
+`locate(number)` returns the words a person looking for the record would
+use. Use the position the source's own tool shows.
+
+| Source | What to say |
+|---|---|
+| Text file, one record a line | `line 7 of in.csv` (the number plus the header rows) |
+| Text file where a record can span lines | `record 7 of in.csv`: the line cannot be vouched for |
+| Workbook | `row 3 of sheet 'Q1' of book.xlsx` |
+| JSON | `record 2 ($.orders[1]) of in.json` |
+| XML | `record 2 (/orders/order[2], line 14) of in.xml` |
+| Database query | `row 7 of the query of <component id>`; the key columns are what finds it |
+| Queue or stream | the queue's own coordinates: topic, partition, offset |
+| Rows the job makes itself | `row 7 of <component id>` |
+| A file an iterate step picked | the path of that turn, as the reader resolved it |
+
+### 4. If the component can fail on a row
+
+Make the check count the failing rows, ask for `*first_of(bad)` in the same
+frame, and end the message with `self.where(found)`. The job still fails
+and writes nothing; the message gains the first row's place and key.
+
+### 5. If the component translates expressions
+
+Call `self.check_conversions(frame, scope)` for every frame they run on.
+The engine fails the job if you forget. A new function that can fail on a
+row is built with `tr.fallible(what, value, made)`.
+
+### 6. What to build, in this order
+
+1. Read the guide and the v1 component. Run v1 on small inputs for every
+   case you are unsure of: v1 is the answer key.
+2. Answer-key tests first, failing: `tests/v2/components/test_<name>.py`.
+3. The component: one file, every key the converter writes and v1 reads
    declared as supported, ignored or refused.
-4. **Decide what the component does with rows**, and do what the table in
-   "Row numbers" asks for that kind:
-   - a source numbers its records and implements `locate`;
-   - a step that picks columns picks the hidden ones too;
-   - a step that makes several rows of one lets the hidden columns repeat;
-   - a step that makes one row of several keeps the first number, its key
-     and the count;
-   - a step that joins keeps the main input's and drops the lookup's;
-   - a step that treats every column alike leaves the hidden ones out;
-   - a step that hands rows to code the engine cannot see into sets
-     `sees_hidden_columns = False`.
-5. **If it translates expressions**, call `self.check_conversions(frame,
-   scope)` for every frame they run on. The engine fails the job if you
-   forget.
-6. **If it can fail on a row itself**, make the check count the rows, ask
-   for `*first_of(bad)`, and end the message with `self.where(found)`.
-7. **Row-number tests** in `tests/v2/test_row_numbers.py`: for a source,
-   the place and the key on every way it reads; for anything else, that a
-   failure after it still names the source row (or, for foreign code, no
-   longer does).
-8. **The whole of `tests/v2`**, which is also what proves no hidden column
-   reaches a file, and the coverage gate.
-9. **The docs**: the component in the list of `docs/v2/README.md`, its row
-   in the table of "Finding the row that failed", its differences from v1,
-   and the count of components in `CLAUDE.md`.
+4. The row numbers, by table 2 (and table 3 for a source).
+5. Sections 4 and 5 above, where they apply.
+6. Row-number tests in `tests/v2/test_row_numbers.py` (section 7).
+7. The whole of `tests/v2` and the coverage gate.
+8. The docs (section 8).
 
-### The two worked examples
+### 7. Tests to write for the row numbers
 
-- A source: `src/v2/components/file/file_input_json.py` (ticket 42). It
-  numbers records with `with_row_index(self.row_number, offset=1)`, keeps
-  each record's path while it reads, and `locate` returns "record 2
-  ($.orders[1]) of in.json".
-- A step that makes several rows of one:
-  `src/v2/components/transform/normalize.py` (ticket 43). It does nothing
-  for the numbers: it explodes one column, and Polars repeats the others,
-  the hidden ones among them. Its test is
-  `test_every_row_a_normalize_makes_carries_the_number_of_the_row_it_came_from`.
+- **A source**: a failure names the right place on every way the reader
+  reads (a header, blank records, each of its read paths), and shows the
+  key.
+- **Any step that hands rows on**: a failure after it still names the
+  source row (`chain(...)` in `tests/v2/test_row_numbers.py`).
+- **Several rows become one**: the message says "the first of N rows that
+  were combined".
+- **Foreign code**: a failure after it no longer names a row.
+- Nothing to write for "no hidden column in a file": every test that
+  compares v2's files with v1's fails if one gets there.
 
-### What an XML input and an unpivot would need
+### 8. Docs to update
 
-The dev named these beside the two that were built.
+`docs/v2/README.md`: the component in the list of components, its row in
+the table of "Finding the row that failed", its differences from v1.
+`CLAUDE.md`: the count of components.
 
-- **XML input**: as the JSON input. `lxml` gives each element its line in
-  the file (`sourceline`) and its path (`getpath`), so `locate` can say
-  both: "record 2 (/orders/order[2], line 14) of in.xml".
-- **Unpivot**: several rows of one, like normalize. Polars' `unpivot`
-  keeps the columns named as its index: name the hidden columns among
-  them, or they are dropped.
+### Worked examples
+
+- A source: `src/v2/components/file/file_input_json.py`.
+- One row becomes several: `src/v2/components/transform/normalize.py`,
+  which had to do nothing.
+- Several rows become one: `_carried` in
+  `src/v2/components/aggregate/aggregate_row.py`.
+- Picks columns: `projected` in
+  `src/v2/components/transform/map_outputs.py`.
