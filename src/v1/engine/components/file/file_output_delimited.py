@@ -772,7 +772,10 @@ class FileOutputDelimited(BaseComponent):
             if include_header:
                 writer.writerow(list(df.columns))
             for row in df.itertuples(index=False, name=None):
-                writer.writerow(row)
+                # Talend parity: nulls (None/NaN/NaT/pd.NA) render as an empty field,
+                # not the literal 'nan'/'None' that csv.writer's str() would emit --
+                # identical to raw mode (_raw_str). A LEFT-join miss must write "".
+                writer.writerow([self._raw_str(v) for v in row])
 
     def _write_raw_mode(
         self,

@@ -1,0 +1,17 @@
+{
+  "name": "lm-probe",
+  "displayName": "LM Probe",
+  "publisher": "citi-demo",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.95.0" },
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "lmProbe.enumerate", "title": "LM Probe: Enumerate Models" },
+      { "command": "lmProbe.send", "title": "LM Probe: Send Request (consent test)" },
+      { "command": "lmProbe.toolLoop", "title": "LM Probe: Tool Round Trip" },
+      { "command": "lmProbe.limits", "title": "LM Probe: Limits (overflow, max_tokens)" }
+    ]
+  }
+}

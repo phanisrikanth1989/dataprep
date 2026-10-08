@@ -1,0 +1,36 @@
+{
+  "sources_schema": {
+    "trades": [
+      {"name": "trade_id", "type": "str", "nullable": false, "key": true},
+      {"name": "symbol", "type": "str", "nullable": true, "key": false},
+      {"name": "quantity", "type": "str", "nullable": true, "key": false},
+      {"name": "price", "type": "str", "nullable": true, "key": false},
+      {"name": "currency", "type": "str", "nullable": true, "key": false}
+    ]
+  },
+  "rules": [
+    {"id": "R1", "kind": "derive", "description": "amount = quantity multiplied by price"},
+    {"id": "R2", "kind": "sort", "description": "order the result by trade_id ascending"}
+  ],
+  "located": {
+    "sample_input": {"trades": ["sibling:trades.csv"]},
+    "expected_output": {"result": ["image:0"]}
+  },
+  "expected_output": {
+    "result": [
+      {"trade_id": "T001", "symbol": "AAPL", "amount": "1500.00"},
+      {"trade_id": "T002", "symbol": "MSFT", "amount": "1500.00"},
+      {"trade_id": "T003", "symbol": "GOOG", "amount": "5000.00"}
+    ]
+  },
+  "output_keys": {"result": ["trade_id"]},
+  "coverage_map": [
+    {"handle": "para:0", "disposition": "extracted_to", "refs": ["R1", "R2"]},
+    {"handle": "table:0", "disposition": "extracted_to", "refs": ["result.symbol", "result.amount"]},
+    {"handle": "para:1", "disposition": "irrelevant"},
+    {"handle": "image:0", "disposition": "extracted_to", "refs": ["result"]},
+    {"handle": "sibling:trades.csv", "disposition": "extracted_to", "refs": ["trades"]}
+  ],
+  "notes": "Keep every trade row; amount uses two decimal places; symbol is uppercased.",
+  "low_confidence": []
+}

@@ -4,6 +4,8 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine — feature parity with Talend is non-negotiable.
 
+**Two engines.** `src/v1` is the pandas engine described in most of this file. `src/v2` is a second engine, pure Python on Polars, that runs the same v1 job configs for eighteen components and must write the same files v1 writes (v1 is its answer key). Start at [`docs/v2/README.md`](./docs/v2/README.md); the vocabulary is in [`src/v2/CONTEXT.md`](./src/v2/CONTEXT.md) and the component contract in [`docs/v2/writing-a-component.md`](./docs/v2/writing-a-component.md). `src/v1` is never changed to suit v2.
+
 ## Constraints
 
 - **Tech stack**: Python 3.12+ engine, Java 11+ bridge via Py4J/Arrow — no framework changes
@@ -17,6 +19,10 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 ## Working with Claude
 
 GSD is retired on this project. No `/gsd-*` commands, no mandatory planning artifacts, no phase docs going forward.
+
+### Agent skills
+
+Agent-skill configuration — issue tracker, triage labels, domain docs — lives in [`AGENTS.md`](./AGENTS.md) at the repo root, so GitHub Copilot and other agents pick it up too. Details in `docs/agents/*.md`. Nothing else in this file moves.
 
 ### Workflow
 
@@ -92,6 +98,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 - `PyYAML` — YAML config parsing for SWIFT transformer.
 - `jsonpath_ng` — JSONPath expression evaluation. See `extract_json_fields.py`.
 - `numpy` — numerical operations. See `bridge.py`, `python_dataframe_component.py`.
+- `polars` (`>=1.44,<2.0`, the `v2` extra) — the v2 engine's only data library; `fastexcel` reads Excel for it. Never call `LazyFrame.cache()` in v2: Polars 1.44 loses a projection around it (see `docs/v2/writing-a-component.md`). Polars 1.44 also miscounts `select(pl.len())` over a `concat` cut by `slice`/`head`; the engine counts rows its own way (`_row_count` in `src/v2/engine/runner.py`).
 - Groovy `3.0.21` — dynamic script compilation in the Java bridge.
 
 ### Configuration
@@ -110,6 +117,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 ### Entry Points (CLI)
 - Converter: `python -m src.converters.talend_to_v1.converter <input.item> [output.json]` (see `src/converters/talend_to_v1/converter.py:460-472`)
 - Engine: `python src/v1/engine/engine.py <job_config.json> [--context_param KEY=VALUE]` (see `src/v1/engine/engine.py:860-889`)
+- v2 engine: `python -m src.v2 <job_config.json> [--context_param KEY=VALUE] [--check] [--row-counts] [--summary FILE] [--only ROWS] [--trace]` (see `src/v2/cli.py`); from any other folder, by the engine's own path: `python /path/to/dataprep/src/v2 <job_config.json>`. A job config's `run` block holds the same settings (`log_level`, `row_counts`, `summary_file`, `only`, `trace`); the command line wins over it. `--only payments_in:txn_id=654321` (or `:line=654322`) runs the job for a few rows of one reader, and `--trace` puts what every component did with them in the summary. A service calls `run_job(job_config, context=..., run={...})` and sends back `result.summary()`. Exit code 0 finished, 1 ran and failed, 2 not run (job config refused, or bad command line). `--check` prints the refusal report and runs nothing. INFO and DEBUG log lines go to stdout, warnings and errors to stderr (an empty stderr is a clean run; a job that finished but dropped rows for a fault, with no flow taking the rejects, warns there with the count and the first row's place; a line that shows a value from the data is cut and kept to one line); the JSON summary is the last thing on stdout, and `--summary FILE` writes it to a file as well. `--row-counts` logs the row counts of every component, for looking into a job (the run takes about three times as long).
 
 ---
 
@@ -179,6 +187,7 @@ Paste-runnable Phase 14 gate command (95% per-module line-coverage floor). Run f
 rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
   --cov=src/v1/engine \
   --cov=src/converters \
+  --cov=src/v2 \
   --cov-report=term-missing \
   --cov-report=html \
   --cov-report=json \
@@ -186,7 +195,7 @@ rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
 ```
 
 Expected outcome:
-- Exit 0 with final stdout line `PASS: all 181 in-scope modules at >= 95.0% line coverage`
+- Exit 0 with final stdout line `PASS: all <N> in-scope modules at >= 95.0% line coverage` (181 when Phase 14 closed; `src/v2` had added 37 more by 2026-10-06)
 - `htmlcov/index.html` regenerated (`htmlcov/` is gitignored)
 - `coverage.json` regenerated (consumed by the per-module gate script)
 
@@ -196,6 +205,7 @@ Notes:
 - `[tool.coverage.run]` and `[tool.coverage.report]` in `pyproject.toml` are the source of truth for in-scope modules (`*/__init__.py` omitted, legacy `complex_converter/` omitted) and the pragma allowlist (`__main__`, `@abstractmethod`, `raise NotImplementedError`).
 - `rm -f .coverage*` prefix is required — stale `.coverage.*` shards from interrupted xdist runs otherwise pollute the JSON report.
 - Branch coverage stays off.
+- `src/v2` alone: `python -m pytest tests/v2 -o addopts="" -q --cov=src/v2` (under a minute). The v2 tests that compare with v1's Java tMap or Java filter condition skip without a JVM on PATH.
 
 Phase 14 locked the final per-module table on 2026-05-11. Historical per-module post-lift table lives at `.planning/phases/14-coverage-push-to-95-per-module-floor/14-COVERAGE.md`; `14-coverage.json` is committed as the machine-readable acceptance artifact.
 
@@ -224,6 +234,8 @@ Phase 14 locked the final per-module table on 2026-05-11. Historical per-module 
 **Engine components** — `src/v1/engine/components/`. ~50 component classes by category (file, transform, aggregate, context, control). Inherit `BaseComponent` from `base_component.py` or `BaseIterateComponent` from `base_iterate_component.py`. Looked up by `ETLEngine` via the decorator `REGISTRY` (`src/v1/engine/component_registry.py`).
 
 **Engine services** — `src/v1/engine/` (top-level files). `GlobalMap`, `ContextManager`, `TriggerManager`, `JavaBridgeManager`, `PythonRoutineManager`, `exceptions.py`. Used by engine core and all components.
+
+**v2 engine** — `src/v2/`. `job/` loads a v1-shaped job config against each component's declared config keys and collects everything v2 will not run with into one refusal report; `expressions/` translates Python expressions into Polars expressions once, at load; `engine/` builds each subjob as one lazy Polars plan, runs it in one pass, and puts files in place only when the whole subjob succeeded; `components/` holds the eighteen components, one file each, registered by decorator as in v1. `rows.py` is how a failure names the input row: every source numbers its rows, the number travels with the row as a hidden column that is never written, and a failing check ends its message with the row's place and key (see `docs/v2/writing-a-component.md`). No Java anywhere. Tests in `tests/v2` run the same job on v1 and on v2 and compare the bytes written (`tests/v2/answer_key`).
 
 **Java bridge** — `src/v1/java_bridge/`. `JavaBridge` Python client (`bridge.py`), Java server (`java/src/main/java/com/citi/gru/etl/JavaBridge.java`, `RowWrapper.java`). Executes Java/Groovy expressions and row-level transformations via Py4J + Arrow. Used by `JavaBridgeManager` and engine components with `{{java}}` expressions.
 
