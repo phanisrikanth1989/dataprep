@@ -278,6 +278,24 @@ are designed.
 - [Single-record debug run](issues/49-single-record-debug-run.md)
   -- built: `trace` puts what every component did with the picked rows in
   the result, through all stages, and a short version in the log.
+- Twenty-six more components, asked for on 2026-10-11 and built one at a
+  time (ticket, tests seen failing, row numbers, README, own commit, and
+  an independent review of every few). Done so far:
+  [Replicate](issues/53-replicate.md), [Sample row](issues/54-sample-row.md),
+  [Split row](issues/55-split-row.md), [Replace](issues/56-replace.md),
+  [Convert type](issues/57-convert-type.md),
+  [Unpivot row](issues/58-unpivot-row.md),
+  [Denormalize](issues/59-denormalize.md),
+  [Aggregate sorted row](issues/60-aggregate-sorted-row.md) -- a group is a
+  run of rows that agree, as in Talend,
+  [Fixed flow input](issues/61-fixed-flow-input.md).
+  [Review of the first five](issues/62-review-of-the-first-five-new-components.md)
+  -- fourteen findings, each fixed test first or said in the README.
+  Still to build, in this order: schema compliance check, pivot to columns
+  delimited, row generator; file output Excel, file output positional,
+  extract delimited fields, extract positional fields, extract regex
+  fields, extract JSON fields, file input properties, file row count; die,
+  warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such
