@@ -242,6 +242,12 @@ def test_extract_positional_fields_counts_its_rows(tmp_path):
     assert same_counts(made, {"in.csv": b"id|raw\n1|abcdefghij\n2|abc\n"}, tmp_path)["it"] == counts(2, 1, 1)
 
 
+def test_extract_regex_fields_counts_its_rows(tmp_path):
+    from .components.test_extract_regex_fields import extract
+    made = extract(reject="")
+    assert same_counts(made, {"in.csv": b"id|raw\n1|ann-30-x\n2|bob\n"}, tmp_path)["it"] == counts(2, 1, 1)
+
+
 def test_pivot_counts_the_rows_it_reads_and_the_groups_it_writes(tmp_path):
     pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
              "config": {"pivot_column": "q", "aggregation_column": "amt", "groupbys": ["id"], "filename": "out.csv"},

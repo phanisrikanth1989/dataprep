@@ -311,7 +311,8 @@ are designed.
   [Extract delimited fields](issues/70-extract-delimited-fields.md) -- on
   a base the other extract components share.
   [Extract positional fields](issues/72-extract-positional-fields.md).
-  Still to build, in this order: extract regex fields, extract JSON fields, file input properties, file row
+  [Extract regex fields](issues/73-extract-regex-fields.md).
+  Still to build, in this order: extract JSON fields, file input properties, file row
   count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own

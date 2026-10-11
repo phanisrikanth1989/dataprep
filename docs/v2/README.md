@@ -283,7 +283,8 @@ in the summary of a run that asked for it, and of no other.
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
-     check, extract delimited fields, extract positional fields;
+     check, extract delimited fields, extract positional fields, extract
+     regex fields;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -932,6 +933,24 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   delimited fields.
 - A text that is too short and fails the job names the row.
 - Not read, as in v1: `formats`, `advanced_option`, `advanced_separator`.
+
+**Extract regex fields**
+
+- The pattern is Python's, as in v1, as far as Polars can look for it: a
+  pattern with lookaround or a backreference refuses the job, as in an
+  expression. `$` is the end of the text; in v1 it is also the place
+  before a line break the text ends on.
+- A pattern that is none, and a `field` that names no column, refuse the
+  job before it runs. v1 fails when the rows arrive, and with
+  `die_on_error` off looks in the first column for a `field` it does not
+  find.
+- What a group holds is read as its column's declared type the way every
+  transform's output is, as for extract delimited fields above.
+- A text the pattern is not found in is said the way Python shows a text
+  (`'bob'`), as in v1; a character Python would write as an escape other
+  than a line break, a tab or a backslash is written as it is.
+- A failure names the row. The reject file has its header line where no
+  row is turned away.
 
 **Pivot to columns delimited**
 
