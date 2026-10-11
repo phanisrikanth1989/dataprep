@@ -83,7 +83,7 @@ decorator registers it. Working examples: `transform/sort_row.py`,
 `transform/filter_rows.py`, `file/file_input_delimited.py`,
 `file/file_output_delimited.py`.
 
-## The four kinds (`src/v2/components/base.py`)
+## The five kinds (`src/v2/components/base.py`)
 
 | Kind | You write | Gets | Returns |
 |---|---|---|---|
@@ -91,6 +91,7 @@ decorator registers it. Working examples: `transform/sort_row.py`,
 | `Transform` | `build(inputs)` | `{flow name: LazyFrame}` in job-config flow order | `{port: LazyFrame}` |
 | `Sink` | `write(frame)` | its one input | a `Write` |
 | `Eager` | `run(inputs)` | `{flow name: DataFrame}` (real rows) | `{port: DataFrame}` |
+| `Action` | `act()` | nothing | nothing |
 
 - Inputs arrive in the order of the component's own `inputs` list in the job
   config (v1's rule: a join's first input is its main flow), and in
@@ -99,6 +100,11 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   tiny lookup that sets context). The engine collects its inputs, which
   holds them in memory. A `Transform` can decide per run: override
   `needs_rows()` and implement both `build` and `run`.
+- `Action` is for a component that does something and hands no rows on
+  (counts a file's rows, copies a file). No flow comes to it or leaves it,
+  so it is a subjob of its own that triggers reach and leave. What it finds
+  out it leaves in globalMap (`self.global_map[f"{self.id}_COUNT"]`); it
+  raises to fail the job. It is not run when a job is only checked.
 - Class attributes: `names`, `keys`, `outputs`, `min_inputs`, `max_inputs`
   (`None` = any number), `conforms`.
 - `outputs` maps each output port to the v1 flow types that leave by it.

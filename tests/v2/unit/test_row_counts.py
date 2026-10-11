@@ -3,7 +3,7 @@ import logging
 
 import polars as pl
 
-from src.v2.components.base import Source
+from src.v2.components.base import Action, Source
 from src.v2.job.keys import Key
 
 from .kit import REGISTRY, job, lines, run
@@ -127,3 +127,32 @@ def test_rows_cut_from_the_front_of_two_frames_put_together_are_counted_right(tm
     result = run(job(components, [("r1", "in", "out", "flow")]), row_counts=True)
     assert result.status == "success" and lines(tmp_path / "o.csv") == ["n", "3", "4", "0"]
     assert result.counts == {"in": counts(3, 3, 0), "out": counts(3, 3, 0)}
+
+
+# ------------------------------------------------------------------
+# A component that acts and hands no rows on
+# ------------------------------------------------------------------
+
+class Noted(Action):
+    """Leaves a word in globalMap, and counts no rows."""
+
+    names = ("noted",)
+    keys = (Key("word", required=True),)
+
+    def act(self):
+        self.global_map[f"{self.id}_WORD"] = self.config["word"]
+
+
+REGISTRY.register(Noted)
+
+
+def test_component_that_acts_and_counts_nothing_has_counts_of_none(tmp_path, caplog):
+    made = job([("note", "noted", {"word": "hello"}), ("in", "rows", {"data": {"n": [1, 2]}}),
+                ("kept", "save", {"path": str(tmp_path / "kept.csv")})], [("r1", "in", "kept", "flow")],
+               triggers=[{"type": "RunIf", "from": "note", "to": "in", "condition": 'globalMap.get("note_WORD") == "hello"'}])
+    with caplog.at_level(logging.INFO, logger="src.v2"):
+        result = run(made, row_counts=True)
+    assert result.status == "success", result.error
+    assert result.global_map["note_WORD"] == "hello" and lines(tmp_path / "kept.csv")
+    assert result.counts["note"] == counts(0, 0, 0)
+    assert "[note] NB_LINE:0 OK:0 REJECT:0" in count_lines(caplog)

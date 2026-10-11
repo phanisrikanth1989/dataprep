@@ -320,8 +320,9 @@ are designed.
   [File input properties](issues/75-file-input-properties.md) -- a row
   for every property, as Talend's fixed schema has it; v1's one wide row
   only for a job that declares other columns.
-  Still to build, in this order: file row
-  count; die, warn, set global var, file exist, file copy, file delete.
+  [File row count](issues/76-file-row-count.md) -- and with it a kind of
+  component that acts and hands no rows on.
+  Still to build, in this order: die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such

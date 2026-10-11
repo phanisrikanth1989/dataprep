@@ -1,12 +1,14 @@
 """Base classes of every v2 component.
 
-A component is one of four kinds, and the kind says who does the work:
+A component is one of five kinds, and the kind says who does the work:
 
 - ``Source``: makes lazy frames out of nothing (a file). No input.
 - ``Transform``: turns lazy frames into lazy frames. It only builds the plan.
 - ``Sink``: describes a file to write. The engine runs the write.
 - ``Eager``: needs the rows in hand (user Python, printing rows). The engine
   collects its inputs for it. This is the one kind that holds rows in memory.
+- ``Action``: does something and hands no rows on (counts a file's rows,
+  copies a file). No flow comes to it or leaves it; triggers do.
 
 Components never collect. The engine does, once per subjob wherever it can.
 A component that needs something out of the data (a few rows to print, a
@@ -620,6 +622,22 @@ class Sink(Component):
 
     def write(self, frame: pl.LazyFrame) -> Write:
         """Describe the file to write from the input frame."""
+        raise NotImplementedError
+
+
+class Action(Component):
+    """A component that does something when its turn comes, and takes and hands on no rows.
+
+    It is a subjob of its own: only triggers reach it and leave it. What it
+    finds out it leaves in globalMap, for a trigger's condition or a later
+    subjob to read. It raises to fail the job.
+    """
+
+    max_inputs: ClassVar[Optional[int]] = 0
+    outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {}
+
+    def act(self) -> None:
+        """Do it."""
         raise NotImplementedError
 
 

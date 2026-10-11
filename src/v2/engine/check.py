@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import polars as pl
 
-from ..components.base import Component, Sink, Source
+from ..components.base import Action, Component, Sink, Source
 from ..errors import ExpressionError
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
@@ -68,7 +68,7 @@ def check_job(
                     key, _, reason = problem.partition(": ")
                     if not (late_context and _names_context(_written(spec, key))):
                         report.add(spec.where, key, reason)
-                if not found and all(flow.name in frames for flow in arriving) and not isinstance(component, Sink):
+                if not found and all(flow.name in frames for flow in arriving) and not isinstance(component, (Sink, Action)):
                     inputs = {flow.name: frames[flow.name] for flow in arriving}
                     if isinstance(component, Source) or component.needs_rows():
                         outputs = component.declared_outputs()

@@ -23,7 +23,8 @@ from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional
 
 import polars as pl
 
-from ..components.base import CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only, one_line
+from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only,
+                               one_line)
 from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place
 from ..job.graph import subjobs
@@ -523,6 +524,12 @@ class Runner:
                         logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} for {write.path}"))
                     elif self.trace is not None:
                         state.other.append(os.path.realpath(write.path))
+                elif isinstance(component, Action):
+                    component.act()
+                    outputs = {}
+                    # It counts no rows unless it says so itself.
+                    for stat in _STATS:
+                        self.run_context.global_map.setdefault(f"{component_id}_{stat}", 0)
                 elif isinstance(component, Source):
                     only = self.settings.only
                     if only is not None and only.source == component_id:
@@ -754,7 +761,7 @@ class Runner:
     def _count(self, component: Component, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]) -> None:
         """Count the rows of a component whose counts something in the job reads, or the run asked for."""
         wanted = self._wanted.get(component.id)
-        if not wanted or isinstance(component, Sink):
+        if not wanted or isinstance(component, (Sink, Action)):
             return
         counted = component.line_counts(inputs, outputs)
         global_map = self.run_context.global_map

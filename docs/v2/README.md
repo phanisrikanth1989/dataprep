@@ -286,7 +286,7 @@ in the summary of a run that asked for it, and of no other.
      replace, convert type, unpivot row, denormalize, schema compliance
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
-   - the rest: Python dataframe, log row, context load.
+   - the rest: Python dataframe, log row, context load, file row count.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -1230,6 +1230,16 @@ every converted job is a row of nothing.
   character.
 - A failure names a row by the line its property is on, and a run can be
   for a few properties, by line or by key.
+
+**File row count**
+
+- As v1: the count in `<id>_COUNT`, every kind of line end ending a row
+  when the separator is one, any other separator splitting the whole
+  text, rows of blanks left out when asked.
+- A file that is not there, or not written in its encoding, fails the job
+  in plain words. A separator of nothing refuses it before it runs.
+- With a separator that is no line end the file is held in memory while
+  it is split, as in v1.
 
 **Positional input**
 
