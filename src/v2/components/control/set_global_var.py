@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import polars as pl
 
 from ...errors import ConfigurationError
-from ...job.keys import Key
+from ...job.keys import Key, Kind
 from ...rows import visible
 from ..base import Action, Transform
 from ..registry import REGISTRY
@@ -52,6 +52,8 @@ class SetGlobalVar(Action, Transform):
         Key("variables", type=list, required=True, aliases=("VARIABLES",), items=_VARIABLE,
             doc="The entries: each a key and its value."),
         Key("die_on_error", type=bool, default=True, doc="Nothing here can fail on a row; v1 reads it on every component."),
+        Key("requires_java_bridge", kind=Kind.IGNORED, type=object,
+            doc="The converter's note that a value was Java; a value that still is refuses the job."),
     )
 
     def act(self) -> None:

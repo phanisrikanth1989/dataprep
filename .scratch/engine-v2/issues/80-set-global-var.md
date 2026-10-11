@@ -46,3 +46,10 @@ against v1's files).
 - Its row counts are none, as v1 counts.
 - Mutation check: 16 ways of breaking it, 15 caught at first and one
   after a test.
+
+Corrected the same day: the commit of this component (2fee4c2b) went in
+with one test of the suite red, because the command that ran the suite
+went on to commit whatever it said. The test was right: the converter
+writes `requires_java_bridge` on this component and the key was not
+declared, so every converted job with a set global var was refused. The
+key is declared now; the suite is run and read before a commit.
