@@ -330,10 +330,12 @@ are designed.
   [File exist](issues/81-file-exist.md),
   [File copy](issues/82-file-copy.md) -- to Talend's rule where v1
   differs (a failed copy, a file not to be replaced, the file's time).
+  [File delete](issues/83-file-delete.md) -- nothing there to delete
+  fails the job under `failon`, as in Talend.
   [Set global var](issues/80-set-global-var.md) -- in a flow its entries
   are put when the subjob is done; a reader in the same subjob fails the
   job.
-  Still to build: file delete.
+  All twenty-six are built.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such
