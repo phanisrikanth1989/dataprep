@@ -195,12 +195,17 @@ class AggregateRow(Transform):
             # when two of them share a part.
             frame, keys = frame.with_columns(pl.lit(True).alias(_WHOLE)), [_WHOLE]
         carried = combined(types.names())
-        aggregated = frame.group_by(keys, maintain_order=True).agg(aggregates + carried)
+        frame, by = self._grouped_by(frame, keys)
+        aggregated = frame.group_by(by, maintain_order=True).agg(aggregates + carried)
         made = aggregated.select(
             [pl.col(name).alias(output) for name, output in groups] + results
             + [pl.col(expr.meta.output_name()) for expr in carried]
         )
         return {"main": self._as_declared(made)}
+
+    def _grouped_by(self, frame: pl.LazyFrame, keys: List[str]) -> Tuple[pl.LazyFrame, List[str]]:
+        """The frame to group and the columns to group it by: the group columns, wherever their rows stand."""
+        return frame, keys
 
     def _as_declared(self, frame: pl.LazyFrame) -> pl.LazyFrame:
         """Hand floats over as Decimals, and Decimals as floats, where the output columns are declared so.

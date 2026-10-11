@@ -267,6 +267,17 @@ def test_every_row_a_split_row_makes_carries_the_number_of_the_row_it_came_from(
     assert failed(tmp_path, chain(("SplitRow", {"col_mapping": groups}, PEOPLE)), {"in.csv": PEOPLE_DATA}) == NAMED
 
 
+def test_group_of_sorted_rows_names_the_first_of_its_rows(tmp_path):
+    data = b"id;name;age\n1;ann;30\n2;cy;\n4;cy;\n3;ann;5\n"
+    grouped = {"groupbys": [{"input_column": "name", "output_column": "name"}],
+               "operations": [{"output_column": "age", "function": "max", "input_column": "age"},
+                              {"output_column": "id", "function": "min", "input_column": "id"}]}
+    made = chain(("AggregateSortedRow", grouped, "id:int, name:str, age:int"))
+    assert failed(tmp_path, made, {"in.csv": data}) == (
+        "Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv, "
+        "the first of 2 rows that were combined (id=2)")
+
+
 def test_row_a_denormalize_makes_of_several_names_the_first_of_them(tmp_path):
     # The two rows with id 2 have no age and become one row, which the sort cannot take.
     data = b"id;name;age\n1;ann;30\n2;cy;\n2;di;\n"

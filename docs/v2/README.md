@@ -278,7 +278,7 @@ in the summary of a run that asked for it, and of no other.
    - files: delimited input and output; positional, full-row, Excel and
      JSON input;
    - rows: filter rows, filter columns, sort row, unique row, aggregate
-     row, join, unite, map, normalize, replicate, sample row, split row,
+     row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
@@ -657,6 +657,18 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Refused at load: a sum, average, median, deviation or variance of a column
   that is not a number (v1 gives 0 or nothing), a config with neither group
   columns nor operations.
+
+**Aggregate sorted row**
+
+- A group is a run of rows, one after another, that agree in the group
+  columns, as in Talend, whose component compares each row with the one
+  before it. On rows sorted by the group columns, which is what the
+  component is for, that is what v1 writes. On rows that are not sorted,
+  v1 groups the whole input and writes a group value once, where v2 and
+  Talend write it once for each run: of `a;1`, `b;2`, `a;3` summed by the
+  first column, v1 writes `a;4`, `b;2` and v2 writes `a;1`, `b;2`, `a;3`.
+- Everything said of the aggregate row holds here too, the rows that miss
+  a group value among it.
 
 **Join**
 
