@@ -287,7 +287,7 @@ in the summary of a run that asked for it, and of no other.
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
    - the rest: Python dataframe, log row, context load, file row count,
-     die, warn, set global var.
+     die, warn, set global var, file exist.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -1296,6 +1296,13 @@ every converted job is a row of nothing.
 - An entry with no key refuses the job. v1 fails when it comes to it, or
   passes over it with `die_on_error` off.
 - A value that is a Java expression refuses the job, as everywhere.
+
+**File exist**
+
+- As v1: `<id>_EXISTS` and `<id>_FILENAME`, a folder counting as there,
+  only a folder under `check_directory`. (Talend has no
+  `check_directory`.)
+- An empty path refuses the job before it runs.
 
 **File row count**
 

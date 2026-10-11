@@ -327,10 +327,11 @@ are designed.
   [Die](issues/78-die.md) -- in a flow it stops the job when a row
   arrives, as in Talend.
   [Warn](issues/79-warn.md).
+  [File exist](issues/81-file-exist.md),
   [Set global var](issues/80-set-global-var.md) -- in a flow its entries
   are put when the subjob is done; a reader in the same subjob fails the
   job.
-  Still to build, in this order: file exist, file copy, file delete.
+  Still to build, in this order: file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such
