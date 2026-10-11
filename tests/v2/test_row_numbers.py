@@ -251,9 +251,27 @@ def test_number_travels_through_a_map(tmp_path):
     ("LogRow", {}, PEOPLE),
     ("SortRow", {"criteria": [{"column": "name", "sort_type": "alpha", "order": "desc"}]}, PEOPLE),
     ("FilterRows", {"conditions": [{"column": "id", "operator": ">", "function": "", "value": "0"}]}, PEOPLE),
-], ids=["unique row", "unique row without keys", "log row", "sort row", "filter rows"])
+    ("Replicate", {}, PEOPLE),
+    ("SampleRow", {"range": "2..9"}, PEOPLE),
+    ("Replace", {"substitutions": [{"input_column": "name", "search_pattern": "cy", "replace_string": "cyd"}]}, PEOPLE),
+    ("ConvertType", {"manualtable": [{"input_column": "name", "output_column": "name"}]}, PEOPLE),
+], ids=["unique row", "unique row without keys", "log row", "sort row", "filter rows", "replicate", "sample row",
+        "replace", "convert type"])
 def test_number_travels_through_a_step_that_keeps_its_rows(tmp_path, step):
     assert failed(tmp_path, chain(step), {"in.csv": PEOPLE_DATA}) == NAMED
+
+
+def test_every_row_a_split_row_makes_carries_the_number_of_the_row_it_came_from(tmp_path):
+    # Each row is made into two; the second of the two made from line 4 is the first the sort cannot take.
+    groups = [{"id": "row1.id", "name": "row1.name", "age": "1"}, {"id": "row1.id", "name": "row1.name", "age": "row1.age"}]
+    assert failed(tmp_path, chain(("SplitRow", {"col_mapping": groups}, PEOPLE)), {"in.csv": PEOPLE_DATA}) == NAMED
+
+
+def test_row_a_convert_type_turns_away_names_its_source_row_when_that_stops_the_job(tmp_path):
+    step = ("ConvertType", {"manualtable": [{"input_column": "age", "output_column": "age"}], "dieonerror": True},
+            PEOPLE)
+    error = failed(tmp_path, chain(step, schema="id:int, name:str, age:str"), {"in.csv": b"id;name;age\n1;a;3\n2;b;old\n"})
+    assert error.endswith("cannot read 'old'; the row is line 3 of in.csv (id=2)")
 
 
 def test_number_travels_through_two_maps_and_a_filter(tmp_path):

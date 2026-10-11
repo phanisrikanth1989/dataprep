@@ -274,10 +274,13 @@ in the summary of a run that asked for it, and of no other.
    sets, a row count).
 2. Rewrite every Java expression (`{{java}}...`) in Python. See
    "Expressions" below.
-3. Replace or remove components v2 does not have. v2 has eighteen:
-   delimited file input and output, positional, full-row, Excel and JSON
-   input, filter rows, filter columns, sort row, unique row, aggregate row,
-   join, unite, map, normalize, Python dataframe, log row and context load.
+3. Replace or remove components v2 does not have. v2 has these:
+   - files: delimited input and output; positional, full-row, Excel and
+     JSON input;
+   - rows: filter rows, filter columns, sort row, unique row, aggregate
+     row, join, unite, map, normalize, replicate, sample row, split row,
+     replace, convert type;
+   - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -778,6 +781,25 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - A column of dates is refused. A number or a true-or-false value is split
   as the text Python writes for it (`1e-07`, `True`), as in v1.
 - `csv_option` and its two keys are accepted and change nothing, as in v1.
+
+**Replace**
+
+- An advanced rule's pattern runs on Polars' regular expressions, which
+  have no look-around and no back-reference inside a pattern. A rule that
+  needs one is refused at load. A group of the match is put back in the
+  replacement as in v1 (`\1`, `\g<1>`).
+
+**Convert type**
+
+- v1 on today's pandas turns away every row a pair converts in place (its
+  own cast fails on a text column), so v1 is the answer key only for a pair
+  that names another output column. v2 reads a value by the rules its
+  readers have for the declared type, and turns away only a row whose
+  value cannot be read.
+- The reject output's message is v2's own (`Column 'n' -> 'n' (int):
+  cannot read 'x'`); v1's is pandas' text.
+- `autocast` asks for nothing more: the engine reads every value as the
+  type its output column declares, as after any component.
 
 **Positional input**
 

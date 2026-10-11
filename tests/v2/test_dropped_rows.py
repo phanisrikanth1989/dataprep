@@ -240,11 +240,22 @@ def test_component_that_drops_rows_for_two_kinds_of_fault_tells_of_each(caplog, 
 @pytest.mark.parametrize("step", [
     {"type": "FilterRows", "config": {"conditions": [{"column": "id", "operator": ">", "function": "", "value": "2"}]}},
     {"type": "UniqueRow", "config": {"key_columns": [{"column": "amount"}]}},
-], ids=["filter rows", "unique row"])
+    {"type": "SampleRow", "config": {"range": "1,3"}},
+], ids=["filter rows", "unique row", "sample row"])
 def test_rows_a_step_turns_away_by_the_jobs_own_logic_are_not_told(caplog, tmp_path, step):
     result, said = told(caplog, tmp_path, through(step, IDS), {"in.csv": b"id;amount\n1;10\n2;10\n3;30\n4;30\n"})
     assert result.status == "success" and said == []
     assert len((tmp_path / "out.csv").read_bytes().splitlines()) == 3
+
+
+def test_convert_type_tells_of_the_row_whose_value_it_could_not_read(caplog, tmp_path):
+    step = {"type": "ConvertType", "config": {"manualtable": [{"input_column": "amount", "output_column": "amount"}]}}
+    made = through(step, "id:int, amount:str", IDS)
+    result, said = told(caplog, tmp_path, made, {"in.csv": b"id;amount\n1;10\n2;x\n"})
+    assert result.status == "success"
+    assert said == [f"[it] 1 row was dropped {NO_TAKER}: Column 'amount' -> 'amount' (int): cannot read 'x'; "
+                    "the row is line 3 of in.csv"]
+    assert (tmp_path / "out.csv").read_bytes() == b"id;amount\n1;10\n"
 
 
 def test_rows_a_join_finds_no_match_for_are_not_told(caplog, tmp_path):
