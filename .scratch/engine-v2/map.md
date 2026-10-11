@@ -312,7 +312,9 @@ are designed.
   a base the other extract components share.
   [Extract positional fields](issues/72-extract-positional-fields.md).
   [Extract regex fields](issues/73-extract-regex-fields.md).
-  Still to build, in this order: extract JSON fields, file input properties, file row
+  [Extract JSON fields](issues/74-extract-json-fields.md) -- JSONPath
+  only; reading by XPath is refused.
+  Still to build, in this order: file input properties, file row
   count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own

@@ -467,7 +467,7 @@ def _bool_from_text(value: pl.Expr) -> pl.Expr:
 _BIGGEST = 2 ** 63
 
 
-def _held_column(column: Column, values: List[Any]) -> pl.Series:
+def _held_column(column: Column, values: List[Any], usual_dates: bool = True) -> pl.Series:
     """One column of rows held in Python.
 
     A column declared a number holds numbers when every value is one. Any
@@ -481,7 +481,7 @@ def _held_column(column: Column, values: List[Any]) -> pl.Series:
         values = [bool(value) if isinstance(value, (int, float)) else value for value in values]
     elif column.type == "int":
         values = [int(value) if isinstance(value, bool) else value for value in values]
-    elif column.type in ("datetime", "date") and column.date_pattern and "%" in column.date_pattern:
+    elif usual_dates and column.type in ("datetime", "date") and column.date_pattern and "%" in column.date_pattern:
         seen: Dict[str, str] = {}
         values = [seen.setdefault(value, _by_pattern(value, column.date_pattern)) if isinstance(value, str) else value
                   for value in values]
@@ -506,16 +506,20 @@ def _by_pattern(value: str, pattern: str) -> str:
     return value
 
 
-def held_frame(columns: List[Column], rows: List[Dict[str, Any]]) -> pl.DataFrame:
+def held_frame(columns: List[Column], rows: List[Dict[str, Any]], usual_dates: bool = True) -> pl.DataFrame:
     """Rows held in Python, each as column to value, as a frame the engine reads as the declared columns.
 
     For a source that makes its rows from its config. As for every reader,
     where true or false may be missing, nothing given is false; where it
     may not be missing, empty text is false and a missing value stays one.
-    A date may be written by its column's pattern or one of the usual ways
-    (2024-01-31, with or without a time, or 31/01/2024), as v1 reads it.
+    With ``usual_dates`` a date may be written by its column's pattern or
+    one of the usual ways (2024-01-31, with or without a time, or
+    31/01/2024), as v1 reads it in rows a config writes; without, by its
+    column's pattern alone.
     """
-    frame = pl.DataFrame([_held_column(column, [row.get(column.name) for row in rows]) for column in columns])
+    frame = pl.DataFrame([
+        _held_column(column, [row.get(column.name) for row in rows], usual_dates) for column in columns
+    ])
     made = []
     for column in columns:
         if column.type == "bool":

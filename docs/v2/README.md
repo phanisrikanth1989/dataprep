@@ -284,7 +284,7 @@ in the summary of a run that asked for it, and of no other.
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
      check, extract delimited fields, extract positional fields, extract
-     regex fields;
+     regex fields, extract JSON fields;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -951,6 +951,27 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   than a line break, a tab or a backslash is written as it is.
 - A failure names the row. The reject file has its header line where no
   row is turned away.
+
+**Extract JSON fields**
+
+- Paths are JSONPath (`read_by` JSONPATH). `read_by` XPATH refuses the
+  job: v1 tries an XPath as a JSONPath, which it is not, and writes rows
+  with nothing in them. The converter's own sample is written that way.
+- A path that cannot be read, a loop path too, refuses the job. v1 fills
+  nothing for the first and reads the whole document for the second,
+  with a warning each.
+- A `jsonfield` that names no column refuses the job. v1 reads the first
+  column in its place.
+- A value is read as its column's declared type as for rows written in a
+  job config (true and false from words and numbers, a date by its
+  column's pattern), and a number with a fraction in a whole-number
+  column is cut, as everywhere. v1 writes `2.0` and `1.7` through there.
+- A failure names the row the document came from, and so does the trace
+  for every item of it.
+- Where no row is turned away, the file behind the reject output has its
+  header line. v1 leaves that file with nothing in it.
+- A document is read out of every row in Python: the rows are held in
+  memory, as in v1.
 
 **Pivot to columns delimited**
 

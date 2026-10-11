@@ -248,6 +248,12 @@ def test_extract_regex_fields_counts_its_rows(tmp_path):
     assert same_counts(made, {"in.csv": b"id|raw\n1|ann-30-x\n2|bob\n"}, tmp_path)["it"] == counts(2, 1, 1)
 
 
+def test_extract_json_fields_counts_the_rows_it_reads_the_items_it_hands_on_and_the_rows_it_turns_away(tmp_path):
+    from .components.test_extract_json_fields import ITEMS, extract
+    made = extract(out="id:int, n:int", json_loop_query="$.items[*]", paths={"id": "", "n": "$.n"}, reject="")
+    assert same_counts(made, {"in.csv": ITEMS + b"5|nope\n"}, tmp_path)["it"] == counts(5, 3, 1)
+
+
 def test_pivot_counts_the_rows_it_reads_and_the_groups_it_writes(tmp_path):
     pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
              "config": {"pivot_column": "q", "aggregation_column": "amt", "groupbys": ["id"], "filename": "out.csv"},

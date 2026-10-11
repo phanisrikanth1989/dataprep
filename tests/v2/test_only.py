@@ -667,6 +667,18 @@ def test_extract_delimited_fields_sees_the_picked_rows_alone(tmp_path):
     assert result.status == "failed" and result.error == "Expected 3 tokens, got 2; the row is line 3 of in.csv"
 
 
+def test_extract_json_fields_sees_the_picked_rows_alone_and_the_trace_names_where_an_item_came_from(tmp_path):
+    from .components.test_extract_json_fields import ITEMS, extract
+    made = extract(out="id:int, n:int", json_loop_query="$.items[*]", paths={"id": "", "n": "$.n"})
+    picked = only(made, where={"id": [1]})
+    picked["run"]["trace"] = True
+    result = ran(tmp_path, picked, {"in.csv": ITEMS})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;n", "1;1", "1;2"]
+    entry = [entry for entry in result.summary()["trace"] if entry["id"] == "it"][0]
+    assert entry["outputs"]["main"]["from"] == ["line 2 of in.csv", "line 2 of in.csv"]
+
+
 def made_rows(**config):
     source = {"id": "in", "type": "RowGenerator", "config": config, "inputs": [], "outputs": ["row1"],
               "schema": {"input": [], "output": columns("id:str, amount:int")}}
