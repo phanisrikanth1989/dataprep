@@ -317,7 +317,10 @@ are designed.
   [Extract regex fields](issues/73-extract-regex-fields.md).
   [Extract JSON fields](issues/74-extract-json-fields.md) -- JSONPath
   only; reading by XPath is refused.
-  Still to build, in this order: file input properties, file row
+  [File input properties](issues/75-file-input-properties.md) -- a row
+  for every property, as Talend's fixed schema has it; v1's one wide row
+  only for a job that declares other columns.
+  Still to build, in this order: file row
   count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own

@@ -278,8 +278,9 @@ in the summary of a run that asked for it, and of no other.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
      JSON input; fixed flow input (rows written in the job config); row
-     generator (rows made from expressions); Excel output; positional
-     output; pivot to columns delimited (an output);
+     generator (rows made from expressions); properties input (a
+     properties or an ini file); Excel output; positional output; pivot
+     to columns delimited (an output);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
@@ -1199,6 +1200,36 @@ separator, the encoding.
 - The rows of a run are made once: `run.only` and a second reading see the
   rows the first reading made, also where they are drawn at random.
 - A failure names the row: `row 3 of <id>`.
+
+**Properties input**
+
+Here v2 follows Talend and not v1. Talend's component has a schema a job
+cannot change, `key` and `value` (and `section` for an ini file read
+whole), and hands on a row for every property. v1 hands on one row and
+fills each column from the property of that name, which on the schema of
+every converted job is a row of nothing.
+
+- A job whose reader declares only `key`, `value` and `section` gets
+  Talend's rows. One that declares other columns gets v1's one row, as a
+  job written for v1 expects (and v1's one row for each section of an ini
+  file read whole, with its name in `__section__`).
+- A properties file is read as Java reads one: `\t`, `\n` and `\uXXXX`
+  are the characters they mean, a key ends at `=`, `:` or a blank, a line
+  that ends on a backslash goes on in the next, and the file is always
+  ISO-8859-1. v1 reads no escape, ends a key at `=` or `:` only, and
+  reads the file in `encoding`.
+- The rows come in the order of the file. Talend hands them on in the
+  order of Java's hash table, which no job can count on.
+- An ini file's names of sections alone can be read
+  (`retrive_mode` RETRIVE_SECTIONS), which v1 does not know.
+- An ini file is read by plain rules (sections in brackets, `key = value`
+  or `key: value`, comments that start with `;` or `#`); Talend reads it
+  with the ini4j library, whose finer points were not looked up.
+- A file that is not there, or an ini file not written in its encoding,
+  fails the job in plain words; v1 reads a wrong byte as a replacement
+  character.
+- A failure names a row by the line its property is on, and a run can be
+  for a few properties, by line or by key.
 
 **Positional input**
 
