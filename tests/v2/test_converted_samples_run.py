@@ -107,8 +107,12 @@ def test_some_converted_samples_run_on_v2_as_they_are():
 
 
 # Samples neither engine can finish, with the reason both give. The join sample declares a lookup
-# column not nullable on its reject side, where unmatched rows never have it.
-FAIL_ON_BOTH = {"Job_tJoin_0.1": "Column 'dept_name' has NULL values but is not nullable"}
+# column not nullable on its reject side, where unmatched rows never have it. The replace sample
+# writes the word "default" over every id, in a column declared a whole number that may not be missing.
+FAIL_ON_BOTH = {
+    "Job_tJoin_0.1": "Column 'dept_name' has NULL values but is not nullable",
+    "Job_tReplace_0.1": "Column 'id' has NULL values but is not nullable",
+}
 
 
 @pytest.mark.parametrize("job, inputs", RUNNABLE)
