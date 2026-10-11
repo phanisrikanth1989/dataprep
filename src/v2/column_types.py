@@ -210,15 +210,34 @@ def to_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = Non
     return value.cast(pl.String)
 
 
-def plain_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = None) -> pl.Expr:
-    """A column as the text it is searched or converted as, where a component turns values into text.
+def value_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = None) -> pl.Expr:
+    """A column as text, where a component makes text of values inside the job.
 
-    As ``to_text``, but for a date: by the pattern its column declares, so
-    that the result can be read back by the same pattern; and without a
+    As ``to_text`` with nothing declared (``True``, a date with its time),
+    but for a Decimal whose column declares no places: v2 holds it to ten,
+    and the padding (``1.5000000000``) is left off, as a file output leaves
+    it off.
+    """
+    if dtype.is_decimal() and declared is not None and declared.type == "Decimal" and declared.precision is None:
+        return to_text(value, dtype, declared)
+    return to_text(value, dtype)
+
+
+def plain_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = None) -> pl.Expr:
+    """A column as the text it is searched, converted or put together as.
+
+    As ``value_text``, but for a date: by the pattern its column declares,
+    so that the result can be read back by the same pattern; and without a
     pattern a day with no time of day is the day alone, as v1 has it.
+
+    Args:
+        value: The column.
+        dtype: Its Polars type.
+        declared: The column as the component's input declares it
+            (``Component.declared``).
     """
     if not dtype.is_temporal() or dtype == pl.Time:
-        return to_text(value, dtype)
+        return value_text(value, dtype, declared)
     if dtype == pl.Date or (declared is not None and declared.date_pattern):
         return to_text(value, dtype, declared)
     midnight = value.dt.time() == pl.time(0, 0, 0)

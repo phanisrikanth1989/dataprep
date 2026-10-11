@@ -123,6 +123,9 @@ class AggregateRow(Transform):
         Key("list_delimiter", default=",", doc="What separates the values of `list` and `union`."),
         Key("use_financial_precision", type=bool, default=True,
             doc="Whether sum, avg, min and max of numbers are decimals, or have the type of their column."),
+        Key("die_on_error", type=bool, default=True,
+            doc="Whether a missing value in a column the schema declares not nullable fails the job; "
+                "when off, the row is dropped."),
         Key("check_type_overflow", kind=Kind.IGNORED, type=object, doc="Ignored by v1 as well."),
         Key("check_ulp", kind=Kind.IGNORED, type=object, doc="Ignored by v1 as well."),
     )

@@ -115,3 +115,34 @@ def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
     made = denormalized(out="id:int, name:str!, skill:str", die_on_error=False)
     run = assert_matches_v1(made, {"in.csv": b"id;name;skill\n1;ann;x\n1;ann;y\n"}, tmp_path)
     assert run.succeeded and run.files["out.csv"] == b"id;name;skill\n1;ann;x;y\n"
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 65)
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("kind, data, got", [
+    ("datetime@%d/%m/%Y", b"k;v\n1;31/01/2024\n2;01/03/2024\n", ["1;2024-01-31 00:00:00", "2;2024-03-01 00:00:00"]),
+    ("datetime", b"k;v\n1;2024-01-31\n1;2024-02-01\n", ["1;2024-01-31 00:00:00;2024-02-01 00:00:00"]),
+], ids=["a date with a pattern", "dates without one"])
+def test_dates_put_together_into_a_text_column_are_written_with_their_time(tmp_path, kind, data, got):
+    assert same(tmp_path, data, columns=[column("v")], schema=f"k:int, v:{kind}", out="k:int, v:str") == got
+
+
+def test_date_that_stays_a_date_is_read_back_as_the_date_it_is(tmp_path):
+    # Two dates put together are no date any more, on either engine.
+    rows = same(tmp_path, b"k;v\n1;31/01/2024\n2;01/03/2024\n2;02/03/2024\n", columns=[column("v")],
+                schema="k:int, v:datetime@%d/%m/%Y")
+    assert rows == ["1;31/01/2024", "2;"]
+
+
+def test_decimal_with_no_declared_places_is_written_without_padding(tmp_path):
+    # v1 writes each as it stood in the file (1.50); v2 no longer knows how many places were written.
+    made = denormalized([column("v")], schema="k:int, v:Decimal", out="k:int, v:str")
+    assert v2(tmp_path, made, b"k;v\n1;1.50\n1;3\n").status == "success"
+    assert (tmp_path / "out.csv").read_bytes() == b"k;v\n1;1.5;3\n"
+
+
+def test_column_named_twice_refuses_the_job():
+    with pytest.raises(JobRefusedError, match="denormalize_columns: 'skill' is named twice"):
+        load_job(denormalized([column("skill"), column("skill", "+")]))

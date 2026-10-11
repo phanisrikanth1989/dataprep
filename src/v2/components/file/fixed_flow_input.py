@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
 
-from ...column_types import from_text
+from ...column_types import from_text, to_text
 from ...job.keys import Key
+from ...job.model import Column
 from ...rows import hidden, visible
 from ..base import Source
 from ..registry import REGISTRY
@@ -17,6 +18,7 @@ _ESCAPES = (("\\n", "\n"), ("\\t", "\t"), ("\\r", "\r"), ("\\|", "|"))
 _WHOLE = re.compile(r"-?\d+")
 _FRACTION = re.compile(r"-?\d*\.\d+")
 _GLOBAL = re.compile(r'globalMap\.get\("([^"]+)"\)')
+_BIGGEST = 2 ** 63
 
 
 def _separator(value: str) -> str:
@@ -44,13 +46,22 @@ def _number(value: Any) -> Any:
     return value
 
 
-def _column(name: str, values: List[Any]) -> pl.Series:
-    """One column of the rows: numbers when every value is one, else each value as its text."""
+def _column(column: Column, values: List[Any]) -> pl.Series:
+    """One column of the rows.
+
+    A column declared a number holds numbers when every value is one. Any
+    other column holds each value as its text, which the engine reads as
+    the declared type: a date written in digits (20240131) is then a date
+    and not a number, and a number too long for 64 bits stays whole.
+    """
+    name = column.name
     held = [value for value in values if value is not None]
-    if held and all(isinstance(value, int) and not isinstance(value, bool) for value in held):
-        return pl.Series(name, values, dtype=pl.Int64)
-    if held and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in held):
-        return pl.Series(name, [None if value is None else float(value) for value in values], dtype=pl.Float64)
+    numbers = held and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in held)
+    if column.type in ("int", "float") and numbers:
+        if all(isinstance(value, int) and -_BIGGEST <= value < _BIGGEST for value in held):
+            return pl.Series(name, values, dtype=pl.Int64)
+        if column.type == "float" or not all(isinstance(value, int) for value in held):
+            return pl.Series(name, [None if value is None else float(value) for value in values], dtype=pl.Float64)
     return pl.Series(name, [None if value is None else str(value) for value in values], dtype=pl.String)
 
 
@@ -110,17 +121,26 @@ class FixedFlowInput(Source):
     def read(self) -> Dict[str, pl.LazyFrame]:
         names = [column.name for column in self.schema]
         rows, places = self._rows(names)
-        frame = pl.DataFrame([_column(name, [row.get(name) for row in rows]) for name in names])
+        frame = pl.DataFrame([_column(column, [row.get(column.name) for row in rows]) for column in self.schema])
         # As for every reader: where true or false may be missing, nothing written is false.
         unsure = [column for column in self.schema if column.type == "bool" and column.nullable]
         frame = frame.with_columns([
-            (from_text(pl.col(column.name).fill_null(""), column)[0] if frame.schema[column.name] == pl.String
-             else (pl.col(column.name) != 0).fill_null(False)).alias(column.name)
-            for column in unsure
+            from_text(pl.col(column.name).fill_null(""), column)[0].alias(column.name) for column in unsure
         ])
         frame = frame.with_columns(pl.Series(self.row_number, places, dtype=pl.UInt32))
         frame = self.picked(frame).with_columns(self.key_copies())
         return {"main": frame.select(visible(frame.columns) + hidden(frame.columns)).lazy()}
+
+    def as_read(self, column: Column, text: pl.Expr) -> pl.Expr:
+        """Text as this source holds it: a plain number written as text is the number (007 is 7)."""
+        stripped = text.str.strip_chars()
+        whole = stripped.str.contains(r"^-?\d+$") & (stripped.str.len_chars() <= 18)
+        fraction = stripped.str.contains(r"^-?\d*\.\d+$")
+        return (
+            pl.when(whole).then(stripped.cast(pl.Int64, strict=False).cast(pl.String))
+            .when(fraction).then(to_text(stripped.cast(pl.Float64, strict=False), pl.Float64()))
+            .otherwise(text)
+        )
 
     def locate(self, number: int) -> str:
         if self.config["use_inlinecontent"]:

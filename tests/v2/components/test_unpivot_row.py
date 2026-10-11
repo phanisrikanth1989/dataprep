@@ -101,3 +101,38 @@ def test_keys_are_needed():
     del made["components"][1]["config"]["row_keys"]
     with pytest.raises(JobRefusedError, match="row_keys"):
         load_job(made)
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 65)
+# ------------------------------------------------------------------
+
+def test_whole_number_stays_whole_beside_a_column_of_floats(tmp_path):
+    # v1 writes 3.0 and 4.0: pandas makes one column of all the values, and a float among them makes all floats.
+    made = unpivoted(keys=("k",), schema="k:int, a:int, b:float", out="k:int, pivot_key:str, pivot_value:str")
+    assert v2(tmp_path, made, b"k;a;b\n1;3;1.5\n2;4;2.5\n").status == "success"
+    assert (tmp_path / "out.csv").read_bytes().decode().splitlines()[1:] == ["1;a;3", "2;a;4", "1;b;1.5", "2;b;2.5"]
+
+
+def test_decimal_with_no_declared_places_is_written_without_padding(tmp_path):
+    # v1 writes each as it stood in the file (1.50).
+    made = unpivoted(keys=("k",), schema="k:int, v:Decimal", out="k:int, pivot_key:str, pivot_value:str")
+    assert v2(tmp_path, made, b"k;v\n1;1.50\n2;3\n").status == "success"
+    assert (tmp_path / "out.csv").read_bytes() == b"k;pivot_key;pivot_value\n1;v;1.5\n2;v;3\n"
+
+
+def test_name_for_the_names_column_may_be_that_of_a_column_that_is_unpivoted(tmp_path):
+    got = same(tmp_path, b"k;v;w\n1;a;b\n", keys=("k",), schema="k:int, v:str, w:str", out="k:int, v:str, pivot_value:str",
+               pivot_key="v")
+    assert got == ["1;v;a", "1;w;b"]
+
+
+@pytest.mark.parametrize("config, said", [
+    (dict(keys=("id", "id")), "row_keys: 'id' is named twice"),
+    (dict(pivot_value="name"), "pivot_value: the input has a column 'name' already"),
+    (dict(pivot_key="id"), "pivot_key: 'id' is one of the keys"),
+    (dict(pivot_key="x", pivot_value="x"), "pivot_value: 'x' is the name of the names column too"),
+])
+def test_names_that_clash_refuse_the_job_in_words(config, said):
+    with pytest.raises(JobRefusedError, match=said):
+        load_job(unpivoted(**config))

@@ -136,6 +136,14 @@ class Component:
         """Whether this component must be handed real rows instead of a lazy frame."""
         return False
 
+    def declared(self, name: str) -> Optional["Column"]:
+        """A column as the component's input schema declares it, or else its output schema; None when neither does.
+
+        For what a value's own type does not say: the pattern a date is
+        written by, the places a Decimal is declared with.
+        """
+        return next((column for column in list(self.input_schema) + list(self.schema) if column.name == name), None)
+
     def lookup_inputs(self, names: List[str]) -> List[str]:
         """Which of the flows that arrive are looked things up in, and are not where its rows come from.
 

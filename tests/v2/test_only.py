@@ -636,3 +636,15 @@ def test_place_of_the_wrong_kind_or_with_no_row_is_said_for_rows_written_in_the_
         ("run.only.lines", "'in' holds its rows in its config: pick its rows with `rows`")]
     result = ran(tmp_path, only(fixed(**CONTENT), lines=[2]), {})
     assert result.status == "failed" and result.error == "'in' has no row at line 2"
+
+
+@pytest.mark.parametrize("asked", ["007", "7", 7])
+def test_text_column_of_rows_written_in_the_config_is_picked_by_the_number_it_holds(tmp_path, asked):
+    # As v1 has it, 007 written in the config is the number 7, in a text column too; so is 007 when asked for.
+    source = {"id": "in", "type": "FixedFlowInput", "inputs": [], "outputs": ["row1"],
+              "config": {"use_inlinecontent": True, "inline_content": "007;ann\n8;bob\n"},
+              "schema": {"input": [], "output": columns("id:str, name:str")}}
+    made = job([source, writer("id:str, name:str", inputs=("row1",))], [flow("row1", "in", "out")])
+    result = ran(tmp_path, only(made, where={"id": [asked]}), {})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;name", "7;ann"]

@@ -41,3 +41,17 @@ written and seen failing first).
 - Differs from v1, each in the README: the text `false` is false; a value
   not of its column's type goes missing where v1 writes it through.
 - The rows are held in memory, being as many as the config writes.
+
+## Corrected after review (ticket 65)
+
+- A date written in digits (`20240131` under `%Y%m%d`) failed the job, and
+  a whole number beyond 64 bits gave Polars' own error in any column. Only
+  a column declared a number is now held as numbers; every other column
+  holds each value as its text and the engine reads it as its declared
+  type.
+- A text column is picked from (`run.only`) by the number it holds: `007`,
+  `7` and 7 all find it, through `as_read`, which the engine now asks for
+  text columns too.
+- Not done: `values_config` written as a mapping, which v1 reads and the
+  converter never writes.
+- More differences from v1 are in the README.

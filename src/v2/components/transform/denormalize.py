@@ -1,11 +1,11 @@
 """Denormalize: the rows that agree in every other column become one row."""
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, List
 
 import polars as pl
 
-from ...column_types import to_text
+from ...column_types import to_text, value_text
 from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...rows import combined, visible
@@ -44,6 +44,25 @@ class Denormalize(Transform):
                 "when off, the row is dropped."),
     )
 
+    def _text(self, name: str, dtype: pl.DataType) -> pl.Expr:
+        """A column's values as the texts that are put together.
+
+        A date that stays a date on the way out is written by that column's
+        pattern, so that a value standing alone is read back as the date it
+        is. Into a text column it is written with its time of day, as v1
+        writes it.
+        """
+        if dtype.is_temporal():
+            # The output column has a pattern only where it is declared a date.
+            out = next((column for column in self.schema if column.name == name), None)
+            return to_text(pl.col(name), dtype, out)
+        return value_text(pl.col(name), dtype, self.declared(name))
+
+    def problems(self) -> List[str]:
+        named = [entry["input_column"] for entry in self.config["denormalize_columns"]]
+        twice = sorted({name for name in named if named.count(name) > 1})
+        return [f"denormalize_columns: '{name}' is named twice" for name in twice]
+
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         (frame,) = inputs.values()
         wanted = {entry["input_column"]: entry for entry in self.config["denormalize_columns"]}
@@ -60,7 +79,7 @@ class Denormalize(Transform):
 
         together = []
         for name, entry in wanted.items():
-            text = to_text(pl.col(name), types[name])
+            text = self._text(name, types[name])
             text = text.fill_null("") if self.config["null_as_empty"] else text.drop_nulls()
             if entry["merge"]:
                 text = text.unique(maintain_order=True)

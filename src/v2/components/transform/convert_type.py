@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import polars as pl
 
@@ -75,7 +75,7 @@ class ConvertType(Transform):
             column = declared.get(target) or declared.get(source)
             if column is None or column.type == "str":
                 if target != source:
-                    values.append(plain_text(pl.col(source), types[source], self._pattern_of(source)).alias(target))
+                    values.append(plain_text(pl.col(source), types[source], self.declared(source)).alias(target))
                 continue
             text = self._text(source, types[source], column)
             value, wrong = from_text(text, column)
@@ -106,11 +106,6 @@ class ConvertType(Transform):
         return {"main": main, "reject": _rejects(bad, names)}
 
 
-    def _pattern_of(self, name: str) -> Optional[Column]:
-        """The declared column of that name that has a date pattern, on the way out or on the way in."""
-        return next((column for column in list(self.schema) + list(self.input_schema)
-                     if column.name == name and column.date_pattern), None)
-
     def _text(self, source: str, dtype: pl.DataType, target: Column) -> pl.Expr:
         """A column as the text its values are read from as the target's type; a missing value as no text."""
         value = pl.col(source)
@@ -122,7 +117,7 @@ class ConvertType(Transform):
             # Written by the target's own pattern, so that it reads back as the moment it is.
             text = to_text(value, dtype, target)
         else:
-            text = plain_text(value, dtype, self._pattern_of(source))
+            text = plain_text(value, dtype, self.declared(source))
         return text.fill_null("")
 
 

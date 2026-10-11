@@ -9,7 +9,8 @@ from ...job.keys import Key, Kind
 from ..registry import REGISTRY
 from .aggregate_row import AggregateRow
 
-_RUN = "__sorted_run"
+# Under the engine's own prefix, which no column of a job may have.
+_RUN = "__v2_sorted_run"
 
 
 @REGISTRY.register

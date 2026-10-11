@@ -229,6 +229,15 @@ Declared column types are `str`, `int`, `float`, `bool`, `datetime`, `date`,
   outputs write it; use it in anything that writes or prints.
 - `chrono_format(pattern, parsing=...)`: a job config's `date_pattern`
   (Python strftime) as the pattern Polars wants.
+- `value_text(expr, dtype, declared)` and `plain_text(expr, dtype,
+  declared)`: a value as text where a component makes text of values
+  inside the job (searches it, converts it, puts several together). Never
+  call `to_text` with nothing declared for that: a date would come out with
+  its time (`2024-01-31 00:00:00`) and could not be read back by its
+  column's pattern, and a Decimal with no declared places padded to ten.
+  `self.declared(name)` gives the column as the component's input declares
+  it. Two reviews found dates lost this way in three components (tickets
+  62 and 65).
 
 Missing values: a `str` read from a file is never missing (an empty field is
 empty text); every other type reads an empty field as missing. Missing
@@ -514,6 +523,14 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
   and for a sink: `Write.as_text`, each with a test in
   `tests/v2/test_trace.py`;
 - answer-key tests for every supported key, unit tests for refusals;
+- tried, against v1, on a date with a pattern, a date without one,
+  true/false, a Decimal with and without declared places, and a whole
+  number with a missing value, in every role a column can have in the
+  component;
+- `die_on_error` declared (v1's base class reads it on every component),
+  and the component's row counts held against v1's in
+  `tests/v2/test_row_counts_against_v1.py`;
+- an independent review before the next component is built on it;
 - the whole `tests/v2` suite green;
 - a short report: keys supported / ignored / refused (with reasons), every
   deliberate difference from v1, anything missing from the engine or the

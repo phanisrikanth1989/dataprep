@@ -151,7 +151,7 @@ class PivotToColumnsDelimited(Sink):
         """The lines of the file, the header first, from the table of groups and pivot values."""
         config = self.config
         pivot, groups, separator = config["pivot_column"], config["groupbys"], config["fieldseparator"]
-        declared = {column.name: column for column in self.input_schema}
+        declared = {name: self.declared(name) for name in types.names()}
         table = table.with_columns(plain_text(pl.col(pivot), types[pivot], declared.get(pivot)).alias(_HEAD))
         # Columns and rows come in the order they first appear among the rows that arrived.
         heads = table.group_by(_HEAD, maintain_order=True).agg(pl.col(_PLACE).min()).sort(_PLACE)[_HEAD].to_list()

@@ -4,13 +4,12 @@ from __future__ import annotations
 import logging
 import re
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import polars as pl
 
 from ...column_types import plain_text
 from ...job.keys import Key, Kind, has_context_reference
-from ...job.model import Column
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -182,10 +181,7 @@ class Replace(Transform):
         engine can read the result back by the same pattern. Without a
         pattern a day with no time of day is the day alone, as v1 has it.
         """
-        declared: Optional[Column] = next(
-            (column for column in list(self.schema) + list(self.input_schema)
-             if column.name == name and column.date_pattern), None)
-        return plain_text(pl.col(name), dtype, declared)
+        return plain_text(pl.col(name), dtype, self.declared(name))
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         (frame,) = inputs.values()

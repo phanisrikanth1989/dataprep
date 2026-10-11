@@ -74,11 +74,11 @@ def wanted_values(column: Column, values: Sequence[Any], reader: Optional[Source
         {"v": [as_written(value) for value in values], "text": [isinstance(value, str) for value in values]},
         schema={"v": pl.String, "text": pl.Boolean},
     )
-    if column.type == "str":
-        return texts["v"]
     text = pl.col("v")
     if reader is not None:
         text = pl.when(pl.col("text")).then(reader.as_read(column, text)).otherwise(text)
+    if column.type == "str":
+        return texts.select(text.alias("v"))["v"]
     value, wrong = from_text(text, column)
     read = texts.select(value.alias("v"), (wrong | value.is_null()).alias("wrong"))
     for given, unreadable in zip(values, read["wrong"]):

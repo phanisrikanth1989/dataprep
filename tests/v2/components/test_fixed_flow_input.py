@@ -186,3 +186,28 @@ def test_converters_sample_loads_and_runs_as_on_v1(tmp_path):
 
 def test_die_on_error_is_the_engines_as_on_every_component():
     load_job(fixed(values_config=values(id="1"), die_on_error=False))
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 65)
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("schema, content, got", [
+    ("d:datetime@%Y%m%d, s:str", "20240131;a\n20240201;b\n", ["20240131;a", "20240201;b"]),
+    ("t:datetime@%H%M, s:str", "1030;a\n", ["1030;a"]),
+    ("s:str", "12345678901234567890\n1\n", ["12345678901234567890", "1"]),
+    ("m:Decimal#2", "12345678901234567890\n1\n", ["12345678901234567890.00", "1.00"]),
+], ids=["a date written in digits", "a time written in digits", "a number too long for a whole number, as text",
+        "the same as a Decimal"])
+def test_digits_in_a_column_that_is_no_number_column(tmp_path, schema, content, got):
+    assert same(tmp_path, schema=schema, **inline(content)) == got
+
+
+def test_single_row_of_digits_in_a_date_column(tmp_path):
+    assert same(tmp_path, schema="d:datetime@%Y%m%d", values_config=values(d="20240131")) == ["20240131"]
+
+
+def test_whole_number_too_long_for_64_bits_goes_missing_in_a_whole_number_column(tmp_path):
+    # v2 holds whole numbers in 64 bits. v1 writes this one through; in a text or Decimal column so does v2.
+    result, written = v2(tmp_path, fixed(schema="n:int", **inline("12345678901234567890\n7\n")))
+    assert result.status == "success" and written == b"n\n\n7\n"

@@ -39,3 +39,13 @@ and seen failing first).
   row of several find it.
 - Differs from v1: a whole number stays whole beside a missing one (v1:
   `3.0`); columns that cannot be used refuse the job at load.
+
+## Corrected after review (ticket 65)
+
+- A date column with a pattern lost every value: the fault ticket 62 found
+  in replace, which I had not carried over to this component. A date that
+  stays a date is written by its column's pattern and read back; into a
+  text column it is written with its time of day, as v1 writes it. Held
+  against v1 for both.
+- A Decimal with no declared places is put together unpadded (`1.5`).
+- A column named twice refuses the job.

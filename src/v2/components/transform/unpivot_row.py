@@ -6,7 +6,7 @@ from typing import Dict, List
 
 import polars as pl
 
-from ...column_types import to_text
+from ...column_types import value_text
 from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...rows import hidden, visible
@@ -14,6 +14,8 @@ from ..base import Transform
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
+
+_NAME, _VALUE = "__unpivot_name", "__unpivot_value"
 
 
 @REGISTRY.register
@@ -38,6 +40,16 @@ class UnpivotRow(Transform):
             doc="Whether keys that cannot be used fail the job; off, the component hands on no rows."),
     )
 
+    def problems(self) -> List[str]:
+        config = self.config
+        keys = [str(name) for name in config["row_keys"]]
+        found = [f"row_keys: '{name}' is named twice" for name in sorted({name for name in keys if keys.count(name) > 1})]
+        if config["pivot_key"] in keys:
+            found.append(f"pivot_key: '{config['pivot_key']}' is one of the keys")
+        if config["pivot_value"] == config["pivot_key"]:
+            found.append(f"pivot_value: '{config['pivot_value']}' is the name of the names column too")
+        return found
+
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         (frame,) = inputs.values()
         config = self.config
@@ -61,9 +73,14 @@ class UnpivotRow(Transform):
         values = [name for name in names if name not in keys]
         if not values:
             return {"main": empty}
+        if value_column in names:
+            # As in v1, where pandas will not name the values like a column that is there.
+            raise ConfigurationError(f"pivot_value: the input has a column '{value_column}' already")
 
-        as_text = frame.with_columns([to_text(pl.col(name), types[name]).alias(name) for name in values])
-        made = as_text.unpivot(on=values, index=keys + carried, variable_name=name_column, value_name=value_column)
+        as_text = frame.with_columns([value_text(pl.col(name), types[name], self.declared(name)).alias(name) for name in values])
+        # Under names of its own first: the names column may be called like a column that is unpivoted.
+        made = as_text.unpivot(on=values, index=keys + carried, variable_name=_NAME, value_name=_VALUE)
         if not config["include_empty_values"]:
-            made = made.filter(pl.col(value_column).is_not_null())
-        return {"main": made.select(keys + [name_column, value_column] + carried)}
+            made = made.filter(pl.col(_VALUE).is_not_null())
+        return {"main": made.select(
+            keys + [pl.col(_NAME).alias(name_column), pl.col(_VALUE).alias(value_column)] + carried)}

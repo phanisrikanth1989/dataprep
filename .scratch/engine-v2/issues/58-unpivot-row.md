@@ -38,3 +38,15 @@ and seen failing first).
   fails on both engines.
 - Not checked against Talend: tUnpivotRow is a community component, and
   v1's own notes say its source was not found.
+
+## Corrected after review (ticket 65)
+
+- A Decimal whose column declares no places was written padded to ten
+  (`1.5000000000`). It is written `1.5`; v1 writes it as it stood in the
+  file (`1.50`), which v2 no longer knows.
+- The names column may be called like a column that is unpivoted, as v1
+  allows ("fails on both engines" was wrong for that case). A key named
+  twice, a names column called like a key, and a values column called like
+  an input column refuse the job in words.
+- The README said v1 writes `3.0` beside a missing value; it does so also
+  beside any float among the unpivoted columns.

@@ -847,17 +847,23 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 - A whole number is put together whole (`3`). v1 writes `3.0` for every
   value of a whole-number column that has a missing value anywhere.
+- A Decimal whose column declares no places is put together without
+  padding (`1.5`). v1 writes it as it stood in the file (`1.50`).
 - A named column that is not there, and a config that names every column,
-  refuse the job at load. v1 fails when the component runs.
+  refuse the job at load. v1 fails when the component runs. A column named
+  twice refuses the job too; v1 writes the column twice.
 
 **Unpivot row**
 
-- A whole number is written whole (`3`). v1 writes `3.0` for every value
-  of a whole-number column that has a missing value anywhere, because
-  pandas then holds the column as floats.
-- Keys that cannot be used (none named, one that is no column) refuse the
-  job at load. v1 fails when the component runs. With `die_on_error` off
-  both hand on no rows.
+- A whole number is written whole (`3`). v1 writes `3.0` for every whole
+  number when any of the unpivoted columns holds a float or a missing
+  value, because pandas makes one column of them all.
+- A Decimal whose column declares no places is written without padding
+  (`1.5`). v1 writes it as it stood in the file (`1.50`).
+- Keys that cannot be used (none named, one that is no column, one named
+  twice) and names that clash refuse the job at load. v1 fails when the
+  component runs. With `die_on_error` off both hand on no rows for a key
+  that is no column.
 
 **Schema compliance check**
 
@@ -892,6 +898,13 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   writes it through as it is (`abc` in a Decimal column, `1.5` in a
   whole-number column), `<NA>` for a missing Decimal, and `3.0` for a whole
   number beside a missing one.
+- A whole number too long for 64 bits goes missing in a column declared a
+  whole number; in a text or Decimal column it is kept, as in v1.
+- A date in the last field of a line that ends in `\r\n`, under the
+  default row separator, is read. v1 loses it to the `\r` that stays.
+- A context variable that does not exist refuses the job. v1 writes the
+  reference through as text.
+- `nb_rows` may be written as text or come from the context. v1 fails.
 - A failure names the row: `line 3 of the inline content of <id>`, or
   `row 3 of <id>` for the other two ways of writing rows.
 

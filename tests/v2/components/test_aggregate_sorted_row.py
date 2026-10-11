@@ -101,3 +101,22 @@ def test_talend_name_and_a_key_it_does_not_know():
     load_job(sorted_job(by_dept(op("sum", "qty", "t")), kind="tAggregateSortedRow"))
     with pytest.raises(JobRefusedError, match="unknown config key"):
         load_job(sorted_job(by_dept(op("sum", "qty", "t"), sorted=True)))
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 65)
+# ------------------------------------------------------------------
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    written = same(tmp_path, by_dept(op("sum", "qty", "total"), die_on_error=False), out="dept:str, total:int")
+    assert written == b"dept;total\nfood;6\nmisc;7\ntoys;5\n"
+    from .test_aggregate_row import aggregate
+    assert_matches_v1(aggregate(by_dept(op("sum", "qty", "total"), die_on_error=False), schema=SCHEMA,
+                                out="dept:str, total:int"), {"in.csv": SORTED}, tmp_path / "plain")
+
+
+def test_column_may_be_named_like_anything_a_job_may_name_one(tmp_path):
+    data = b"__sorted_run;qty\na;1\na;2\nb;3\n"
+    config = {"groupbys": [group("__sorted_run")], "operations": [op("sum", "qty", "total")]}
+    assert same(tmp_path, config, data, schema="__sorted_run:str, qty:int", out="__sorted_run:str, total:int") == (
+        b"__sorted_run;total\na;3\nb;3\n")

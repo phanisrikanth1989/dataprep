@@ -48,3 +48,9 @@ was not run on Talend itself, and the dev can turn it back by having
 - Rows that miss a group value are a group where they stand, as in Talend.
 - A group names the first of its rows in a failure (a test in
   `tests/v2/test_row_numbers.py`).
+
+## Corrected after review (ticket 65)
+
+- `die_on_error` is declared, on the aggregate row it is built on as well.
+- Its working column has the engine's own prefix, so that a job's column
+  can be called `__sorted_run`.

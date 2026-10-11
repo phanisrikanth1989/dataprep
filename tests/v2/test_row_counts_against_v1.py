@@ -199,3 +199,15 @@ def test_convert_type_counts_the_rows_it_turns_away(tmp_path):
 def test_schema_compliance_check_counts_the_rows_that_fit_and_the_others(tmp_path):
     from .components.test_schema_compliance_check import DATA as ROWS, checked
     assert same_counts(checked(), {"in.csv": ROWS}, tmp_path)["it"] == counts(7, 1, 6)
+
+
+@pytest.mark.parametrize("step", [
+    {"type": "Denormalize", "config": {"denormalize_columns": [{"input_column": "amt"}]}},
+    {"type": "AggregateSortedRow", "config": {
+        "groupbys": [{"input_column": "id", "output_column": "id"}, {"input_column": "name", "output_column": "name"}],
+        "operations": [{"output_column": "amt", "function": "count", "input_column": "amt"}]}},
+], ids=["denormalize", "aggregate sorted row"])
+def test_rows_read_and_rows_handed_on_are_told_apart_where_several_rows_become_one(tmp_path, step):
+    made = through(step, SCHEMA, "id:int, name:str, amt:str")
+    found = same_counts(made, {"in.csv": b"id;name;amt\n1;a;1\n1;a;2\n2;b;3\n"}, tmp_path)
+    assert found["it"] == counts(3, 2, 0)
