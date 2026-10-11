@@ -182,3 +182,26 @@ def test_flow_into_it_or_out_of_it_is_refused():
 def test_both_v1_names_and_v2s_own(tmp_path):
     for at, kind in enumerate(("file_row_count", "FileRowCount", "tFileRowCount")):
         assert on_v2(job([counting(kind=kind)], []), {"f.txt": b"a\nb\n"}, tmp_path / str(at)) == (2, 2, 2, 0)
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 84)
+# ------------------------------------------------------------------
+
+def test_file_is_read_as_iso_8859_15_unless_told_otherwise(tmp_path):
+    assert same(tmp_path, b"caf\xe9\n\xa4\n") == (2, 2, 2, 0)
+
+
+def test_folder_where_the_file_should_be_fails_in_plain_words(tmp_path):
+    (tmp_path / "f.txt").mkdir()
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = run_job(job([counting()], []))
+    finally:
+        os.chdir(previous)
+    assert result.status == "failed" and result.error == "'f.txt' cannot be read: it is a folder"
+
+
+def test_v1s_die_on_error_is_taken():
+    load_job(job([counting(die_on_error=False)], []))

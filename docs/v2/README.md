@@ -1217,8 +1217,19 @@ every converted job is a row of nothing.
 - A properties file is read as Java reads one: `\t`, `\n` and `\uXXXX`
   are the characters they mean, a key ends at `=`, `:` or a blank, a line
   that ends on a backslash goes on in the next, and the file is always
-  ISO-8859-1. v1 reads no escape, ends a key at `=` or `:` only, and
-  reads the file in `encoding`.
+  ISO-8859-1; a `\u` that is no four hex digits fails the job, as it
+  stops Java. (An independent run of 4,047 files through Java 17 and v2
+  found two rules amiss, both mended since.) v1 reads no escape, ends a
+  key at `=` or `:` only, and reads the file in `encoding`.
+- A value is read as its column's declared type, and one that cannot be
+  goes missing without a word, also where the column may not be missing:
+  the rule for rows a job config writes.
+- v1's one row is v1's for a properties file of plain lines. For an ini
+  file it is filled by v2's plain rules, not by Python's `configparser`
+  as v1 fills it: no values handed down from a `[DEFAULT]` section, no
+  value that goes on in the next line, and no failure on a key given
+  twice or before any section.
+- A section named twice is one section.
 - The rows come in the order of the file. Talend hands them on in the
   order of Java's hash table, which no job can count on.
 - An ini file's names of sections alone can be read
@@ -1229,12 +1240,16 @@ every converted job is a row of nothing.
 - A file that is not there, or an ini file not written in its encoding,
   fails the job in plain words; v1 reads a wrong byte as a replacement
   character.
-- A failure names a row by the line its property is on, and a run can be
-  for a few properties, by line or by key.
+- A failure names a row by the line its property is on (for a key given
+  twice, the line of the value that stays), and a run can be for a few
+  properties, by line or by key.
 
 **Die**
 
-- Set off by a trigger, it stops the job as in v1, with v1's words.
+- It stops the whole job, as in v1 and Talend: no trigger fires after it
+  and no subjob follows, also not one nothing triggers. Any other failure
+  fails its own subjob and lets the job go on.
+- Set off by a trigger, it stops the job with v1's words.
 - With a flow leading to it, it stops the job when a row arrives and not
   otherwise, as in Talend, and names the first such row. v1 stops the job
   whether a row arrives or not, so a die behind a filter's rejects stops
@@ -1248,6 +1263,8 @@ every converted job is a row of nothing.
 
 **Warn**
 
+- One that is to hand rows on with no flow leading to it refuses the job.
+  v1 hands on no rows.
 - Set off by a trigger, it logs its message as in v1. A message of
   priority 4 or more goes to stderr, like every warning: a job that warns
   is no clean run by that measure, which is what a warning is for.
@@ -1261,10 +1278,16 @@ every converted job is a row of nothing.
 
 - With a flow leading to it, the entries are put when the subjob is done:
   v2 runs a subjob in one pass. A later subjob and a trigger's condition
-  read them, as in v1. A component of the same subjob that reads one of
-  them fails the job before anything is written; in v1 and Talend it
-  reads, row by row, what the row before it has put. Such a job has to be
-  cut in two subjobs.
+  read them, as in v1; a trigger that leaves a component before it is
+  judged without them, as in v1. A component of the same subjob that
+  reads one of them (`globalMap.get("key")` or `globalMap["key"]` in its
+  config) fails the job before anything is written: v1 runs the
+  components of a subjob one after the other, so what follows this one
+  there reads the last row's value, and Talend's reads each row's. Such a
+  job has to be cut in two subjobs. A key put together in code is not
+  seen by that check.
+- One that is to hand rows on with no flow leading to it refuses the job.
+  v1 hands on no rows.
 - Nothing is put when no row arrives, as in Talend. v1 puts the values as
   they are written, the text `row1.name` among them.
 - A value is a column of the row when it is written `<flow>.<column>`

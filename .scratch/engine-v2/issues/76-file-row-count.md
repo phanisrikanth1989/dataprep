@@ -50,3 +50,8 @@ held against v1's for every file tried).
 
 Not looked up: whether Talend ends a row at every kind of line end when
 the separator is `\n`; v1 does, and so does v2.
+
+## Corrected after review (ticket 84)
+
+- A folder where the file should be fails in plain words; `die_on_error`
+  is taken.

@@ -53,3 +53,13 @@ went on to commit whatever it said. The test was right: the converter
 writes `requires_java_bridge` on this component and the key was not
 declared, so every converted job with a set global var was refused. The
 key is declared now; the suite is run and read before a commit.
+
+## Corrected after review (ticket 84)
+
+- A trigger that leaves a component before the set global var saw its
+  entries too early; it is judged without them now, as in v1.
+- The check for a reader in the same subjob took any quoted word for
+  one. It looks for `globalMap.get("key")` and `globalMap["key"]` now.
+- Wrong above: in v1 a component further down reads the last row's value,
+  not each row's.
+- `variables` or a key given as nothing refuse the job.

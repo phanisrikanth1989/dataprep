@@ -128,3 +128,36 @@ def test_both_v1_names_and_v2s_own(tmp_path, caplog):
         made["components"][2]["type"] = kind
         caplog.clear()
         assert v2(tmp_path / str(at), made, caplog)[1] == [("WARNING", "[say] Code 42: m")]
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 84)
+# ------------------------------------------------------------------
+
+def test_warn_that_is_to_hand_rows_on_and_gets_none_refuses_the_job():
+    made = job([warn(outputs=("row2",), message="m"), writer("id:int")], [flow("row2", "say", "out")])
+    with pytest.raises(JobRefusedError) as refused:
+        load_job(made)
+    assert [(refusal.key, refusal.reason) for refusal in refused.value.report] == [
+        ("outputs", "a flow leaves it and none leads to it: it has no rows to hand on")]
+
+
+def test_v1s_die_on_error_is_taken():
+    load_job(after(message="m", die_on_error=False))
+
+
+def test_fault_further_down_a_flow_with_a_warn_in_it_is_found_when_the_job_is_checked():
+    made = through(message="m")
+    step = {"id": "it", "type": "FilterRows", "inputs": ["row2"], "outputs": ["row3"],
+            "config": {"conditions": [{"column": "nope", "function": "", "operator": "==", "value": "1"}]},
+            "schema": {"input": columns("id:int"), "output": columns("id:int")}}
+    made["components"].insert(2, step)
+    made["components"][3]["inputs"] = ["row3"]
+    made["flows"][1:] = [flow("row2", "say", "it"), flow("row3", "it", "out")]
+    with pytest.raises(JobRefusedError, match="nope"):
+        load_job(made)
+
+
+def test_message_is_one_line_of_plain_ascii_in_the_log(tmp_path, caplog):
+    _, said = v2(tmp_path, after(message="caf\u00e9\nnext"), caplog)
+    assert said == [("WARNING", "[say] Code 42: caf\\xe9\\nnext")]

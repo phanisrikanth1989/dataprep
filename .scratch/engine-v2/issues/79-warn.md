@@ -36,3 +36,8 @@ Built on 2026-10-12 (`src/v2/components/control/warn.py`; 17 tests in
 
 Not done: a warn with a flow out of it and none into it, which nothing
 can feed; the engine says that it produced no output.
+
+## Corrected after review (ticket 84)
+
+- A warn that is to hand rows on with no flow leading to it refuses the
+  job (it acted and then failed). `die_on_error` is taken.

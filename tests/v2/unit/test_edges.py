@@ -411,7 +411,8 @@ def test_failure_reason_is_plain_ascii(tmp_path):
     from src.v2.engine.runner import _reason
 
     reason = _reason(RuntimeError("cannot cast datetime[\u03bcs] to i64 \u2014 really"))
-    assert reason == "cannot cast datetime[us] to i64 ? really"
+    # Any other character beyond ASCII is written as its escape, so that it can still be told (ticket 84).
+    assert reason == "cannot cast datetime[us] to i64 \\u2014 really"
     assert reason.isascii()
 
 

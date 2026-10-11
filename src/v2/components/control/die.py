@@ -49,7 +49,7 @@ def said(component_id: str, code: int, message: str, level: int) -> None:
 
 @REGISTRY.register
 class Die(Action, Transform):
-    """Stop the job with `message`.
+    """Stop the job with `message`: nothing runs after it, and no trigger fires.
 
     Set off by a trigger, it stops the job when its turn comes. With a
     flow leading to it, it stops the job when a row arrives and not
@@ -65,6 +65,7 @@ class Die(Action, Transform):
     """
 
     names = ("die", "Die", "tDie")
+    stops_job = True
     min_inputs = 0
     max_inputs = 1
     keys = (
@@ -74,6 +75,7 @@ class Die(Action, Transform):
         Key("exit_code", type=object, default=1, convert=whole("exit code"),
             doc="The exit code the message names. (The command line ends with 1 for any job that failed.)"),
         Key("exit_jvm", kind=Kind.REFUSED, type=object, reason="there is no JVM to exit; the job stops either way"),
+        Key("die_on_error", kind=Kind.IGNORED, type=object, doc="It stops the job whatever this says; v1 reads it on every component."),
     )
 
     def act(self) -> None:

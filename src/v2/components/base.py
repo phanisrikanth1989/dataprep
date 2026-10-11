@@ -119,6 +119,8 @@ class Component:
     conforms: ClassVar[bool] = True
     may_need_rows: ClassVar[bool] = False
     sees_hidden_columns: ClassVar[bool] = True
+    # Whether the component's failure ends the whole job: nothing runs after it, no trigger fires (a die).
+    stops_job: ClassVar[bool] = False
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -133,6 +135,8 @@ class Component:
         self.scopes: List[Scope] = []
         # The output ports a flow leaves by. The engine fills it in; a component may do less for a port nobody reads.
         self.wired: Set[str] = set()
+        # How many flows lead to the component. The engine fills it in.
+        self.fed = 0
 
     def needs_rows(self) -> bool:
         """Whether this component must be handed real rows instead of a lazy frame."""
@@ -643,6 +647,12 @@ class Action(Component):
     def act(self) -> None:
         """Do it."""
         raise NotImplementedError
+
+    def unfed(self) -> List[str]:
+        """The problem of an action that hands rows on when a flow leaves it and none leads to it."""
+        if self.wired and not self.fed:
+            return ["outputs: a flow leaves it and none leads to it: it has no rows to hand on"]
+        return []
 
 
 class Eager(Component):

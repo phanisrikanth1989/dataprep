@@ -228,3 +228,68 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         (tmp_path / str(at)).mkdir()
         result, lines = v2(tmp_path / str(at), properties(kind=kind))
         assert result.status == "success" and lines[0] == "host;localhost"
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 84), the reader held against Java 17 on 4,047 files there
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("line, row", [
+    (b"\\\n\nz=1", "z;1"), (b"  \\\n#bx\nz=1", "z;1"), (b"a\fb", "a;b"), (b"a=x\\fy\\rz", "a;x|y|z"),
+    (b"a=\\u00E9\\u00e9", "a;\u00e9\u00e9"), (b"a=\\uD83D\\uDE00", "a;\U0001f600"), (b"\fa=1", "a;1"),
+])
+def test_more_lines_of_a_properties_file_as_java_reads_them(tmp_path, line, row):
+    made = properties()
+    made["components"][1]["config"]["encoding"] = "UTF-8"
+    result, lines = v2(tmp_path, made, line + b"\n")
+    assert result.status == "success", result.error
+    assert "|".join(lines) == row
+
+
+@pytest.mark.parametrize("line", [b"a=\\u12", b"a=\\uZZZZ", b"ok=1\nb=\\u"])
+def test_unicode_escape_that_is_none_fails_the_job_as_in_java(tmp_path, line):
+    result, _ = v2(tmp_path, properties(), line + b"\n")
+    assert result.status == "failed"
+    at = 2 if line.startswith(b"ok") else 1
+    assert result.error == f"line {at} of app.properties: a \\u is followed by something that is no four hex digits"
+
+
+def test_schema_that_mixes_key_and_value_with_another_column_gets_v1s_row(tmp_path):
+    assert rows(tmp_path, b"key=K\nhost=h\n", out="key:str, host:str") == ["K;h"]
+
+
+def test_section_named_twice_is_one_section(tmp_path):
+    text = b"[db]\na=1\n[web]\nb=2\n[db]\nc=3\na=9\n"
+    ini = dict(file_format="INI_FORMAT")
+    assert rows(tmp_path, text, out="section:str", retrive_mode="RETRIVE_SECTIONS", **ini) == ["db", "web"]
+    assert rows(tmp_path, text, out="key:str, value:str, section:str", retrive_mode="RETRIVE_ALL", **ini) == [
+        "a;9;db", "b;2;web", "c;3;db"]
+    assert rows(tmp_path, text, out="a:str, b:str, c:str, __section__:str", retrive_mode="RETRIVE_ALL", **ini) == [
+        "9;;3;db", ";2;;web"]
+    assert rows(tmp_path, text, section_name="db", **ini) == ["a;9", "c;3"]
+
+
+def test_section_is_the_one_named_section_unless_told_otherwise(tmp_path):
+    assert rows(tmp_path, b"[section]\na=1\n[other]\nb=2\n", file_format="INI_FORMAT") == ["a;1"]
+
+
+def test_blanks_around_the_files_name_are_no_part_of_it(tmp_path):
+    assert rows(tmp_path, filename="  app.properties ") == rows(tmp_path)
+
+
+def test_key_given_twice_is_named_by_the_line_of_the_value_that_stays(tmp_path):
+    made = dict(properties(), run={"only": {"source": "in", "where": {"key": ["c"]}}, "trace": True})
+    made["components"][0]["schema"]["output"][0]["key"] = True
+    result, lines = v2(tmp_path, made, b"a=1\nc=5\nb=2\nc=x\n")
+    assert lines == ["c;x"]
+    assert result.summary()["trace"][0]["outputs"]["main"]["from"] == ["line 4 of app.properties (key=c)"]
+
+
+def test_folder_where_the_file_should_be_fails_in_plain_words(tmp_path):
+    (tmp_path / "app.properties").mkdir()
+    result, _ = v2(tmp_path, properties(), None)
+    assert result.status == "failed" and result.error == "'app.properties' cannot be read: it is a folder"
+
+
+def test_v1s_die_on_error_is_taken():
+    load_job(properties(die_on_error=False))

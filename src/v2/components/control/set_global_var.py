@@ -56,9 +56,21 @@ class SetGlobalVar(Action, Transform):
             doc="The converter's note that a value was Java; a value that still is refuses the job."),
     )
 
+    def problems(self) -> List[str]:
+        if self.config["variables"] is None:
+            return ["variables: names no entry to put"]
+        found = [f"variables[{at}].key: an entry needs a key to be put under"
+                 for at, entry in enumerate(self.config["variables"]) if not entry["key"]]
+        return found + self.unfed()
+
     def act(self) -> None:
         for entry in self.config["variables"]:
-            self.global_map[entry["key"]] = entry["value"]
+            self._put(entry["key"], entry["value"])
+
+    def _put(self, key: str, value: Any) -> None:
+        self.global_map[key] = value
+        # The key does not say whose it is; a trigger judged before this component is done must not see it.
+        self.run_context.put_by[key] = self.id
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         ((flow, frame),) = inputs.items()
@@ -76,7 +88,7 @@ class SetGlobalVar(Action, Transform):
             if not found["__rows"].item():
                 return
             for at, entry in enumerate(self.config["variables"]):
-                self.global_map[entry["key"]] = found[f"__{at}"].item() if at in of_row else entry["value"]
+                self._put(entry["key"], found[f"__{at}"].item() if at in of_row else entry["value"])
 
         self.tap(frame.select(asked), put)
         return {"main": frame}
@@ -91,7 +103,9 @@ class SetGlobalVar(Action, Transform):
             if other == self.id:
                 continue
             for entry in self.config["variables"]:
-                if f'"{entry["key"]}"' in text or f"'{entry['key']}'" in text:
+                # Read as globalMap.get("key") or globalMap["key"], in either kind of quotes.
+                read = r"globalMap\s*(?:\.\s*get\s*\(|\[)\s*[\"']" + re.escape(entry["key"]) + r"[\"']"
+                if re.search(read, text):
                     raise ConfigurationError(
                         f"'{other}' reads the globalMap entry '{entry['key']}' in the same subjob: v2 puts it when the "
                         "subjob is done, not row by row as v1 does; read it in a subjob that follows"

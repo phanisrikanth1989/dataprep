@@ -48,6 +48,9 @@ class RunContext:
         # The texts of the config of each component of the subjob being run, by id: a component that puts
         # globalMap entries only when the subjob is done looks there for a reader it cannot serve.
         self.subjob_texts: Dict[str, str] = {}
+        # Who put a globalMap entry whose key does not say so (a set global var's), key to component id: a
+        # trigger judged before that component is done does not see the entry.
+        self.put_by: Dict[str, str] = {}
         # Every text of the job config that could name a globalMap entry; None when the job is not known.
         self.job_text: Optional[str] = None
         # Whether a source may let Polars parse numbers itself. That is faster and fails outright on a

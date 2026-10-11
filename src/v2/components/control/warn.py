@@ -1,11 +1,11 @@
 """Warn: a message is logged and the job goes on."""
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, List
 
 import polars as pl
 
-from ...job.keys import Key
+from ...job.keys import Key, Kind
 from ..base import Action, Transform
 from ..registry import REGISTRY
 from .die import priority, said, whole, with_entries
@@ -35,7 +35,11 @@ class Warn(Action, Transform):
         Key("message", default="this is a warning", doc="What is said."),
         Key("code", type=object, default=42, convert=whole("code"), doc="The message's code."),
         Key("priority", type=object, default=4, convert=priority, doc="How grave it is: 1 (trace) to 6 (fatal)."),
+        Key("die_on_error", kind=Kind.IGNORED, type=object, doc="Nothing here can fail; v1 reads it on every component."),
     )
+
+    def problems(self) -> List[str]:
+        return self.unfed()
 
     def act(self) -> None:
         config, held = self.config, self.global_map

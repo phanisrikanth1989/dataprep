@@ -256,6 +256,11 @@ class Runner:
             failure = self._run_subjob(plan[index])
             if failure is not None:
                 self._record(result, failure.component_id, failure.reason)
+                failed = self.job.components.get(failure.component_id)
+                if failed is not None and failed.cls.stops_job:
+                    # A die: the job ends here, as in v1 and Talend. No trigger fires and no subjob follows.
+                    logger.info(f"[{self.job.name}] the job is stopped by {failure.component_id}")
+                    return
             try:
                 following = self._fired(plan[index], leaving.get(index, []), failure, subjob_of, done, set_off)
             except ConfigurationError as exc:
@@ -319,7 +324,7 @@ class Runner:
                     fires = failure is not None and failure.component_id == component_id
                 else:
                     if seen is None:
-                        seen = _before(global_map, members[position + 1:], self.job.components)
+                        seen = _before(global_map, members[position + 1:], self.job.components, self.run_context.put_by)
                     fires = evaluate(trigger.condition, context, seen)
                     judged = f"{component_id} was done"
                 self._say(trigger, fires, judged)
@@ -711,6 +716,7 @@ class Runner:
             raise ConfigurationError("; ".join(f"{refusal.key}: {refusal.reason}" for refusal in refusals))
         component = spec.cls(spec, config, self.run_context)
         component.wired = {flow.port for flow in self.job.outgoing(spec.id)}
+        component.fed = len(self.job.incoming(spec.id))
         return component
 
     def _ready(self, spec: ComponentSpec) -> Component:
@@ -923,11 +929,15 @@ def _strings(value: Any, found: List[str]) -> None:
             _strings(item, found)
 
 
-def _before(global_map: Mapping[str, Any], later: List[str], everyone: Iterable[str]) -> Mapping[str, Any]:
+def _before(
+    global_map: Mapping[str, Any], later: List[str], everyone: Iterable[str], put_by: Mapping[str, str]
+) -> Mapping[str, Any]:
     """globalMap as v1 has it before some components of a subjob have run: without what is theirs.
 
     An entry is a component's when its key starts with the component's id
-    and an underscore; of two ids that fit, the longer one owns it.
+    and an underscore (of two ids that fit, the longer one owns it), or
+    when the component says it put it (``put_by``: a set global var's keys
+    are the job's own words).
     """
     if not later:
         return global_map
@@ -935,7 +945,7 @@ def _before(global_map: Mapping[str, Any], later: List[str], everyone: Iterable[
     hidden = set(later)
     kept: Dict[str, Any] = {}
     for key, value in global_map.items():
-        owner = next((component_id for component_id in ids if key.startswith(component_id + "_")), None)
+        owner = put_by.get(key) or next((component_id for component_id in ids if key.startswith(component_id + "_")), None)
         if owner not in hidden:
             kept[key] = value
     return kept
@@ -1044,7 +1054,8 @@ def _reason(error: BaseException) -> str:
         text = text.split(marker)[0]
     # Polars spells microseconds with a Greek letter; logs must stay ASCII.
     text = text.replace("\u03bc", "u").replace("\u00b5", "u")
-    text = text.encode("ascii", "replace").decode("ascii")
+    # What is beyond ASCII is written as its escape, so that a message's own characters can be told.
+    text = text.encode("ascii", "backslashreplace").decode("ascii")
     if "CSV malformed" in text or ("could not parse" in text and "as dtype `str`" in text):
         # Text always reads as text: what Polars could not read here is an enclosure.
         text += " (with csv_option, an enclosure character must open and close a field; this file has one that does not)"

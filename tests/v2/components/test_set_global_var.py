@@ -169,3 +169,80 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         made = alone("who", variables=variables(who="ann"))
         made["components"][0]["type"] = kind
         assert v2(tmp_path / str(at), made).global_map["who"] == "ann"
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 84)
+# ------------------------------------------------------------------
+
+def test_trigger_that_leaves_a_component_before_it_does_not_see_its_entries_yet_as_in_v1(tmp_path):
+    def stage(name):
+        return ([reader("n:str", component_id=f"{name}_in", path=f"{name}.csv", outputs=(f"{name}_row",)),
+                 writer("n:str", component_id=f"{name}_out", path="order.csv", inputs=(f"{name}_row",),
+                        include_header=False, append=True)],
+                [flow(f"{name}_row", f"{name}_in", f"{name}_out")])
+    made = job([reader(ROWS), setter(inputs=("row1",), outputs=("row2",), variables=variables(go="Y")), writer(ROWS)],
+               [flow("row1", "in", "set"), flow("row2", "set", "out")])
+    for name in ("s", "t"):
+        parts, flows = stage(name)
+        made["components"] += parts
+        made["flows"] += flows
+    made["triggers"] = [
+        {"type": "RunIf", "from": "in", "to": "t_in", "condition": '((String)globalMap.get("go")) == "Y"', "order": 1},
+        {"type": "OnSubjobOk", "from": "in", "to": "s_in", "order": 2},
+    ]
+    run = assert_matches_v1(made, {"in.csv": DATA, "s.csv": b"s\n", "t.csv": b"t\n"}, tmp_path)
+    assert run.files["order.csv"] == b"s\nt\n"
+
+
+def with_step(config, **more):
+    made = in_flow("last", variables=variables(last="row1.name", bob="x"))
+    step = {"id": "it", "type": "FilterRows", "inputs": ["row2"], "outputs": ["row3"], "config": {**config, **more},
+            "schema": {"input": columns(ROWS), "output": columns(ROWS)}}
+    made["components"].insert(2, step)
+    made["components"][3]["inputs"] = ["row3"]
+    made["flows"][1:2] = [flow("row2", "set", "it"), flow("row3", "it", "out")]
+    return made
+
+
+@pytest.mark.parametrize("config", [
+    {"conditions": [{"column": "name", "function": "", "operator": "==", "value": "bob"}], "label": 'uses "last" and "bob"'},
+    {"conditions": [{"column": "name", "function": "", "operator": "==", "value": '"bob"'}]},
+])
+def test_text_that_only_holds_a_key_as_a_word_is_no_reader_of_it(tmp_path, config):
+    result = v2(tmp_path, with_step(config))
+    assert result.status == "success", result.error
+
+
+@pytest.mark.parametrize("written", ['globalMap.get("last")', "globalMap.get('last')", 'globalMap.get( "last" )',
+                                     '((String)globalMap.get("last"))', 'globalMap["last"]'])
+def test_every_way_of_reading_an_entry_in_the_same_subjob_fails_the_job(tmp_path, written):
+    result = v2(tmp_path, with_step({"conditions": [{"column": "name", "function": "", "operator": "==", "value": written}]}))
+    assert result.status == "failed" and result.failed_component == "set" and "'last'" in result.error
+
+
+def test_blanks_around_a_column_of_the_row_and_text_that_only_starts_like_one(tmp_path):
+    result = v2(tmp_path, in_flow("a", variables=variables(a="  row1.name  ", b="row1.name + 1", c=7)))
+    assert result.global_map["a"] == "bob" and result.global_map["b"] == "row1.name + 1" and result.global_map["c"] == 7
+
+
+def test_one_that_is_to_hand_rows_on_and_gets_none_refuses_the_job():
+    made = job([setter(outputs=("row2",), variables=variables(a="x")), writer(ROWS)], [flow("row2", "set", "out")])
+    with pytest.raises(JobRefusedError) as refused:
+        load_job(made)
+    assert [refusal.key for refusal in refused.value.report] == ["outputs"]
+
+
+@pytest.mark.parametrize("held, key", [(None, "variables"), ([{"key": None, "value": 1}], "variables[0].key")])
+def test_nothing_where_the_entries_or_a_key_should_be_refuses_the_job(held, key):
+    with pytest.raises(JobRefusedError) as refused:
+        load_job(alone("who", variables=held))
+    assert [refusal.key for refusal in refused.value.report] == [key]
+
+
+def test_reader_of_an_earlier_subjob_is_no_reader_of_this_one(tmp_path):
+    # An earlier subjob reads the entry (and finds none); the subjob that puts it is not failed for that.
+    made = in_flow("last", variables=variables(last="row1.name"))
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "gen", "to": "in"}]
+    result = v2(tmp_path, made)
+    assert result.status == "success", result.error

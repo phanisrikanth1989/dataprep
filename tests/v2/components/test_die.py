@@ -159,3 +159,84 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         made = after({"type": "OnSubjobOk"}, message="enough")
         made["components"][2]["type"] = kind
         assert v2(tmp_path / str(at), made).error.startswith("Job terminated by tDie: enough")
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 84)
+# ------------------------------------------------------------------
+
+def second(name="t"):
+    """A subjob of its own that copies in.csv to <name>.csv."""
+    return ([reader("id:int", component_id=f"{name}_in", path="in.csv", outputs=(f"{name}_row",)),
+             writer("id:int", component_id=f"{name}_out", path=f"{name}.csv", inputs=(f"{name}_row",))],
+            [flow(f"{name}_row", f"{name}_in", f"{name}_out")])
+
+
+def with_more(made, *triggers):
+    parts, flows = second()
+    made["components"] += parts
+    made["flows"] += flows
+    made["triggers"] = list(made.get("triggers", [])) + list(triggers)
+    return made
+
+
+@pytest.mark.parametrize("triggers", [
+    [],
+    [{"type": "OnSubjobError", "from": "stop", "to": "t_in"}],
+    [{"type": "OnComponentError", "from": "stop", "to": "t_in"}],
+    [{"type": "RunIf", "from": "stop", "to": "t_in", "condition": "1 == 1"}],
+])
+def test_die_stops_the_whole_job_and_nothing_runs_after_it(tmp_path, triggers):
+    made = with_more(job([die(message="enough")], []), *triggers)
+    assert_matches_v1(made, {"in.csv": b"1\n"}, tmp_path)   # neither finishes
+    assert not (tmp_path / "v1" / "t.csv").exists() and not (tmp_path / "v2" / "t.csv").exists()
+
+
+def test_die_a_subjob_sets_off_stops_the_subjobs_that_would_have_followed(tmp_path):
+    made = with_more(after({"type": "OnSubjobOk", "order": 1}, message="enough"), {"type": "OnSubjobOk", "from": "in", "to": "t_in", "order": 2})
+    assert_matches_v1(made, {"in.csv": b"1\n"}, tmp_path)
+    assert (tmp_path / "v2" / "out.csv").exists() and not (tmp_path / "v2" / "t.csv").exists()
+    assert not (tmp_path / "v1" / "t.csv").exists()
+
+
+def test_die_in_a_flow_stops_the_job_when_a_row_arrives_and_lets_it_go_on_when_none_does(tmp_path):
+    (tmp_path / "a").mkdir()
+    result = v2(tmp_path / "a", with_more(to_die(message="bad")), b"1\n-2\n")
+    assert result.status == "failed" and not (tmp_path / "a" / "t.csv").exists()
+    (tmp_path / "b").mkdir()
+    result = v2(tmp_path / "b", with_more(to_die(message="bad")), b"1\n2\n")
+    assert result.status == "success" and (tmp_path / "b" / "t.csv").exists()
+
+
+def test_another_failure_does_not_stop_the_job(tmp_path):
+    made = with_more(job([reader("id:int", component_id="in", path="nope.csv"), COPY[1]], [flow("row1", "in", "out")]))
+    (tmp_path / "in.csv").write_bytes(b"1\n")
+    result = v2(tmp_path, made)
+    assert result.status == "failed" and (tmp_path / "t.csv").exists()
+
+
+def test_message_keeps_its_own_characters_in_the_failure_and_the_log_is_plain_ascii(tmp_path, caplog):
+    with caplog.at_level(logging.DEBUG, logger="src.v2"):
+        result = v2(tmp_path, after({"type": "OnSubjobOk"}, message="caf\u00e9 \u20ac\nnext"))
+    assert result.global_map["stop_MESSAGE"] == "caf\u00e9 \u20ac\nnext"
+    assert result.error == "Job terminated by tDie: caf\\xe9 \\u20ac next (exit code: 1)"
+    said = [record.getMessage() for record in caplog.records if "Code 4" in record.getMessage()]
+    assert said == ["[stop] Code 4: caf\\xe9 \\u20ac\\nnext"]
+
+
+def test_entry_of_globalmap_is_read_into_the_jobs_own_message_too(tmp_path):
+    result = v2(tmp_path, after({"type": "OnSubjobOk"}, message='read ((Integer)globalMap.get("in_NB_LINE"))'))
+    assert result.global_map["JOB_ERROR_MESSAGE"] == "read 2" and result.global_map["stop_DIE_MESSAGE"] == "read 2"
+
+
+def test_v1s_die_on_error_is_taken_and_two_flows_are_not():
+    load_job(after({"type": "OnSubjobOk"}, die_on_error=False))
+    made = job([reader("id:int", component_id="in"), reader("id:int", component_id="in2", outputs=("row2",)),
+                die(inputs=("row1", "row2"))], [flow("row1", "in", "stop"), flow("row2", "in2", "stop")])
+    with pytest.raises(JobRefusedError, match="takes at most 1 input"):
+        load_job(made)
+
+
+def test_job_as_the_converter_writes_it_loads():
+    as_converted = dict(message="the end is near", code="4", priority="5", exit_jvm=False, tstatcatcher_stats=False, label="")
+    load_job(after({"type": "OnSubjobOk"}, **as_converted))

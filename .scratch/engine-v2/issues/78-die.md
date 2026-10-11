@@ -46,3 +46,11 @@ before any code).
   caught at first and one after a test.
 
 Not done: ending the command line with the die's own exit code.
+
+## Corrected after review (ticket 84)
+
+- A die did not stop the job: it failed its own subjob and the job went
+  on. "Stops the job as in v1" above was false. It ends the job now: no
+  trigger fires, no subjob follows.
+- Its message keeps its own characters in the failure's text (as
+  escapes); `die_on_error` is taken.

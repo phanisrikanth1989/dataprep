@@ -102,7 +102,10 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   `needs_rows()` and implement both `build` and `run`.
 - `Action` is for a component that does something and hands no rows on
   (counts a file's rows, copies a file). No flow comes to it or leaves it,
-  so it is a subjob of its own that triggers reach and leave. What it finds
+  so it is a subjob of its own that triggers reach and leave. (One that
+  may also stand in a flow, as a die or a warn may, is a `Transform` as
+  well and allows itself an input: with a flow to it the engine builds
+  it, and without one it acts.) What it finds
   out it leaves in globalMap (`self.global_map[f"{self.id}_COUNT"]`); it
   raises to fail the job. It is not run when a job is only checked.
 - Class attributes: `names`, `keys`, `outputs`, `min_inputs`, `max_inputs`

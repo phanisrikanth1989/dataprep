@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from ...errors import ConfigurationError
 from ...files import codec_name
-from ...job.keys import Key
+from ...job.keys import Key, Kind
 from ..base import Action
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, unescape
@@ -15,6 +15,11 @@ from .file_input_delimited import encoding, unescape
 logger = logging.getLogger(__name__)
 
 _LINE_ENDS = ("\n", "\r\n", "\r")
+
+
+def unreadable(path: str, error: OSError) -> str:
+    """Why a path cannot be read as a file, in plain words."""
+    return "it is a folder" if os.path.isdir(path) else (error.strerror or type(error).__name__).lower()
 
 
 def _separator(value: str) -> str:
@@ -45,6 +50,8 @@ class FileRowCount(Action):
         Key("row_separator", default="\n", convert=_separator, doc="What ends a row."),
         Key("ignore_empty_row", type=bool, default=False, doc="Whether a row of nothing but blanks is not counted."),
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The file's character encoding."),
+        Key("die_on_error", kind=Kind.IGNORED, type=object,
+            doc="A file that cannot be counted always fails the job; v1 reads it on every component."),
     )
 
     def problems(self) -> List[str]:
@@ -59,6 +66,8 @@ class FileRowCount(Action):
             found, counted = self._counted(path)
         except UnicodeDecodeError:
             raise ConfigurationError(f"'{path}' is not written in {config['encoding']}: a byte in it is no character there") from None
+        except OSError as exc:
+            raise ConfigurationError(f"'{path}' cannot be read: {unreadable(path, exc)}") from None
         logger.info(f"[{self.id}] counted {counted} row(s) of {found} in {path}")
         entries = {"COUNT": counted, "NB_LINE": found, "NB_LINE_OK": counted, "NB_LINE_REJECT": found - counted}
         for name, value in entries.items():

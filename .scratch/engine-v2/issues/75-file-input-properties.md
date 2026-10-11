@@ -49,3 +49,16 @@ ticket 77 ran).
   property, a run can be for a few of them, the counts are said.
 - Mutation check: 33 ways of breaking it, 31 caught at first and two
   after a test each.
+
+## Corrected after review (ticket 84)
+
+The reviewer ran 4,047 files through Java 17 and through the reader.
+
+- A `\u` that is no four hex digits was read on; it fails the job, as it
+  stops Java. A line of nothing but a backslash made an entry, or took a
+  comment for a key. Two `\u` escapes that are one character together
+  (how Java writes an emoji) failed the job.
+- A section named twice was one section in one way of reading and two in
+  the others; it is one.
+- The README says now where v1's wide row is not v1's (ini files), and
+  that a value that cannot be read as its column's type goes missing.

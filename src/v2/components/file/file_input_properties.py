@@ -10,11 +10,12 @@ import polars as pl
 from ...column_types import held_frame
 from ...errors import ConfigurationError
 from ...files import codec_name
-from ...job.keys import Key
+from ...job.keys import Key, Kind
 from ...rows import hidden, visible
 from ..base import Source
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
+from .file_row_count import unreadable
 
 # The columns Talend's component has, which a job cannot change.
 _TALEND = ("key", "value", "section")
@@ -41,13 +42,17 @@ def _unescaped(text: str) -> str:
             at += 1
             continue
         following = text[at + 1]
-        if following == "u" and re.fullmatch("[0-9a-fA-F]{4}", text[at + 2:at + 6]):
+        if following == "u":
+            if not re.fullmatch("[0-9a-fA-F]{4}", text[at + 2:at + 6]):
+                # Java stops here too (IllegalArgumentException: Malformed \\uxxxx encoding).
+                raise ValueError("a \\u is followed by something that is no four hex digits")
             out.append(chr(int(text[at + 2:at + 6], 16)))
             at += 6
             continue
         out.append(_ESCAPES.get(following, following))
         at += 2
-    return "".join(out)
+    # Java writes a character beyond its first 65,536 as two escapes; together they are the one character.
+    return "".join(out).encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
 def properties(text: str) -> List[Entry]:
@@ -68,17 +73,26 @@ def properties(text: str) -> List[Entry]:
         if not line or line[0] in "#!":
             continue
         while _odd_backslashes(line) and at < len(lines):
-            line = line[:-1] + lines[at].lstrip(_BLANK)
+            line = line[:-1]
+            if not line:
+                # Nothing but the backslash so far: the next line starts afresh, a comment among it.
+                break
+            line += lines[at].lstrip(_BLANK)
             at += 1
         if _odd_backslashes(line):
             line = line[:-1]
+        if not line:
+            continue
         end = 0
         while end < len(line) and line[end] not in "=:" + _BLANK:
             end += 2 if line[end] == "\\" else 1
         key, rest = line[:end], line[end:].lstrip(_BLANK)
         if rest[:1] in ("=", ":"):
             rest = rest[1:].lstrip(_BLANK)
-        found.append((start, None, _unescaped(key), _unescaped(rest)))
+        try:
+            found.append((start, None, _unescaped(key), _unescaped(rest)))
+        except ValueError as exc:
+            raise ValueError(f"line {start}: {exc}") from None
     return found
 
 
@@ -86,10 +100,11 @@ def ini(text: str) -> List[Entry]:
     """The entries of an ini file: `[section]` lines, and `key = value` or `key: value` under them.
 
     A line that starts with `;` or `#` is a comment. Blanks around a name,
-    a key and a value are no part of them. A section with no entry gives
-    one entry with no key.
+    a key and a value are no part of them. Each section gives one entry
+    with no value, at its first heading: a section named twice is one.
     """
     found: List[Entry] = []
+    seen: set = set()
     section: Optional[str] = None
     for at, line in enumerate(_LINE_END.split(text), start=1):
         line = line.strip()
@@ -97,7 +112,9 @@ def ini(text: str) -> List[Entry]:
             continue
         if line[0] == "[" and line[-1] == "]":
             section = line[1:-1].strip()
-            found.append((at, section, "", None))
+            if section not in seen:
+                seen.add(section)
+                found.append((at, section, "", None))
             continue
         if section is None:
             continue
@@ -139,6 +156,8 @@ class FileInputProperties(Source):
         Key("section_name", default="section", doc="The section to read, for RETRIVE_BY_SECTION."),
         Key("encoding", default="ISO-8859-15", convert=encoding,
             doc="An ini file's character encoding. A properties file is always ISO-8859-1, as in Java."),
+        Key("die_on_error", kind=Kind.IGNORED, type=object,
+            doc="A file that cannot be read always fails the job; v1 reads it on every component."),
     )
 
     def problems(self) -> List[str]:
@@ -173,7 +192,13 @@ class FileInputProperties(Source):
                 text = handle.read()
         except UnicodeDecodeError:
             raise ConfigurationError(f"'{path}' is not written in {config['encoding']}: a byte in it is no character there") from None
-        entries = properties(text) if plain else ini(text.lstrip("\ufeff"))
+        except OSError as exc:
+            raise ConfigurationError(f"'{path}' cannot be read: {unreadable(path, exc)}") from None
+        try:
+            entries = properties(text) if plain else ini(text.lstrip("\ufeff"))
+        except ValueError as exc:
+            where, _, what = str(exc).partition(": ")
+            raise ConfigurationError(f"{where} of {path}: {what}") from None
         mode = config["retrive_mode"]
         if not plain and mode == "RETRIVE_BY_SECTION":
             entries = [entry for entry in entries if entry[1] == config["section_name"]]
@@ -198,20 +223,22 @@ class FileInputProperties(Source):
                 rows.append({"key": key, "value": value, "section": section})
                 lines.append(line)
             else:
+                # The last value stays, at the first one's place; the row is named by the line that value is on.
                 rows[at]["value"] = value
+                lines[at] = line
         return rows, lines
 
     @staticmethod
     def _wide(entries: List[Entry], plain: bool, mode: str) -> Tuple[List[Dict[str, Any]], List[int]]:
         """v1's rows: one for the file, or one for each section of an ini file read whole."""
         if not plain and mode != "RETRIVE_BY_SECTION":
-            rows: List[Dict[str, Any]] = []
+            by_section: Dict[Optional[str], Dict[str, Any]] = {}
             lines: List[int] = []
             for line, section, key, value in entries:
                 if value is None:
-                    rows.append({"__section__": section})
+                    by_section[section] = {"__section__": section}
                     lines.append(line)
                 else:
-                    rows[-1][key] = value
-            return rows, lines
+                    by_section[section][key] = value
+            return list(by_section.values()), lines
         return [{key: value for _, _, key, value in entries if value is not None}], [1]
