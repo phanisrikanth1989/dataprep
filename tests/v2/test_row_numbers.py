@@ -267,6 +267,15 @@ def test_every_row_a_split_row_makes_carries_the_number_of_the_row_it_came_from(
     assert failed(tmp_path, chain(("SplitRow", {"col_mapping": groups}, PEOPLE)), {"in.csv": PEOPLE_DATA}) == NAMED
 
 
+def test_row_a_denormalize_makes_of_several_names_the_first_of_them(tmp_path):
+    # The two rows with id 2 have no age and become one row, which the sort cannot take.
+    data = b"id;name;age\n1;ann;30\n2;cy;\n2;di;\n"
+    made = chain(("Denormalize", {"denormalize_columns": [{"input_column": "name"}]}, PEOPLE))
+    assert failed(tmp_path, made, {"in.csv": data}) == (
+        "Column 'age' has NULL values but is not nullable; the row is line 3 of in.csv, "
+        "the first of 2 rows that were combined (id=2)")
+
+
 def test_every_row_an_unpivot_makes_carries_the_number_of_the_row_it_came_from(tmp_path):
     step = ("UnpivotRow", {"row_keys": ["id", "name"], "pivot_key": "what", "pivot_value": "years"},
             "id:int, name:str, what:str, years:int")

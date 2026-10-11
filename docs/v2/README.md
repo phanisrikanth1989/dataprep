@@ -279,7 +279,7 @@ in the summary of a run that asked for it, and of no other.
      JSON input;
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, join, unite, map, normalize, replicate, sample row, split row,
-     replace, convert type, unpivot row;
+     replace, convert type, unpivot row, denormalize;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -800,6 +800,13 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   cannot read 'x'`); v1's is pandas' text.
 - `autocast` asks for nothing more: the engine reads every value as the
   type its output column declares, as after any component.
+
+**Denormalize**
+
+- A whole number is put together whole (`3`). v1 writes `3.0` for every
+  value of a whole-number column that has a missing value anywhere.
+- A named column that is not there, and a config that names every column,
+  refuse the job at load. v1 fails when the component runs.
 
 **Unpivot row**
 
