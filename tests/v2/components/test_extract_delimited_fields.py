@@ -233,6 +233,9 @@ def test_source_column_is_looked_for_when_the_rows_arrive_where_the_input_declar
     made = extract(field="nope")
     made["components"][1]["schema"]["input"] = []
     assert [reason for _, reason in refusals(made)] == ["field: there is no column 'nope' (id, raw)"]
+    # No column named is no column either: the first one is not taken for it.
+    made["components"][1]["config"]["field"] = ""
+    assert [reason for _, reason in refusals(made)] == ["field: there is no column '' (id, raw)"]
 
 
 def test_unknown_key_refuses_the_job():

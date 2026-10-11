@@ -47,11 +47,15 @@ class ExtractFields(Transform):
     outputs = {"main": ("flow", "main"), "reject": ("reject",)}
     # Whether a row with no source is left out without a word unless the job says otherwise.
     skips_missing = True
+    # Whether the first column is the source when none is named, as v1 has it for some of them.
+    first_when_unnamed = False
 
     def problems(self) -> List[str]:
         names = [column.name for column in self.input_schema]
         field = self.config["field"]
-        return [f"field: there is no column '{field}' ({', '.join(names)})"] if names and field not in names else []
+        if not names or field in names or (not field and self.first_when_unnamed):
+            return []
+        return [f"field: there is no column '{field}' ({', '.join(names)})"]
 
     def pieces(self, text: pl.Expr, wanted: int) -> Tuple[pl.Expr, List[Fault]]:
         """The pieces of a text, as a list of texts, and what turns a row away for them.
@@ -67,6 +71,8 @@ class ExtractFields(Transform):
         config, field = self.config, self.config["field"]
         types = frame.collect_schema()
         names = visible(types.names())
+        if not field and self.first_when_unnamed and names:
+            field = names[0]
         if field not in names:
             raise ConfigurationError(f"field: there is no column '{field}' ({', '.join(names)})")
         declared = [column.name for column in self.schema] or names

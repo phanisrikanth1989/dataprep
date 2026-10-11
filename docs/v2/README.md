@@ -283,7 +283,7 @@ in the summary of a run that asked for it, and of no other.
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
-     check, extract delimited fields;
+     check, extract delimited fields, extract positional fields;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -915,6 +915,23 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - A wrong number of pieces that fails the job names the row.
 - Not acted on, as in v1: `advanced_separator` (v1 looks for Talend type
   names its schemas never hold), `check_date`.
+
+**Extract positional fields**
+
+- A piece is read as its column's declared type the way every transform's
+  output is, as for extract delimited fields above.
+- A `field` that names no column refuses the job. v1 cuts the first
+  column in its place, with a warning. (With no `field` at all, both cut
+  the first column.)
+- A `pattern` that is no list of widths refuses the job before it runs.
+  v1 fails when the rows arrive.
+- A date in the source column is cut as the text its pattern writes; v1
+  cuts Python's text for it.
+- `die_on_error` is off when the job does not say, and the reject file
+  has its header line where no row is turned away: both as for extract
+  delimited fields.
+- A text that is too short and fails the job names the row.
+- Not read, as in v1: `formats`, `advanced_option`, `advanced_separator`.
 
 **Pivot to columns delimited**
 
