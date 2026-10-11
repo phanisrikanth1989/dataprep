@@ -295,6 +295,9 @@ are designed.
   with `random` in reach, as in v1; Java ones are refused.
   [File output Excel](issues/68-file-output-excel.md) -- with openpyxl,
   held against v1 by what is in the workbook.
+  [File output positional](issues/69-file-output-positional.md) -- to
+  Talend's rule where v1 differs from it (floats, dates, true/false, the
+  header, `compress` as a zip): read in the source, not run in Talend.
   [Review of the first five](issues/62-review-of-the-first-five-new-components.md)
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
@@ -302,8 +305,7 @@ are designed.
   [Review of schema compliance check and pivot](issues/67-review-of-schema-compliance-check-and-pivot.md)
   -- twenty-nine findings; float sums of the pivot and the strict date
   check were wrong and are fixed.
-  Still to build, in this order: file output
-  positional, extract delimited fields, extract positional fields, extract
+  Still to build, in this order: extract delimited fields, extract positional fields, extract
   regex fields, extract JSON fields, file input properties, file row
   count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)

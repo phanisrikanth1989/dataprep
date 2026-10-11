@@ -217,6 +217,15 @@ def test_excel_output_counts_the_rows_it_writes(tmp_path):
     assert same_counts(made, {"in.csv": b"id;name\n1;a\n2;b\n3;\n"}, tmp_path)["out"] == counts(3, 3, 0)
 
 
+def test_positional_output_counts_the_rows_it_writes(tmp_path):
+    sink = {"id": "out", "type": "FileOutputPositional", "inputs": ["row1"], "outputs": [],
+            "config": {"filepath": "out.txt", "include_header": True,
+                       "formats": [{"schema_column": "id", "size": "3"}, {"schema_column": "name", "size": "4"}]},
+            "schema": {"input": columns("id:int, name:str"), "output": []}}
+    made = job([reader("id:int, name:str", header_rows=1), sink], [flow("row1", "in", "out")])
+    assert same_counts(made, {"in.csv": b"id;name\n1;a\n2;b\n3;\n"}, tmp_path)["out"] == counts(3, 3, 0)
+
+
 def test_pivot_counts_the_rows_it_reads_and_the_groups_it_writes(tmp_path):
     pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
              "config": {"pivot_column": "q", "aggregation_column": "amt", "groupbys": ["id"], "filename": "out.csv"},

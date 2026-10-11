@@ -278,8 +278,8 @@ in the summary of a run that asked for it, and of no other.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
      JSON input; fixed flow input (rows written in the job config); row
-     generator (rows made from expressions); Excel output; pivot to
-     columns delimited (an output);
+     generator (rows made from expressions); Excel output; positional
+     output; pivot to columns delimited (an output);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
@@ -961,6 +961,42 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   job when its turn comes to be put in place; files the subjob wrote
   before it are in place by then.
 - The rows are held in memory while the workbook is made, as in v1.
+
+**Positional output**
+
+v1's positional output and Talend's do not agree on much, so here v2 is
+held to Talend's own component (read in its source, Talaxie
+`tFileOutputPositional_begin.javajet`), and to v1 where v1 does the same:
+text and whole numbers, padding and cutting, left and right, the row
+separator, the encoding.
+
+- A value is written as the delimited output writes it: a float as it
+  prints (`1.5`), a Decimal to its declared places, `true` and `false`, a
+  date by its column's pattern. v1 writes a float and a Decimal to eight
+  places unless the column declares some (`1.50000000`), `True`, and a
+  date without its pattern; and it fails on a job whose typed columns
+  have missing values.
+- Centred (`align` C), where the padding does not divide evenly the one
+  more is on the right: `ab` in five is `*ab**`. v1 has `**ab*` when the
+  size is odd.
+- A column name longer than its size is kept as a value would be (whole
+  under `keep` A). v1 cuts it to the size.
+- When adding to a file (`append`), the header goes only into a new or
+  empty file. v1 writes it again.
+- No rows leave an empty file (or its header). v1 touches no file then,
+  and one from an earlier run stays as it was.
+- `compress` puts the file into a zip beside its name (`out.txt` into
+  `out.zip`), and not when appending. v1 writes gzip under the file's own
+  name.
+- A whole-number column with a missing value is written. v1 fails on it.
+- Not the same as Talend, where v2 keeps to its own way of writing a
+  value: a float of very many or very few digits (`1.0E10` in Java) and a
+  date with no pattern (Java's `Wed Jan 31 ...`), which v2 writes as its
+  delimited output does.
+- Refused: `use_byte` (widths in bytes), `usestream`, a dynamic schema, a
+  `padding_char` of more than one character (v1 fails on it when it
+  runs).
+- Not acted on, as in v1: `advanced_separator`.
 
 **Fixed flow input**
 
