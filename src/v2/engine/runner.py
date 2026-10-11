@@ -387,6 +387,11 @@ class Runner:
         """
         holding = [component_id for component_id in component_ids if self.job.components[component_id].cls.may_need_rows]
         traced = self.trace is not None
+        self.run_context.subjob_texts = {}
+        for component_id in component_ids:
+            texts: List[str] = []
+            _strings(self.job.components[component_id].raw_config, texts)
+            self.run_context.subjob_texts[component_id] = "\n".join(texts)
         self.run_context.fast_read = not holding and not traced and not os.environ.get("V2_SAFE_READ")
         if logger.isEnabledFor(logging.DEBUG):
             how = (

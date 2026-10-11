@@ -287,7 +287,7 @@ in the summary of a run that asked for it, and of no other.
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
    - the rest: Python dataframe, log row, context load, file row count,
-     die, warn.
+     die, warn, set global var.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -1256,6 +1256,23 @@ every converted job is a row of nothing.
   Talend speaks for every row.
 - Talend's names are left in globalMap beside v1's (`<id>_WARN_MESSAGES`,
   `_WARN_CODE`, `_WARN_PRIORITY`).
+
+**Set global var**
+
+- With a flow leading to it, the entries are put when the subjob is done:
+  v2 runs a subjob in one pass. A later subjob and a trigger's condition
+  read them, as in v1. A component of the same subjob that reads one of
+  them fails the job before anything is written; in v1 and Talend it
+  reads, row by row, what the row before it has put. Such a job has to be
+  cut in two subjobs.
+- Nothing is put when no row arrives, as in Talend. v1 puts the values as
+  they are written, the text `row1.name` among them.
+- A value is a column of the row when it is written `<flow>.<column>`
+  with the name of the flow that leads to the component. v1 takes any
+  word before the dot.
+- An entry with no key refuses the job. v1 fails when it comes to it, or
+  passes over it with `die_on_error` off.
+- A value that is a Java expression refuses the job, as everywhere.
 
 **File row count**
 
