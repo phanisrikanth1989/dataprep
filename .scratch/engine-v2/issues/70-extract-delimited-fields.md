@@ -53,7 +53,7 @@ them written and seen failing before any code, while the review of ticket
   with empty text), v1's codes and messages in the reject output.
 - A failure names the row (`line 3 of in.csv`), the log tells of rows
   dropped with no flow to take them, a run can be for a few rows, and the
-  counts are v1's, the rows left out for a missing source in none of
-  them. Tests for each.
+  counts are v1's: the rows left out for a missing source are among the
+  rows read and in neither of the other two. Tests for each.
 - Mutation check: 29 ways of breaking it, 28 caught at first and the last
   after a test.

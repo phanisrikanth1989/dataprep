@@ -16,6 +16,9 @@ def _pattern(value: str) -> str:
     value = value.replace("\\\\", "\\")
     if not value:
         raise ValueError("there is no pattern")
+    odd = _read_differently(value)
+    if odd:
+        raise ValueError(f"Python and Polars read {odd} differently; write the pattern without it")
     try:
         re.compile(value)
     except re.error as exc:
@@ -24,8 +27,42 @@ def _pattern(value: str) -> str:
         pl.select(pl.lit("").str.contains(value))
     except Exception as exc:  # noqa: BLE001 -- Polars decides what a pattern it can look for is
         detail = " ".join(str(exc).split())[:160]
-        raise ValueError(f"v2 cannot look for this pattern (no lookaround and no backreferences): {detail}") from None
+        raise ValueError(f"v2 cannot look for this pattern: {detail}") from None
     return value
+
+
+def _read_differently(pattern: str) -> str:
+    """What in a pattern both Python and Polars take and do not read alike; nothing when there is none.
+
+    Inside ``[...]`` Polars reads a second ``[`` as a set within the set
+    and ``&&``, ``--`` and ``~~`` as ways to put sets together, where
+    Python reads plain characters; and ``\\<`` and ``\\>`` are the start
+    and the end of a word to Polars and those two characters to Python.
+    """
+    at, inside = 0, False
+    while at < len(pattern):
+        char, pair = pattern[at], pattern[at:at + 2]
+        if char == "\\":
+            if not inside and pair in ("\\<", "\\>"):
+                return f"`{pair}`"
+            at += 2
+            continue
+        if not inside:
+            if char == "[":
+                inside = True
+                # A `]` that comes first, also after `^`, is a character of the set.
+                at += 2 if pattern[at + 1:at + 2] == "^" else 1
+                if pattern[at:at + 1] == "]":
+                    at += 1
+                continue
+        elif char == "]":
+            inside = False
+        elif char == "[":
+            return "a `[` inside `[...]`"
+        elif pair in ("&&", "--", "~~"):
+            return f"`{pair}` inside `[...]`"
+        at += 1
+    return ""
 
 
 def _as_python_shows(text: pl.Expr) -> pl.Expr:
@@ -59,8 +96,10 @@ class ExtractRegexFields(ExtractFields):
     not as many as the columns to fill turns away every row it is found in
     (`FIELD_COUNT_MISMATCH`).
 
-    The pattern is Python's, as far as Polars can look for it: no
-    lookaround and no backreferences.
+    The pattern is Python's, as far as Polars can look for it and reads it
+    the same way: a pattern Polars does not take (lookaround, a
+    backreference), or one of the few things the two read differently,
+    refuses the job.
     """
 
     names = ("extract_regex_fields", "ExtractRegexFields", "tExtractRegexFields")
@@ -75,6 +114,11 @@ class ExtractRegexFields(ExtractFields):
                 "many as the columns), or a missing value in a column the schema declares not nullable, fails the "
                 "job; when off, the row leaves by the reject output."),
     )
+
+    def problems(self) -> List[str]:
+        if self.config["regex"] is None:
+            return ["regex: there is no pattern"]
+        return super().problems()
 
     def pieces(self, text: pl.Expr, wanted: int) -> Tuple[pl.Expr, List[Fault]]:
         pattern = self.config["regex"]

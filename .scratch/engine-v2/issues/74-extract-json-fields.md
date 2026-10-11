@@ -33,7 +33,7 @@ on 2026-10-11 with the other 25.
 ## Answer
 
 Built on 2026-10-12 (`src/v2/components/transform/extract_json_fields.py`;
-34 tests in `tests/v2/components/test_extract_json_fields.py`, 29 of them
+35 tests in `tests/v2/components/test_extract_json_fields.py`, 29 of them
 written and seen failing before any code; held against v1 byte for byte
 but for one that says why not).
 
@@ -43,8 +43,9 @@ but for one that says why not).
   Every row it hands on carries the row number of the row its document
   came from.
 - Its values are made a frame by `column_types.held_frame`, as the rows a
-  config writes are; that function learned to read dates by their
-  column's pattern alone, which is how v1 reads them here.
+  config writes are. (A first version read dates by their column's
+  pattern alone and said v1 does; v1 does so only when some date of the
+  column is written by the pattern. Corrected in ticket 77.)
 - v1's codes and messages in the reject output, `errorJSONField` among
   its columns.
 - Refused where v1 goes on with nothing: `read_by` XPATH, a path that

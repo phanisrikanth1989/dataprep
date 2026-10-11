@@ -467,7 +467,7 @@ def _bool_from_text(value: pl.Expr) -> pl.Expr:
 _BIGGEST = 2 ** 63
 
 
-def _held_column(column: Column, values: List[Any], usual_dates: bool = True) -> pl.Series:
+def _held_column(column: Column, values: List[Any]) -> pl.Series:
     """One column of rows held in Python.
 
     A column declared a number holds numbers when every value is one. Any
@@ -481,7 +481,7 @@ def _held_column(column: Column, values: List[Any], usual_dates: bool = True) ->
         values = [bool(value) if isinstance(value, (int, float)) else value for value in values]
     elif column.type == "int":
         values = [int(value) if isinstance(value, bool) else value for value in values]
-    elif usual_dates and column.type in ("datetime", "date") and column.date_pattern and "%" in column.date_pattern:
+    elif column.type in ("datetime", "date") and "%" in (column.date_pattern or "%"):
         seen: Dict[str, str] = {}
         values = [seen.setdefault(value, _by_pattern(value, column.date_pattern)) if isinstance(value, str) else value
                   for value in values]
@@ -495,31 +495,39 @@ def _held_column(column: Column, values: List[Any], usual_dates: bool = True) ->
     return pl.Series(name, [None if value is None else str(value) for value in values], dtype=pl.String)
 
 
-def _by_pattern(value: str, pattern: str) -> str:
-    """A date written one of the usual ways, as the text its column's pattern writes; any other text as it is."""
-    for known in (pattern,) + _DEFAULT_DATE_PATTERNS:
+# How a date is written when not by its column's pattern: the engine's own three ways, and ISO 8601's with a T.
+_USUAL_DATES = _DEFAULT_DATE_PATTERNS + ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f")
+
+
+def _by_pattern(value: str, pattern: Optional[str]) -> str:
+    """A date written one of the usual ways, as the text its column reads; any other text as it is.
+
+    The text is the one the column's pattern writes, or, for a column with
+    no pattern, the first of the ways the engine reads such a column by.
+    """
+    for known in ((pattern,) if pattern else ()) + _USUAL_DATES:
         try:
             read = datetime.datetime.strptime(value.strip(), known)
         except ValueError:
             continue
-        return read.strftime(pattern)
+        if pattern:
+            return read.strftime(pattern)
+        # A column with no pattern holds no fraction of a second: such a moment is left as it is written.
+        return value if read.microsecond else read.strftime("%Y-%m-%d %H:%M:%S")
     return value
 
 
-def held_frame(columns: List[Column], rows: List[Dict[str, Any]], usual_dates: bool = True) -> pl.DataFrame:
+def held_frame(columns: List[Column], rows: List[Dict[str, Any]]) -> pl.DataFrame:
     """Rows held in Python, each as column to value, as a frame the engine reads as the declared columns.
 
     For a source that makes its rows from its config. As for every reader,
     where true or false may be missing, nothing given is false; where it
     may not be missing, empty text is false and a missing value stays one.
-    With ``usual_dates`` a date may be written by its column's pattern or
-    one of the usual ways (2024-01-31, with or without a time, or
-    31/01/2024), as v1 reads it in rows a config writes; without, by its
-    column's pattern alone.
+    A date may be written by its column's pattern or one of the usual ways
+    (2024-01-31, with a time after a blank or a T, or 31/01/2024), as v1
+    reads a column none of whose dates is written by the pattern.
     """
-    frame = pl.DataFrame([
-        _held_column(column, [row.get(column.name) for row in rows], usual_dates) for column in columns
-    ])
+    frame = pl.DataFrame([_held_column(column, [row.get(column.name) for row in rows]) for column in columns])
     made = []
     for column in columns:
         if column.type == "bool":

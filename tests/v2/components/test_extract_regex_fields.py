@@ -120,7 +120,7 @@ def test_what_cannot_be_read_refuses_the_job(config, key, said):
 
 def test_pattern_polars_cannot_look_for_is_said_so():
     (_, said), = refusals(extract(regex=r"(\w+)(?=-)-(\d+)"))
-    assert said.startswith("v2 cannot look for this pattern (no lookaround and no backreferences): ")
+    assert said.startswith("v2 cannot look for this pattern: ") and "look-around" in said
     # A pattern Polars reads and Python does not is none either: the patterns are Python's.
     (_, said), = refusals(extract(regex=r"(\p{L}+)-(\d+)"))
     assert said.startswith("this is no pattern: bad escape")
@@ -132,3 +132,62 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         result, files = v2(tmp_path / str(at), extract(kind=kind), DATA)
         assert result.status == "success" and files["out.csv"][1] == "1;ann;30;x"
         load_job(extract(kind=kind))
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 77)
+# ------------------------------------------------------------------
+
+def test_more_groups_than_columns_turn_every_row_away_too_when_asked(tmp_path):
+    kept, rejected = same(tmp_path, regex=r"(\w+)-(\d+)-(\w)(\w?)", check_fields_num=True, reject="")
+    assert kept == [] and rejected[1].endswith("FIELD_COUNT_MISMATCH;Expected 3 capture groups, got 4")
+
+
+def test_groups_that_are_not_as_many_as_the_columns_fail_the_job_when_it_is_to_die(tmp_path):
+    made = extract(regex=r"(\w+)-(\d+)", check_fields_num=True, die_on_error=True)
+    assert_matches_v1(made, {"in.csv": b"id|raw\n1|ann-30-x\n"}, tmp_path)
+    (tmp_path / "x").mkdir()
+    result, _ = v2(tmp_path / "x", made, b"id|raw\n1|ann-30-x\n")
+    assert result.status == "failed" and result.error == "Expected 3 capture groups, got 2; the row is line 2 of in.csv"
+
+
+def test_pattern_is_found_also_where_its_first_group_took_no_part(tmp_path):
+    kept, rejected = same(tmp_path, b"id|raw\n1|b\n2|ab\n3|c\n", regex=r"(a)?(b)", out="id:int, a:str, b:str", reject="")
+    assert kept == ["1;;b", "2;a;b"] and len(rejected) == 2
+
+
+def test_tab_and_carriage_return_are_said_as_python_says_them(tmp_path):
+    source = {"id": "in", "type": "FixedFlowInputComponent", "inputs": [], "outputs": ["row1"],
+              "config": {"use_singlemode": False, "use_inlinecontent": True, "inline_content": "1;a\tb|2;c\rd|3;e\nf",
+                         "row_separator": "|"},
+              "schema": {"input": [], "output": [{"name": "id", "type": "int", "nullable": True}, {"name": "raw", "type": "str", "nullable": True}]}}
+    made = extract(reject="")
+    made["components"][0] = source
+    run = assert_matches_v1(made, {}, tmp_path)
+    said = [line.split("Regex did not match: ")[1] for line in run.files["rej.csv"].decode().split("NO_MATCH;")[1:]]
+    assert [text.split("\n")[0] for text in said] == ["'a\\tb'", "'c\\rd'", "'e\\nf'"]
+
+
+@pytest.mark.parametrize("regex, what", [
+    (r"([[a]]+)", "a `[` inside `[...]`"), (r"([a-z&&b]+)", "`&&` inside `[...]`"), (r"([a-z--b]+)", "`--` inside `[...]`"),
+    (r"([a~~b]+)", "`~~` inside `[...]`"), (r"\<(\w+)\>", "`\\<`"), (r"(\w+)\>", "`\\>`"), (r"([[:alpha:]]+)", "a `[` inside `[...]`"),
+    (r"([]&&a]+)", "`&&` inside `[...]`"), (r"([^]a--b]+)", "`--` inside `[...]`"),
+])
+def test_pattern_python_and_polars_read_differently_refuses_the_job(regex, what):
+    (key, said), = refusals(extract(regex=regex))
+    assert key == "regex" and said == f"Python and Polars read {what} differently; write the pattern without it"
+
+
+@pytest.mark.parametrize("regex", [r"([\[a\]]+)", r"([a\-\-b&]+)", r"(a--b)", r"(a&&b)", r"([]a]+)", r"([^]a]+)"])
+def test_pattern_that_only_looks_like_one_of_those_is_taken(tmp_path, regex):
+    load_job(extract(regex=regex))
+    same(tmp_path, b"id|raw\n1|a]b--&&\n", regex=regex, out="id:int, a:str")
+
+
+def test_pattern_polars_cannot_look_for_is_said_in_polars_words_and_no_guess_at_why():
+    (_, said), = refusals(extract(regex=r"(a)\Z"))
+    assert said.startswith("v2 cannot look for this pattern: ") and "lookaround" not in said
+
+
+def test_pattern_given_as_nothing_refuses_the_job_by_its_key():
+    assert [key for key, _ in refusals(extract(regex=None))] == ["regex"]

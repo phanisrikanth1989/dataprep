@@ -302,6 +302,9 @@ are designed.
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
   -- thirteen findings, the same.
+  [Review of the four extract components](issues/77-review-of-the-four-extract-components.md)
+  -- eighteen findings; a JSON loop path could fail the whole job, and
+  ISO dates went missing, both fixed.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

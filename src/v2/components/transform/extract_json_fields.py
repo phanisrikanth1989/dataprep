@@ -100,6 +100,8 @@ class ExtractJSONFields(Transform):
 
     def problems(self) -> List[str]:
         config, found = self.config, []
+        if config["mapping_4_jsonpath"] is None:
+            return ["mapping_4_jsonpath: names no column to fill"]
         if config["read_by"] != "JSONPATH":
             found.append(
                 f"read_by: '{config['read_by']}' is not built: v2 follows JSONPath only (v1 tries XPath as JSONPath, "
@@ -141,9 +143,13 @@ class ExtractJSONFields(Transform):
             text = raw if isinstance(raw, str) else str(raw)
             try:
                 document = json.loads(text)
-                items = [document] if loop is None else [match.value for match in loop.find(document)]
             except ValueError as exc:
                 turned.append((at, text, "PARSE_ERROR", str(exc)))
+                continue
+            try:
+                items = [document] if loop is None else [match.value for match in loop.find(document)]
+            except Exception as exc:  # noqa: BLE001 -- the library raises what it likes; as v1 words it
+                turned.append((at, text, "PARSE_ERROR", f"loop query error: {exc}"))
                 continue
             for item in items:
                 root = item if config["use_loop_as_root"] else document
@@ -168,10 +174,10 @@ class ExtractJSONFields(Transform):
             _, _, code, why = turned[0]
             more = "" if len(turned) == 1 else f" (the first of {len(turned)} such rows)"
             raise ConfigurationError(f"{code}: {shown(why)}{more}{self.where(frame[places[:1]].select(carried))}")
-        if turned and "reject" not in self.wired:
-            self._tell(len(turned), turned[0][3], frame[places[:1]].select(carried))
+        if turned:
+            self.tell_rows_dropped(len(turned), turned[0][3], frame[places[:1]].select(carried))
 
-        main = held_frame(self.schema, rows, usual_dates=False).hstack(_taken(frame.select(carried), origin))
+        main = held_frame(self.schema, rows).hstack(_taken(frame.select(carried), origin))
         reject = _taken(frame.select(names), places).with_columns(
             pl.Series("errorJSONField", [text for _, text, _, _ in turned], dtype=pl.String),
             pl.Series("errorCode", [code for _, _, code, _ in turned], dtype=pl.String),
@@ -185,11 +191,7 @@ class ExtractJSONFields(Transform):
         if not found:
             return ""
         value = found[0] if len(found) == 1 else found
+        if isinstance(value, float) and value != value:
+            # Not a number: nothing, as v1 writes it.
+            return None
         return json.dumps(value) if isinstance(value, (list, dict)) else value
-
-    def _tell(self, rows: int, why: str, first: pl.DataFrame) -> None:
-        """Have the log say, once the subjob has run, that rows were dropped with no flow to take them."""
-        start = "1 row was dropped" if rows == 1 else f"{rows} rows were dropped"
-        middle = ": " if rows == 1 else "; the first: "
-        said = f"[{self.id}] {start} (no flow takes this component's rejects){middle}{shown(why)}{self.where(first)}"
-        self.tap(pl.LazyFrame({"rows": [rows]}), lambda _: logger.warning(one_line(said)))

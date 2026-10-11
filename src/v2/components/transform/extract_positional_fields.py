@@ -11,6 +11,7 @@ from .extract_delimited_fields import ExtractFields, Fault
 from ..registry import REGISTRY
 
 _MARK = "\ufeff"
+_WIDEST = 2 ** 31 - 1
 _UNREAD = ("formats", "advanced_option", "advanced_separator", "thousands_separator", "decimal_separator")
 
 
@@ -27,6 +28,8 @@ def _widths(value: Any) -> List[int]:
             raise ValueError(f"{written.strip()!r} is no width: {rule}") from None
         if width <= 0:
             raise ValueError(f"{width} is no width: {rule}")
+        # A width beyond any text is the rest of the text.
+        width = min(width, _WIDEST)
         found.append(width)
     if not found:
         raise ValueError("names no width")
@@ -69,6 +72,17 @@ class ExtractPositionalFields(ExtractFields):
             doc="Whether a text that is too short (under `check_fields_num`), or a missing value in a column the "
                 "schema declares not nullable, fails the job; when off, the row leaves by the reject output."),
     ) + tuple(Key(name, kind=Kind.IGNORED, type=object, doc="Never read by v1.") for name in _UNREAD)
+
+    def problems(self) -> List[str]:
+        if self.config["pattern"] is None:
+            return ["pattern: names no width"]
+        return super().problems()
+
+    def filled(self, names: List[str]) -> List[str]:
+        if self.schema:
+            return super().filled(names)
+        # As in v1: with no output declared, a column for every width, named by its place.
+        return names + [f"field_{at}" for at in range(1, len(self.config["pattern"]) + 1)]
 
     def pieces(self, text: pl.Expr, wanted: int) -> Tuple[pl.Expr, List[Fault]]:
         text = text.str.strip_prefix(_MARK)

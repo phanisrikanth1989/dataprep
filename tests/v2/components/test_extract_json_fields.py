@@ -128,7 +128,7 @@ def test_document_that_is_one_value(tmp_path):
 
 def test_values_are_read_as_the_types_the_output_declares(tmp_path):
     data = (b'id|raw\n1|{"d": "2024-01-31", "b": "yes", "n": "7", "m": "2.5", "big": 12345678901234567890, "t": 5, "u": "\\u00e9"}\n'
-            b'2|{"d": "31/01/2024", "b": 0, "n": "x", "m": 3, "big": 1, "t": "x", "u": null}\n')
+            b'2|{"d": "soon", "b": 0, "n": "x", "m": 3, "big": 1, "t": "x", "u": null}\n')
     paths = {name: f"$.{name}" for name in ("d", "b", "n", "m", "big", "t", "u")}
     kept, _ = same(tmp_path, data, out="id:int, d:datetime@%Y-%m-%d, b:bool, n:int, m:Decimal#2, big:str, t:str, u:str",
                    paths={"id": "", **paths})
@@ -286,3 +286,86 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         (tmp_path / str(at)).mkdir()
         result, files = v2(tmp_path / str(at), extract(kind=kind))
         assert result.status == "success" and files["out.csv"][2] == "2;bob;;false;;;;"
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 77)
+# ------------------------------------------------------------------
+
+def test_loop_path_that_cannot_be_followed_on_a_document_turns_its_row_away(tmp_path):
+    data = b'id|raw\n1|[5]\n2|{"x": 1}\n3|7\n'
+    kept, rejected = same(tmp_path, data, out="id:int, a:str", paths={"id": "", "a": "$"}, json_loop_query="$[0]", reject="")
+    assert kept == ["1;5"]
+    assert rejected[1:] == ['2;{"x": 1};{"x": 1};PARSE_ERROR;loop query error: 0',
+                            "3;7;7;PARSE_ERROR;loop query error: object of type 'int' has no len()"]
+
+
+def test_job_that_is_to_die_names_the_first_row_turned_away(tmp_path):
+    made = extract(out="id:int, a:str", paths={"id": "", "a": "$"}, json_loop_query="$[0]", die_on_error=True)
+    result, _ = v2(tmp_path, made, b'id|raw\n1|[5]\n2|{"x": 1}\n3|nope\n')
+    assert result.error == "PARSE_ERROR: loop query error: 0 (the first of 2 such rows); the row is line 3 of in.csv"
+
+
+def test_object_and_list_are_written_as_json_with_their_own_characters_escaped(tmp_path):
+    data = '1|{"o": {"k": "é", "n": [1, 2.5, null, true]}, "l": ["日本", "x"]}\n'.encode("utf-8")
+    kept, _ = same(tmp_path, b"id|raw\n" + data, out="id:int, o:str, l:str", paths={"id": "", "o": "$.o", "l": "$.l"})
+    assert kept == ['1;{"k": "\\u00e9", "n": [1, 2.5, null, true]};["\\u65e5\\u672c", "x"]']
+
+
+def test_number_that_is_none_is_missing(tmp_path):
+    kept, _ = same(tmp_path, b'id|raw\n1|{"a": NaN}\n2|{"a": 1.5}\n', out="id:int, a:str", paths={"id": "", "a": "$.a"})
+    assert kept == ["1;", "2;1.5"]
+
+
+def test_source_that_is_true_or_false_is_no_json(tmp_path):
+    kept, rejected = same(tmp_path, b"id|raw\n1|true\n2|false\n", schema="id:int, raw:bool", out="id:int, a:str",
+                          paths={"id": "", "a": "$"}, reject="")
+    assert kept == [] and [line.split(";")[3] for line in rejected[1:]] == ["PARSE_ERROR", "PARSE_ERROR"]
+
+
+@pytest.mark.parametrize("pattern, written, got", [
+    ("@%Y-%m-%d", "2024-01-31T10:11:12", "2024-01-31"), ("@%Y-%m-%d", "2024-01-31 10:11:12", "2024-01-31"),
+    ("@%Y-%m-%d", "31/01/2024", "2024-01-31"), ("@%d/%m/%Y", "2024-01-31", "31/01/2024"),
+    ("", "2024-01-31T10:11:12", "2024-01-31 10:11:12"),
+])
+def test_date_written_one_of_the_usual_ways_is_read(tmp_path, pattern, written, got):
+    data = ('id|raw\n1|{"a": "%s"}\n' % written).encode()
+    kept, _ = same(tmp_path, data, out=f"id:int, a:datetime{pattern}", paths={"id": "", "a": "$.a"})
+    assert kept == [f"1;{got}"]
+
+
+def test_moment_with_a_fraction_of_a_second_goes_missing_in_a_column_with_no_pattern(tmp_path):
+    # v1 writes 2024-01-31 10:11:12.250000.
+    data = b'id|raw\n1|{"a": "2024-01-31T10:11:12.250000"}\n2|{"a": "2024-01-31T10:11:12.25"}\n'
+    made = extract(out="id:int, a:datetime, b:datetime@%Y-%m-%d %H:%M:%S.%f", paths={"id": "", "a": "$.a", "b": "$.a"})
+    result, files = v2(tmp_path, made, data)
+    assert result.status == "success"
+    assert files["out.csv"][1:] == ["1;;2024-01-31 10:11:12.250000", "2;;2024-01-31 10:11:12.250000"]
+
+
+def test_dates_of_one_column_written_in_two_ways_are_both_read(tmp_path):
+    # v1 reads the usual ways only when no date of the column is written by its pattern.
+    data = b'id|raw\n1|{"a": "2024-01-31"}\n2|{"a": "31/01/2024"}\n3|{"a": "soon"}\n'
+    result, files = v2(tmp_path, extract(out="id:int, a:datetime@%Y-%m-%d", paths={"id": "", "a": "$.a"}), data)
+    assert result.status == "success" and files["out.csv"][1:] == ["1;2024-01-31", "2;2024-01-31", "3;"]
+
+
+def test_nothing_is_told_of_dropped_rows_when_the_subjob_fails(tmp_path, caplog):
+    made = extract(out="id:int, n:str", paths={"id": "", "n": "$.n"})
+    check = {"id": "then", "type": "ExtractDelimitedFields", "inputs": ["row2"], "outputs": ["row9"],
+             "config": {"field": "n", "check_fields_num": True, "die_on_error": True},
+             "schema": {"input": made["components"][1]["schema"]["output"],
+                        "output": made["components"][1]["schema"]["output"] + [{"name": "p", "type": "str", "nullable": True}]}}
+    made["components"].insert(2, check)
+    made["components"][3]["inputs"] = ["row9"]
+    made["flows"] = [flow("row1", "in", "it"), flow("row2", "it", "then"), flow("row9", "then", "out")]
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result, _ = v2(tmp_path, made, b'id|raw\n1|{"n": "a;b"}\n2|nope\n')
+    assert result.status == "failed"
+    assert not [record for record in caplog.records if "dropped" in record.getMessage()]
+
+
+def test_mapping_given_as_nothing_refuses_the_job_by_its_key():
+    made = extract()
+    made["components"][1]["config"]["mapping_4_jsonpath"] = None
+    assert [key for key, _ in refusals(made)] == ["mapping_4_jsonpath"]

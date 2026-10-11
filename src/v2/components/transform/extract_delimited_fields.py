@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 
 import polars as pl
 
@@ -27,9 +27,9 @@ class Fault(NamedTuple):
     dies: bool
 
 
-def _separator(value: Optional[str]) -> str:
+def _separator(value: str) -> str:
     # As in v1: quotes around it are no part of it, and nothing given is a semicolon.
-    return (value or "").strip('"').strip("'") or ";"
+    return value.strip('"').strip("'") or ";"
 
 
 class ExtractFields(Transform):
@@ -57,6 +57,10 @@ class ExtractFields(Transform):
             return []
         return [f"field: there is no column '{field}' ({', '.join(names)})"]
 
+    def filled(self, names: List[str]) -> List[str]:
+        """The columns handed on, in their order, given the ones that arrive: the output schema's, or those."""
+        return [column.name for column in self.schema] or names
+
     def pieces(self, text: pl.Expr, wanted: int) -> Tuple[pl.Expr, List[Fault]]:
         """The pieces of a text, as a list of texts, and what turns a row away for them.
 
@@ -75,7 +79,7 @@ class ExtractFields(Transform):
             field = names[0]
         if field not in names:
             raise ConfigurationError(f"field: there is no column '{field}' ({', '.join(names)})")
-        declared = [column.name for column in self.schema] or names
+        declared = self.filled(names)
         new = [name for name in declared if name not in names]
 
         source = pl.col(field)
@@ -141,7 +145,7 @@ class ExtractDelimitedFields(ExtractFields):
     names = ("extract_delimited_fields", "ExtractDelimitedFields", "tExtractDelimitedFields")
     keys = (
         Key("field", required=True, doc="The column whose text is split."),
-        Key("fieldseparator", default=";", nullable=True, convert=_separator,
+        Key("fieldseparator", default=";", convert=_separator,
             doc="What separates the pieces, taken as it is written; quotes around it are no part of it."),
         Key("ignore_source_null", type=bool, default=True,
             doc="Whether a row whose source is missing is left out; when off, it leaves by the reject output."),

@@ -257,3 +257,42 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         (tmp_path / str(at)).mkdir()
         result, files = v2(tmp_path / str(at), extract(kind=kind))
         assert result.status == "success" and files["out.csv"][1] == "1;a;b;c"
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 77)
+# ------------------------------------------------------------------
+
+def test_separator_given_as_nothing_is_a_semicolon(tmp_path):
+    kept, _ = same(tmp_path, b"id|raw\n1|a;b\n", fieldseparator=None)
+    assert kept == ["1;a;b;"]
+
+
+def test_pieces_go_to_the_columns_in_the_order_the_schema_has_them_whatever_their_names(tmp_path):
+    kept, _ = same(tmp_path, out="zed:str, id:int, alpha:str, mid:str")
+    assert kept[0] == "a;1;b;c"
+
+
+def test_every_blank_python_strips_is_trimmed(tmp_path):
+    data = "id|raw\n1| \ta\t ;\u00a0b\u2003;\x1cc\x0b\n".encode("utf-8")
+    kept, _ = same(tmp_path, data, trim=True)
+    assert kept == ["1;a;b;c"]
+
+
+def test_quotes_are_taken_off_the_separator_the_double_ones_first(tmp_path):
+    kept, _ = same(tmp_path, b"id|raw\n1|axb'x'c\n", fieldseparator="\"'x'\"")
+    assert kept == ["1;a;b';'c"]
+
+
+def test_row_turned_away_still_carries_where_it_came_from(tmp_path):
+    made = dict(extract(reject="", check_fields_num=True), run={"only": {"source": "in", "where": {"id": [2, 3]}}, "trace": True})
+    result, _ = v2(tmp_path, made)
+    entry = [entry for entry in result.summary()["trace"] if entry["id"] == "it"][0]
+    assert entry["outputs"]["reject"]["from"] == ["line 3 of in.csv", "line 4 of in.csv"]
+
+
+def test_missing_decimal_is_a_missing_source(tmp_path):
+    # v1 holds a missing Decimal as empty text, and hands the row on with nothing in its pieces.
+    made = extract(schema="id:int, raw:Decimal#2", out="id:int, a:str, b:str", fieldseparator=".")
+    result, files = v2(tmp_path, made, b"id|raw\n1|1.5\n2|\n3|10\n")
+    assert result.status == "success" and files["out.csv"][1:] == ["1;1;50", "3;10;00"]

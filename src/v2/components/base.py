@@ -338,25 +338,38 @@ class Component:
         """
         if "reject" in self.wired:
             return frame
-        untaken = " (no flow takes this component's rejects)" if "reject" in type(self).outputs else ""
-
-        def said(found: Optional[pl.DataFrame], why_not: str = "") -> Optional[str]:
-            if found is None:
-                return f"rows were dropped{untaken}; how many and which could not be found: {why_not}"
-            rows = found[_DROPPED].item()
-            if not rows:
-                return None
-            start = f"1 row was dropped{untaken}: " if rows == 1 else f"{rows} rows were dropped{untaken}; the first: "
-            return f"{start}{shown(found[_WRONG].item(), REASON)}{self.where(found)}"
-
         rows = frame.filter(turned_away)
         # Counted as a sum: Polars 1.44 miscounts a plain row count of some frames (see the component guide).
         asked = rows.select(
             turned_away.sum().alias(_DROPPED), wrong.first().str.slice(0, REASON + 1).alias(_WRONG), *first_of(rows)
         )
         noting, any_passed = self.run_context.noticing(frame, turned_away)
-        self.noticed.append(Noticed(asked, any_passed, said))
+        self.noticed.append(Noticed(asked, any_passed, self._dropped_said))
         return noting
+
+    def tell_rows_dropped(self, rows: int, wrong: str, first: pl.DataFrame) -> None:
+        """``tell_dropped`` for a component that has its rows in hand, and so knows what it turned away.
+
+        Args:
+            rows: How many rows it turned away.
+            wrong: What is wrong with the first of them.
+            first: That row's hidden columns, as one row.
+        """
+        if "reject" in self.wired or not rows:
+            return
+        asked = first.lazy().select(pl.lit(rows).alias(_DROPPED), pl.lit(wrong[:REASON + 1]).alias(_WRONG), pl.all())
+        self.noticed.append(Noticed(asked, lambda: True, self._dropped_said))
+
+    def _dropped_said(self, found: Optional[pl.DataFrame], why_not: str = "") -> Optional[str]:
+        """The words for the log about rows dropped for a fault, from what was asked about them."""
+        untaken = " (no flow takes this component's rejects)" if "reject" in type(self).outputs else ""
+        if found is None:
+            return f"rows were dropped{untaken}; how many and which could not be found: {why_not}"
+        rows = found[_DROPPED].item()
+        if not rows:
+            return None
+        start = f"1 row was dropped{untaken}: " if rows == 1 else f"{rows} rows were dropped{untaken}; the first: "
+        return f"{start}{shown(found[_WRONG].item(), REASON)}{self.where(found)}"
 
     def where(self, found: pl.DataFrame) -> str:
         """The words that name the row a check found, to end its message with.

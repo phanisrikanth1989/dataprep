@@ -147,3 +147,49 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         result, files = v2(tmp_path / str(at), extract(kind=kind), DATA)
         assert result.status == "success" and files["out.csv"][1] == "1;abc;defg;hij"
         load_job(extract(kind=kind))
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 77)
+# ------------------------------------------------------------------
+
+def test_columns_are_named_field_1_and_so_on_when_the_output_declares_none(tmp_path):
+    made = extract(reject="", check_fields_num=True)
+    made["components"][1]["schema"]["output"] = []
+    made["components"][2]["schema"]["input"] = []
+    run = assert_matches_v1(made, {"in.csv": DATA}, tmp_path)
+    assert run.files["out.csv"].decode().splitlines() == [
+        "id;raw;field_1;field_2;field_3", "1;abcdefghij;abc;defg;hij", "3;abcdefghijklmn;abc;defg;hij"]
+    assert len(run.files["rej.csv"].splitlines()) == 4
+
+
+def test_width_beyond_any_text_is_the_rest_of_the_text(tmp_path):
+    kept, _ = same(tmp_path, pattern="2,99999999999999999999,1")
+    assert kept[0] == "1;ab;cdefghij;"
+
+
+def test_only_one_byte_order_mark_and_only_at_the_start_is_no_part_of_the_text(tmp_path):
+    data = "id|raw\n1|\ufeff\ufeffabcdef\n2|ab\ufeffcdef\n".encode("utf-8")
+    kept, _ = same(tmp_path, data, pattern="2,2,2")
+    assert kept == ["1;\ufeffa;bc;de", "2;ab;\ufeffc;de"]
+
+
+def test_length_is_counted_in_characters(tmp_path):
+    data = "id|raw\n1|日本語です。日本語で\n2|日本語です。日本語\n".encode("utf-8")
+    kept, rejected = same(tmp_path, data, reject="", check_fields_num=True)
+    assert kept == ["1;日本語;です。日;本語で"] and rejected[1].endswith("Line length 9 < required total width 10")
+
+
+def test_place_of_blanks_between_two_commas_is_no_width(tmp_path):
+    kept, _ = same(tmp_path, pattern="3, ,4,\t,3")
+    assert kept[0] == "1;abc;defg;hij"
+
+
+def test_every_blank_python_strips_is_trimmed(tmp_path):
+    data = "id|raw\n1|\ta\u00a0\u2003bc\x1cd  \n".encode("utf-8")
+    kept, _ = same(tmp_path, data, pattern="3,4,2", trim=True)
+    assert kept == ["1;a;bc;d"]
+
+
+def test_pattern_given_as_nothing_refuses_the_job_by_its_key():
+    assert refusals(extract(pattern=None)) == [("pattern", "names no width")]
