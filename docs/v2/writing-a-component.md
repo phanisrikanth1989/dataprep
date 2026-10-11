@@ -326,7 +326,7 @@ What a component owes, by what it does with rows:
 | keeps its rows and hands on every column (a filter, a sort) | nothing: they pass |
 | picks the columns it hands on (`select`) | picks `rows.hidden(names)` as well |
 | makes several rows of one (normalize, unpivot) | nothing where it explodes a column, since the other columns repeat; otherwise every row made carries the hidden columns of the row it came from |
-| makes one row of several (an aggregate, a pivot, a denormalize) | keeps, for each source, the lowest row number, that row's key copies, and how many rows went in: `_carried` in `aggregate_row.py` |
+| makes one row of several (an aggregate, a pivot, a denormalize) | keeps, for each source, the lowest row number, that row's key copies, and how many rows went in: `rows.combined(names)`, handed to the `group_by` that makes the rows |
 | joins a lookup to a main input | hands on the main input's; drops the lookup's (`rows.without`) |
 | reads columns by their place, or treats every column alike (prints all, compares all) | leaves the hidden ones out (`rows.visible(names)`) |
 | hands rows to code the engine cannot see into | sets `sees_hidden_columns = False`: the engine hands it frames without them, and what it hands on has lost them |

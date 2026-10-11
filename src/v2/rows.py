@@ -65,6 +65,29 @@ def without(frame: pl.LazyFrame) -> pl.LazyFrame:
     return frame.drop(held) if held else frame
 
 
+def combined(names: List[str]) -> List[pl.Expr]:
+    """What a row made of several keeps of where they came from, as aggregations for a ``group_by``.
+
+    Many rows become one, so no single row stands behind it. The group keeps,
+    for each source, the lowest row number among its rows, that row's key,
+    and how many rows went in. A failure after the aggregate can then say
+    "the first of 11,112 rows that were combined".
+    """
+    held = hidden(names)
+    kept: List[pl.Expr] = []
+    for name in held:
+        if not name.startswith(ROW):
+            continue
+        source_id = name[len(ROW):]
+        counted = rows_column(source_id)
+        first = pl.col(name).arg_min()
+        kept.append(pl.col(name).min().alias(name))
+        # Rows that were combined once already bring their own count.
+        kept.append((pl.col(counted).sum() if counted in held else pl.col(name).count()).alias(counted))
+        kept += [pl.col(key).get(first).alias(key) for key in held if key.startswith(f"{KEY}{source_id}:")]
+    return kept
+
+
 def first_of(frame: pl.LazyFrame) -> List[pl.Expr]:
     """The hidden columns of a frame's first row, for a check that counts failing rows to ask for too."""
     return [pl.col(name).first().alias(name) for name in hidden(frame.collect_schema().names())]
