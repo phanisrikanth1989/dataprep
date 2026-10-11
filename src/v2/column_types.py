@@ -8,6 +8,7 @@ gives every value the same answer.
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import re
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -475,6 +476,15 @@ def _held_column(column: Column, values: List[Any]) -> pl.Series:
     and not a number, and a number too long for 64 bits stays whole.
     """
     name = column.name
+    if column.type == "bool":
+        # A number is true unless it is zero, as v1 has it.
+        values = [bool(value) if isinstance(value, (int, float)) else value for value in values]
+    elif column.type == "int":
+        values = [int(value) if isinstance(value, bool) else value for value in values]
+    elif column.type in ("datetime", "date") and column.date_pattern and "%" in column.date_pattern:
+        seen: Dict[str, str] = {}
+        values = [seen.setdefault(value, _by_pattern(value, column.date_pattern)) if isinstance(value, str) else value
+                  for value in values]
     held = [value for value in values if value is not None]
     numbers = held and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in held)
     if column.type in ("int", "float") and numbers:
@@ -485,14 +495,31 @@ def _held_column(column: Column, values: List[Any]) -> pl.Series:
     return pl.Series(name, [None if value is None else str(value) for value in values], dtype=pl.String)
 
 
+def _by_pattern(value: str, pattern: str) -> str:
+    """A date written one of the usual ways, as the text its column's pattern writes; any other text as it is."""
+    for known in (pattern,) + _DEFAULT_DATE_PATTERNS:
+        try:
+            read = datetime.datetime.strptime(value.strip(), known)
+        except ValueError:
+            continue
+        return read.strftime(pattern)
+    return value
+
+
 def held_frame(columns: List[Column], rows: List[Dict[str, Any]]) -> pl.DataFrame:
     """Rows held in Python, each as column to value, as a frame the engine reads as the declared columns.
 
     For a source that makes its rows from its config. As for every reader,
-    where true or false may be missing, nothing given is false.
+    where true or false may be missing, nothing given is false; where it
+    may not be missing, empty text is false and a missing value stays one.
+    A date may be written by its column's pattern or one of the usual ways
+    (2024-01-31, with or without a time, or 31/01/2024), as v1 reads it.
     """
     frame = pl.DataFrame([_held_column(column, [row.get(column.name) for row in rows]) for column in columns])
-    unsure = [column for column in columns if column.type == "bool" and column.nullable]
-    return frame.with_columns([
-        from_text(pl.col(column.name).fill_null(""), column)[0].alias(column.name) for column in unsure
-    ])
+    made = []
+    for column in columns:
+        if column.type == "bool":
+            text = pl.col(column.name)
+            nothing = (text.fill_null("") if column.nullable else text) == ""
+            made.append(pl.when(nothing).then(False).otherwise(from_text(text, column)[0]).alias(column.name))
+    return frame.with_columns(made)

@@ -26,6 +26,7 @@ _NAME_LENGTH = 31
 # The characters no cell of a workbook can hold: the control characters but tab, line feed and carriage return.
 _NOT_IN_A_CELL = "[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]"
 _LAST_ROW = 1048576
+_LAST_COLUMN = 16384
 _UNREAD = (
     "version_2007", "streamname", "first_cell_y_absolute", "keep_cell_formating", "font", "password", "flushonrow",
     "flushonrow_num", "advanced_separator", "thousands_separator", "decimal_separator",
@@ -35,8 +36,9 @@ _UNREAD = (
 
 def _sheet(value: str) -> str:
     """A sheet's name, without the quotes v1 takes off it."""
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        value = value[1:-1]
+    if value and value[0] == value[-1] and value[0] in "'\"":
+        # As in v1, a lone quote too; what is left of it is no name, and the sheet is openpyxl's `Sheet`.
+        value = value[1:-1] or "Sheet"
     for char in _NOT_IN_A_NAME:
         if char in value:
             raise ValueError(f"'{value}' is no name for a sheet: it holds '{char}'")
@@ -45,7 +47,7 @@ def _sheet(value: str) -> str:
     return value
 
 
-def _offset(what: str):
+def _offset(what: str, most: int):
     def convert(value: Any) -> int:
         # As in v1: nothing given, or what is no number, is the first.
         try:
@@ -54,6 +56,8 @@ def _offset(what: str):
             return 0
         if offset < 0:
             raise ValueError(f"{offset} is before the first {what}")
+        if offset >= most:
+            raise ValueError(f"a sheet has {most} {what}s, and {offset} is beyond them")
         return offset
     return convert
 
@@ -89,9 +93,11 @@ class FileOutputExcel(Sink):
     The rows are held in memory while the workbook is made, as in v1. The
     workbook is made when the whole subjob has succeeded and the file's
     turn comes to be put in place: an output before it in the same subjob
-    may have written the workbook this one adds to. What the rows can fail
-    on is found before that, so a subjob that fails leaves the file as it
-    was; only a workbook that is there and cannot be read fails later.
+    may have written the workbook this one adds to. What the rows of a new
+    workbook can fail on is found before that, so a subjob that fails
+    leaves the file as it was. A workbook that is added to can still fail
+    then (it cannot be read, its sheet is a chart or has no room left), and
+    files the subjob wrote before it are in place by that time.
     """
 
     names = ("file_output_excel", "FileOutputExcel", "tFileOutputExcel")
@@ -103,9 +109,9 @@ class FileOutputExcel(Sink):
         Key("append_sheet", kind=Kind.IGNORED, type=object,
             doc="With `append_file` the rows go under those of the sheet either way; alone it does nothing, as in v1."),
         Key("create", type=bool, default=True, doc="Whether folders that are missing are made."),
-        Key("first_cell_x", type=object, default=0, convert=_offset("column"),
+        Key("first_cell_x", type=object, default=0, convert=_offset("column", _LAST_COLUMN),
             doc="How many columns right of A the first column is written."),
-        Key("first_cell_y", type=object, default=0, convert=_offset("row"),
+        Key("first_cell_y", type=object, default=0, convert=_offset("row", _LAST_ROW),
             doc="How many rows down of 1 the first row is written."),
         Key("is_all_auto_szie", type=bool, default=False, doc="Whether every column is made as wide as its longest value."),
         Key("auto_szie_setting", type=list, default=[], doc="The columns to make so wide, when not every one is."),
@@ -136,6 +142,11 @@ class FileOutputExcel(Sink):
         types = frame.collect_schema()
         declared = {column.name: column for column in self.input_schema}
         names = list(declared) or types.names()
+        if config["first_cell_x"] + len(names) > _LAST_COLUMN:
+            raise ConfigurationError(
+                f"a sheet has {_LAST_COLUMN} columns, and the {len(names)} to write from column "
+                f"{config['first_cell_x'] + 1} do not fit"
+            )
         cells = frame.select([self._cell(name, types.get(name), declared.get(name)) for name in names])
         text = [name for name in names if types.get(name) == pl.String]
 
@@ -168,19 +179,30 @@ class FileOutputExcel(Sink):
             self._workbook(table, names, declared).save(written)
             put_in_place(written, path)
 
-        return Write(path=path, sink=sink, ready=ready, place=place, empty_leaves_none=config["delete_empty_file"])
+        def as_text(rows: pl.DataFrame) -> pl.DataFrame:
+            kinds = rows.schema
+            return rows.select([
+                self._cell(name, kinds[name], declared.get(name)).cast(pl.String).alias(name) for name in rows.columns
+            ])
+
+        return Write(path=path, sink=sink, ready=ready, place=place, empty_leaves_none=config["delete_empty_file"],
+                     as_text=as_text)
 
     @staticmethod
     def _cell(name: str, dtype: Optional[pl.DataType], declared: Optional[Column]) -> pl.Expr:
         """A column as its cells hold it."""
         column = pl.col(name)
         if dtype is None:
-            # Declared and not among the columns that arrive: empty cells, as in v1.
-            return pl.lit(None, dtype=pl.String).alias(name)
+            # Declared and not among the columns that arrive: empty cells, as in v1. Nothing, once for every
+            # row: a plain literal would make one row of however many arrive.
+            return pl.repeat(None, pl.len(), dtype=pl.String).alias(name)
         if dtype.is_temporal() and dtype != pl.Time:
             if declared is not None and declared.type in ("date", "datetime") and declared.date_pattern:
                 return to_text(column, dtype, declared).alias(name)
-            return column.cast(pl.Datetime("us")).alias(name)
+            if dtype == pl.Date:
+                # A day alone is text, as v1 holds it.
+                return column.dt.strftime("%Y-%m-%d").alias(name)
+            return column.alias(name)
         if dtype.is_decimal():
             # Through the digits: the float nearest to the Decimal.
             return column.cast(pl.String).cast(pl.Float64).alias(name)
@@ -202,6 +224,11 @@ class FileOutputExcel(Sink):
         sheet = workbook[title] if title in workbook.sheetnames else workbook.create_sheet(title)
 
         last = _last_row(sheet)
+        if last + table.height > _LAST_ROW:
+            raise ConfigurationError(
+                f"sheet '{title}' of '{path}' holds {last} rows, and a sheet has room for {_LAST_ROW}: "
+                f"the {table.height} to add do not fit"
+            )
         first_column, row = config["first_cell_x"] + 1, config["first_cell_y"] + 1
         if last:
             # A workbook that is added to: under what the sheet holds, or at the first cell when that is lower.
@@ -213,8 +240,7 @@ class FileOutputExcel(Sink):
 
         formats = {at: "0." + "0" * column.precision if column.precision else "0"
                    for at, column in enumerate(declared.get(name) for name in names)
-                   if column is not None and column.type in ("Decimal", "float") and column.precision is not None
-                   and column.precision >= 0}
+                   if column is not None and column.type in ("Decimal", "float") and column.precision is not None}
         widest = [0] * len(names)
         for values in table.iter_rows():
             for at, value in enumerate(values):
@@ -242,6 +268,7 @@ class FileOutputExcel(Sink):
         """How many characters a value takes, as v1 counts them: nothing for what is missing, zero or false."""
         if not value:
             return 0
-        if isinstance(value, float) and declared is not None and declared.type == "Decimal" and declared.precision:
-            return len(f"{value:.{declared.precision}f}")
+        places = declared.precision if declared is not None and declared.type == "Decimal" else None
+        if isinstance(value, float) and places is not None:
+            return len(f"{value:.{places}f}")
         return len(str(value))

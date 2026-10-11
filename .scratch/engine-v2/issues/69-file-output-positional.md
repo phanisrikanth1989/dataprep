@@ -26,9 +26,9 @@ padded or cut. Asked for on 2026-10-11 with the other 25.
   | a date with a pattern | by the pattern (479) | the pattern is not read |
   | centred, one more pad than fits evenly | on the right (562-571) | on the left when the size is odd |
   | a column name longer than its size, keep A | whole (242-244) | cut to the size |
-  | header when adding to a file | only into an empty file (688) | always |
+  | header when adding to a file | only into an empty file (689) | always |
   | no rows | the file is made, empty (660) | no file is touched |
-  | `compress` | a zip beside the file, `<name>.zip`, and not when appending (621-656) | gzip under the file's own name |
+  | `compress` | a zip beside the file, `<name>.zip`, and not when appending (625-656) | gzip under the file's own name |
 
   v1 also fails outright on a job whose columns are of several types with
   missing values (tried on 2026-10-12).
@@ -67,3 +67,13 @@ them written and seen failing before any code).
 Not done: `use_byte`, `usestream`, a dynamic schema (each refused);
 `advanced_separator` (not acted on, as in v1); Java's own way of printing
 a very large float or a date with no pattern.
+
+## Corrected after review (ticket 71)
+
+- When no entry of `formats` named a column that arrives, one line was
+  written for however many rows there were. Every row is written now.
+- `align`, `keep` and `padding_char` given as nothing are the defaults (a
+  null `align` centred; a null pad gave Polars' own error).
+- The trace shows a row as the file holds it (`Write.as_text`).
+- Two of Talend's ways with `compress` are not followed, and a float that
+  declares places is rounded before it is written: both in the README now.

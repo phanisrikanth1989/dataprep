@@ -73,3 +73,19 @@ Not done:
 - `protect_file`, `usestream`, fonts and the other keys v1 never reads.
 - A workbook that is there and cannot be read fails when the file is put
   in place, after earlier files of the subjob are in place.
+
+## Corrected after review (ticket 71)
+
+- A declared column that does not arrive made the rows count as none (and
+  `delete_empty_file` then left no workbook). Every row is counted now.
+- A day of a `date` column is text, as v1 holds it (it was a date cell).
+- A first cell beyond a sheet's last column or row refuses the job; more
+  columns than fit, and a sheet with no room for the rows, fail in plain
+  words.
+- A lone quote as a sheet name is `Sheet`, as in v1. A Decimal declared to
+  no places is sized as it is shown.
+- The trace shows a row as its cells hold it (`Write.as_text`).
+- Wrong above: more than an unreadable workbook can fail when the file is
+  put in place, and v1 fails to size only a sheet with missing values in
+  columns of several types. Both are said rightly in the README and the
+  docstring now.

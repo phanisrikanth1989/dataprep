@@ -941,14 +941,22 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   writes a cell with no value in it.
 - Text in a column declared a date with a pattern is written as it is. v1
   writes nothing for text the pattern does not read.
-- The widths of `is_all_auto_szie` are v1's (the longest value's length
-  and two more), not what Excel would measure as Talend has it. A column
-  with a missing value is sized like any other; v1 fails on it.
+- The widths of `is_all_auto_szie` follow v1's rule (the longest value's
+  length and two more), not what Excel would measure as Talend has it.
+  They are not always v1's numbers: v1 counts the digits a Decimal with
+  no declared places was typed with, `7.0` for a whole number beside a
+  missing one, and `nan`. v1 fails to size a sheet that has missing values
+  in columns of several types; v2 sizes it.
+- A sheet name that is nothing but a quote, or two, is openpyxl's `Sheet`,
+  as in v1.
 - Refused at load: a sheet name Excel does not take (longer than 31
   characters, which v1 writes with a warning, or holding one of
   `\ / * ? : [ ]`, where v1 fails when it comes to it); a first cell
-  before A1; `protect_file`, which v1 passes over, leaving the workbook
-  unprotected; `usestream`.
+  before A1 or beyond the last column or row a sheet has; `protect_file`,
+  which v1 passes over, leaving the workbook unprotected; `usestream`.
+- Columns are taken from the component's input schema. v1 also reads them
+  from an output schema written on the component, which the converter
+  never writes.
 - A character no workbook can hold fails the job with the column and the
   row. v1 fails with openpyxl's words.
 - A workbook that cannot be written always fails the job. With
@@ -957,9 +965,10 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   writes a date cell with that format.)
 - Two outputs of one subjob may fill two sheets of one workbook, or add
   to one sheet, the second with `append_file`, as in v1.
-- A workbook that is there and cannot be read (`append_file`) fails the
-  job when its turn comes to be put in place; files the subjob wrote
-  before it are in place by then.
+- A workbook that is added to (`append_file`) and cannot be read, or
+  whose sheet has no room for the rows, fails the job when its turn comes
+  to be put in place; files the subjob wrote before it are in place by
+  then.
 - The rows are held in memory while the workbook is made, as in v1.
 
 **Positional output**
@@ -987,7 +996,17 @@ separator, the encoding.
   and one from an earlier run stays as it was.
 - `compress` puts the file into a zip beside its name (`out.txt` into
   `out.zip`), and not when appending. v1 writes gzip under the file's own
-  name.
+  name. Two things Talend's template does with the plain file's name
+  while it writes the zip are not followed: it leaves the header out of
+  the zip when a plain file of that name is there and not empty, and
+  with `delete_empty_file` and no rows it deletes that plain file and
+  leaves the zip. v2 writes the header, and leaves no zip.
+- A float is written as the engine holds it, which for a column that
+  declares places is rounded to them (`2.005` in two places is `2.0`);
+  Talend prints the float it was given, and v1 `2.00`.
+- The row separator reads `\n`, `\r` and `\t` as the characters they
+  mean, like the delimited output. v1 reads every escape Python knows
+  (`\u2028`, `\x00`).
 - A whole-number column with a missing value is written. v1 fails on it.
 - Not the same as Talend, where v2 keeps to its own way of writing a
   value: a float of very many or very few digits (`1.0E10` in Java) and a
@@ -1006,7 +1025,8 @@ separator, the encoding.
   in a Decimal column), and `1.5` in a whole-number column is cut to 1, as
   everywhere a whole-number column is filled. v1 writes both through as
   they are here, `<NA>` for a missing Decimal, and `3.0` for a whole number
-  beside a missing one.
+  beside a missing one. A date may be written by its column's pattern or
+  one of the usual ways, as v1 reads it.
 - A whole number too long for 64 bits goes missing in a column declared a
   whole number; in a text or Decimal column it is kept, as in v1.
 - A date in the last field of a line that ends in `\r\n`, under the
@@ -1019,9 +1039,10 @@ separator, the encoding.
 
 **Row generator**
 
-- An expression is Python with only the `random` module in reach, as in
-  v1; the Java expressions a converted job holds (`{{java}}...`) refuse
-  the job, as everywhere.
+- An expression is Python with no name to call on but the `random`
+  module, as in v1. That is no fence: Python code can reach anything from
+  there, and a job config is trusted as code is. The Java expressions a
+  converted job holds (`{{java}}...`) refuse the job, as everywhere.
 - A row whose expression fails leaves by the reject output as in v1, and
   the log says how many such rows there were and what failed in the first
   (`id: division by zero`). With no flow on the reject output the log
@@ -1033,7 +1054,19 @@ separator, the encoding.
   column, where v1 writes 1970-01-01), and `1.7` in a whole-number column
   is cut to 1, as everywhere, where v1 writes 1.7 through here. v1 writes
   `<NA>` for a missing Decimal.
-- A true/false column with no expression is false. v1 writes `<na>`.
+- A true/false column with no expression is false. v1 writes `<na>`
+  where the column may be missing. Text that is neither true nor false
+  (`'Y'`, `'abc'`), and a list, go missing there; v1 takes them by whether
+  they are empty. In a row whose expression failed, the column is false
+  in the reject output, where v1 has it missing.
+- A whole number too long for 64 bits goes missing in a whole-number
+  column, and one beyond 38 digits in a Decimal column; v1 writes them.
+  `-0.0` in a Decimal column is `0.00` (v1 `-0.00`). In a float column v1
+  writes a whole number as it is given (`1` for `'1'`, `True` for `True`);
+  v2 writes `1.0`, and nothing for `True`.
+- A date may be written by its column's pattern or one of the usual ways
+  (`2024-01-31`, with or without a time, or `31/01/2024`), as v1 reads it;
+  any other text goes missing.
 - An entry of `values` for a column the schema does not have, or a second
   entry for one column, refuses the job. v1 writes a column more.
 - A number of rows below 0 or that is no number refuses the job before it

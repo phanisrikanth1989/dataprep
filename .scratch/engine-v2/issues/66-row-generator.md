@@ -82,3 +82,15 @@ Decided here, each in the README:
 Found on the way: the README said of the fixed flow input that `1.5` in a
 whole-number column goes missing. It is cut to 1, as everywhere in both
 engines; the README now says so.
+
+## Corrected after review (ticket 71)
+
+- A true/false column that may not be missing was written empty for an
+  empty expression, and failed the job with no expression at all. It is
+  false in both, as in v1 (the fixed flow input had the same fault).
+- A number in a true/false column, and true or false in a whole-number
+  column, are read as v1 reads them.
+- A date written `2024-01-31` or `31/01/2024` under another pattern went
+  missing; it is read, as in v1 (also in the fixed flow input).
+- "Nothing in reach but `random`" read like a fence. It is none, in
+  either engine: the docstring and the README say so.

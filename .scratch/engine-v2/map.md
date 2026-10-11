@@ -302,6 +302,9 @@ are designed.
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
   -- thirteen findings, the same.
+  [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
+  -- twenty-two findings; the positional output wrote one line for any
+  number of rows when none of its columns arrived, fixed.
   [Review of schema compliance check and pivot](issues/67-review-of-schema-compliance-check-and-pivot.md)
   -- twenty-nine findings; float sums of the pivot and the strict date
   check were wrong and are fixed.

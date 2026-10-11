@@ -177,7 +177,7 @@ def test_append_file_adds_the_rows_under_those_that_are_there_and_no_second_head
     seen = on_both(tmp_path, to_excel(includeheader=True, append_file=True), files={"out.xlsx": THERE})
     assert list(seen) == ["calculation", "Sheet1", "Other"]
     cells = values(seen["Sheet1"])
-    assert cells["B2"] == "old" and cells["A3"] == 1 and cells["B5"] is None if "B5" in cells else True
+    assert cells["B2"] == "old" and cells["A3"] == 1 and "B5" not in cells and cells["A5"] == 3
     assert seen["Sheet1"]["rows"] == 5 and values(seen["Other"]) == {"A1": "kept"}
 
 
@@ -323,7 +323,7 @@ def test_day_with_no_time_and_a_float_that_is_no_number(tmp_path):
     result, seen = v2(tmp_path, made, b"id;d\n1;2024-01-31\n")
     assert result.status == "success", result.error
     cells = seen["Sheet1"]["cells"]
-    assert cells["B1"] == (dt.datetime(2024, 1, 31), "d", "yyyy-mm-dd h:mm:ss") and "C1" not in cells
+    assert cells["B1"] == ("2024-01-31", "s", "General") and "C1" not in cells
 
 
 def test_number_that_is_none_is_no_cell(tmp_path):
@@ -442,3 +442,101 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         (tmp_path / str(at)).mkdir()
         result, seen = v2(tmp_path / str(at), to_excel(kind=kind))
         assert result.status == "success" and values(seen["Sheet1"])["A1"] == 1
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 71)
+# ------------------------------------------------------------------
+
+def test_every_row_is_counted_also_when_no_declared_column_arrives(tmp_path):
+    made = to_excel(delete_empty_file=True, includeheader=True)
+    made["components"][1]["schema"]["input"] = columns("nope:str")
+    result, seen = v2(tmp_path, dict(made, run={"row_counts": True}))
+    assert result.status == "success" and result.counts["out"]["NB_LINE"] == 3
+    assert seen is not None and values(seen["Sheet1"]) == {"A1": "nope"} and seen["Sheet1"]["rows"] == 1
+
+
+def test_day_of_a_date_column_is_text_as_in_v1(tmp_path):
+    seen = on_both(tmp_path, to_excel("id:int, d:date, e:date@%d/%m/%Y"), b"id;d;e\n1;2024-01-31;31/01/2024\n")
+    assert seen["Sheet1"]["cells"]["B1"] == ("2024-01-31", "s", "General")
+    assert seen["Sheet1"]["cells"]["C1"] == ("31/01/2024", "s", "General")
+
+
+def test_lone_quote_as_a_sheet_name_is_no_name(tmp_path):
+    assert list(on_both(tmp_path, to_excel(sheetname="'"))) == ["calculation", "Sheet"]
+    assert list(on_both(tmp_path / "b", to_excel(sheetname="''"))) == ["calculation", "Sheet"]
+
+
+def test_decimal_of_no_places_is_sized_and_shown_whole(tmp_path):
+    made = to_excel("a:Decimal#0", is_all_auto_szie=True)
+    seen = on_both(tmp_path, made, b"a\n1.5\n2.5\n")["Sheet1"]
+    assert seen["widths"] == {"A": 3} and seen["cells"]["A1"][2] == "0"
+
+
+@pytest.mark.parametrize("char", ["\x00", "\x08", "\x0b", "\x0c", "\x0e", "\x1f"])
+def test_every_control_character_a_workbook_cannot_hold_is_noticed(tmp_path, char):
+    source = {"id": "in", "type": "FixedFlowInput", "inputs": [], "outputs": ["row1"],
+              "config": {"use_inlinecontent": True, "inline_content": "1;a" + char + "b", "row_separator": "|"},
+              "schema": {"input": [], "output": columns("id:int, name:str")}}
+    made = to_excel("id:int, name:str")
+    made["components"][0] = source
+    result, seen = v2(tmp_path, made)
+    assert result.status == "failed" and "holds a character a workbook cannot hold" in result.error
+
+
+@pytest.mark.parametrize("char", ["\t", "\n", "\r"])
+def test_tab_and_line_ends_are_held(tmp_path, char):
+    source = {"id": "in", "type": "FixedFlowInput", "inputs": [], "outputs": ["row1"],
+              "config": {"use_inlinecontent": True, "inline_content": "1;a" + char + "b", "row_separator": "|"},
+              "schema": {"input": [], "output": columns("id:int, name:str")}}
+    made = to_excel("id:int, name:str")
+    made["components"][0] = source
+    result, seen = v2(tmp_path, made)
+    assert result.status == "success" and seen is not None
+
+
+def test_first_column_beyond_the_last_a_sheet_has_refuses_the_job():
+    assert refusals(to_excel(first_cell_x=20000)) == [
+        ("first_cell_x", "a sheet has 16384 columns, and 20000 is beyond them")]
+    assert refusals(to_excel(first_cell_y=1048576)) == [
+        ("first_cell_y", "a sheet has 1048576 rows, and 1048576 is beyond them")]
+    load_job(to_excel(first_cell_x=16383, first_cell_y=1048575))
+
+
+def test_more_columns_than_a_sheet_has_fails_in_plain_words(tmp_path):
+    result, seen = v2(tmp_path, to_excel(first_cell_x=16382))
+    assert result.status == "failed" and seen is None
+    assert result.error == "a sheet has 16384 columns, and the 3 to write from column 16383 do not fit"
+
+
+def full_sheet():
+    workbook = openpyxl.Workbook()
+    workbook.active.title = "Sheet1"
+    workbook["Sheet1"].cell(row=1048575, column=1).value = "last but one"
+    held = io.BytesIO()
+    workbook.save(held)
+    return held.getvalue()
+
+
+def test_sheet_with_no_room_left_fails_in_plain_words(tmp_path):
+    (tmp_path / "in.csv").write_bytes(DATA)
+    (tmp_path / "out.xlsx").write_bytes(full_sheet())
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = run_job(to_excel(append_file=True))
+    finally:
+        os.chdir(previous)
+    assert result.status == "failed" and result.error == (
+        "sheet 'Sheet1' of 'out.xlsx' holds 1048575 rows, and a sheet has room for 1048576: the 3 to add do not fit")
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["in.csv", "out.xlsx"]
+
+
+def test_trace_shows_a_row_as_its_cells_hold_it(tmp_path):
+    made = dict(to_excel("id:int, m:Decimal#2, day:datetime@%d/%m/%Y"),
+                run={"only": {"source": "in", "where": {"id": [2]}}, "trace": True})
+    result, _ = v2(tmp_path, made, b"id;m;day\n1;1.5;31/01/2024\n2;2.5;01/02/2024\n")
+    assert result.status == "success", result.error
+    entry = [entry for entry in result.summary()["trace"] if entry["id"] == "out"][0]
+    # The cell holds the number 2.5; its two places are how Excel shows it.
+    assert entry["data"] == [["2", "2.5", "01/02/2024"]]

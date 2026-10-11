@@ -315,3 +315,54 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         (tmp_path / str(at)).mkdir()
         result, written = v2(tmp_path / str(at), positional(TWO, kind=kind))
         assert result.status == "success" and written.startswith(b"1  ab \n")
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 71)
+# ------------------------------------------------------------------
+
+def test_every_row_is_written_also_when_no_column_of_formats_arrives(tmp_path):
+    made = positional([field("NAME", 4, "."), field("nope", 2, "-")])
+    assert on_both(tmp_path, made, b"id;name\n1;ab\n2;cd\n3;ef\n") == b"....--\n" * 3
+    (tmp_path / "b").mkdir()
+    result, written = v2(tmp_path / "b", dict(made, run={"row_counts": True}), b"id;name\n1;ab\n2;cd\n3;ef\n")
+    assert result.counts["out"]["NB_LINE"] == 3
+    (tmp_path / "c").mkdir()
+    result, written = v2(tmp_path / "c", made, b"id;name\n")
+    assert result.status == "success" and written == b""
+
+
+def test_fit_given_as_nothing_is_the_default(tmp_path):
+    formats = [{"schema_column": "name", "size": 4, "align": None, "keep": None, "padding_char": None}]
+    assert on_both(tmp_path, positional(formats)) == b"ab  \nabcdefgh\nabc \n"
+
+
+def test_value_that_holds_a_quote_or_a_comma_is_written_as_it_is(tmp_path):
+    data = b'id;name\n1;a"b\n2;c,d\n3;"q"\n'
+    assert on_both(tmp_path, positional([field("name", 5, "_")]), data) == b'a"b__\nc,d__\n"q"__\n'
+
+
+def test_zip_of_a_file_in_an_encoding_with_a_byte_order_mark(tmp_path):
+    made = positional(TWO, compress=True, include_header=True, encoding="UTF-16")
+    result, _ = v2(tmp_path, made, b"id;name\n1;ab\n")
+    assert result.status == "success", result.error
+    with zipfile.ZipFile(tmp_path / "out.zip") as held:
+        assert held.read("out.txt") == "id name\n1  ab \n".encode("utf-16")
+
+
+def test_two_outputs_of_one_subjob_add_to_one_file(tmp_path):
+    made = positional(TWO, append=True)
+    second = dict(made["components"][1], id="out2", inputs=["row2"])
+    made["components"][0]["outputs"] = ["row1", "row2"]
+    made["components"].append(second)
+    made["flows"].append(flow("row2", "in", "out2"))
+    assert on_both(tmp_path, made, b"id;name\n1;ab\n") == b"1  ab \n1  ab \n"
+
+
+def test_trace_shows_a_row_as_the_file_holds_it(tmp_path):
+    made = dict(positional([field("id", 3, "0", "R"), field("name", 4, " ", "L", "L"), field("id", 5, "*")]),
+                run={"only": {"source": "in", "where": {"id": [22]}}, "trace": True})
+    result, written = v2(tmp_path, made)
+    assert result.status == "success" and written == b"022abcd22***\n"
+    entry = [entry for entry in result.summary()["trace"] if entry["id"] == "out"][0]
+    assert entry["data"] == [["022", "abcd"]]

@@ -153,10 +153,11 @@ def test_value_can_be_an_entry_of_globalmap_set_by_an_earlier_stage(tmp_path):
 
 def test_value_that_is_not_of_the_declared_type_goes_missing(tmp_path):
     # v1 writes such values through as they are (abc in a Decimal column, 1.5 in a whole-number column),
-    # <NA> for a missing Decimal, and 3.0 for a whole number beside a missing one.
+    # <NA> for a missing Decimal, and 3.0 for a whole number beside a missing one. A date written day first
+    # is read under a pattern that has the year first, as v1 reads it.
     made = fixed(schema="m:Decimal#2, n:int, d:datetime@%Y-%m-%d", **inline("1.5;3;2024-01-31\nabc;1.5;31/01/2024\n;;\n"))
     result, written = v2(tmp_path, made)
-    assert result.status == "success" and written == b"m;n;d\n1.50;3;2024-01-31\n;1;\n;;\n"
+    assert result.status == "success" and written == b"m;n;d\n1.50;3;2024-01-31\n;1;2024-01-31\n;;\n"
 
 
 def test_no_columns_declared_refuses_the_job():
@@ -211,3 +212,8 @@ def test_whole_number_too_long_for_64_bits_goes_missing_in_a_whole_number_column
     # v2 holds whole numbers in 64 bits. v1 writes this one through; in a text or Decimal column so does v2.
     result, written = v2(tmp_path, fixed(schema="n:int", **inline("12345678901234567890\n7\n")))
     assert result.status == "success" and written == b"n\n\n7\n"
+
+
+def test_true_or_false_that_may_not_be_missing_is_false_when_nothing_is_given(tmp_path):
+    # Ticket 71: as v1 has it, for a column that may be missing and for one that may not.
+    assert same(tmp_path, schema="id:int, ok:bool!", **inline("1;true\n2;\n3;0\n")) == ["1;true", "2;false", "3;false"]

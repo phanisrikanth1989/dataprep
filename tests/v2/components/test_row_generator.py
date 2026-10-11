@@ -335,3 +335,74 @@ def test_both_v1_names_and_v2s_own(tmp_path):
         folder.mkdir()
         result, files = v2(folder, generator(kind=kind, nb_rows=1, values=values(id="1")))
         assert result.status == "success" and files["out.csv"][1:] == ["1;;"]
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 71)
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("expression", ["", "''", "0.0", "0", "False"])
+def test_true_or_false_that_may_not_be_missing_is_false_when_nothing_is_given(tmp_path, expression):
+    assert same(tmp_path, schema="k:int, b:bool!", nb_rows=2, values=values(k="7", b=expression)) == ["7;false"] * 2
+
+
+def test_true_or_false_that_may_not_be_missing_and_has_no_expression_is_false(tmp_path):
+    assert same(tmp_path, schema="k:int, b:bool!", nb_rows=1, values=values(k="7")) == ["7;false"]
+
+
+def test_missing_true_or_false_where_none_is_allowed_fails_the_job_as_in_v1(tmp_path):
+    made = generator(schema="k:int, b:bool!", nb_rows=1, values=values(k="7", b="None"))
+    assert_matches_v1(made, {}, tmp_path)
+    (tmp_path / "x").mkdir()
+    result, _ = v2(tmp_path / "x", made)
+    assert result.status == "failed" and "Column 'b' has NULL values" in result.error
+
+
+def test_number_in_a_true_or_false_column_and_true_or_false_in_a_number_column(tmp_path):
+    got = same(tmp_path, schema="a:bool, b:bool, c:bool, d:int, e:int, f:int", nb_rows=1,
+               values=values(a="2", b="1.0", c="0.0", d="True", e="1 == 2", f="not 0"))
+    assert got == ["true;true;false;1;0;1"]
+
+
+@pytest.mark.parametrize("pattern, given, written", [
+    ("%d/%m/%Y", "'2024-01-31'", "31/01/2024"), ("%Y-%m-%d", "'31/01/2024'", "2024-01-31"),
+    ("%Y-%m-%d", "'2024-01-31 10:11:12'", "2024-01-31"), ("%d/%m/%Y", "'31/01/2024'", "31/01/2024"),
+])
+def test_date_written_another_usual_way_than_its_columns_pattern_is_read(tmp_path, pattern, given, written):
+    assert same(tmp_path, schema=f"d:datetime@{pattern}", nb_rows=1, values=values(d=given)) == [written]
+
+
+def test_date_that_is_none_goes_missing(tmp_path):
+    result, files = v2(tmp_path, generator(schema="d:datetime@%Y-%m-%d, e:datetime@%Y-%m-%d", nb_rows=1,
+                                           values=values(d="'nope'", e="'2024-02-30'")))
+    assert result.status == "success" and files["out.csv"][1:] == [";"]
+
+
+def test_attribute_that_is_not_there_fails_the_row(tmp_path):
+    random.seed(1)
+    made = generator(schema="a:str, b:str", reject="a:str, b:str", nb_rows=2, values=values(a="random.nope", b="'x'"))
+    run = assert_matches_v1(made, {}, tmp_path, run_v2=seeded(run_v2, 1))
+    assert run.files["out.csv"] == b"a;b\n" and run.files["rej.csv"].decode().splitlines()[1:] == [";x"] * 2
+
+
+def test_space_counted_by_an_expression_and_a_name_kept_from_one_column_to_the_next(tmp_path):
+    got = same(tmp_path, schema="a:str, b:int, c:int", nb_rows=2,
+               values=values(a="'[' + StringHandling.SPACE(1 + 2) + ']'", b="(n := 7)", c="n + 1"))
+    assert got == ["[   ];7;8"] * 2
+
+
+def test_rows_of_one_run_are_not_those_of_the_next():
+    from src.v2 import run_job as run
+    import tempfile
+    made = generator(schema="a:int", nb_rows=3, values=values(a="random.randint(1, 10**9)"))
+    seen = []
+    previous = os.getcwd()
+    for _ in range(2):
+        with tempfile.TemporaryDirectory() as folder:
+            os.chdir(folder)
+            try:
+                assert run(made).status == "success"
+                seen.append(open("out.csv").read())
+            finally:
+                os.chdir(previous)
+    assert seen[0] != seen[1]

@@ -86,15 +86,18 @@ _VALUE = (
 class RowGenerator(Source):
     """Make `nb_rows` rows, each column from the expression `values` gives it.
 
-    An expression is Python with nothing in reach but the `random` module:
-    `1 + 2`, `'ann'`, `random.randint(1, 100)`. As in v1, text that is not
+    An expression is Python with no name to call on but the `random`
+    module: `1 + 2`, `'ann'`, `random.randint(1, 100)`. (That is what v1
+    gives it. It is no fence: Python code can reach anything from there,
+    and a job config is trusted as code is.) As in v1, text that is not
     Python (`hello world`, `2024-01-31`, `007`), or that names something
     not in reach (`len('abc')`), is the value itself, as text, without the
     quotes around it. `StringHandling.SPACE(3)` is three blanks and
     `StringHandling.LEN("ab")` is 2. A column with no expression is missing.
 
     A row with an expression that fails (`1/0`) leaves by the reject output
-    with that column missing and nothing added, as in v1; the log says how
+    with that column missing (false, in a true/false column) and nothing
+    added, as in v1; the log says how
     many such rows there are and what failed in the first. With no flow on
     the reject output they are dropped, and the log warns of it.
 
@@ -160,10 +163,13 @@ class RowGenerator(Source):
             (entry["schema_column"], _Expression(str(entry["array"]))) for entry in self.config["values"]
         ]
         reach = {"__builtins__": {}, "random": random}
+        # True or false with no expression at all is false, as in v1, also where it may not be missing.
+        given = {name for name, _ in expressions}
+        unsaid = {column.name: "" for column in self.schema if column.type == "bool" and column.name not in given}
         rows: List[Dict[str, Any]] = []
         why: List[Optional[str]] = []
         for _ in range(self.config["nb_rows"]):
-            row: Dict[str, Any] = {}
+            row: Dict[str, Any] = dict(unsaid)
             failures: List[str] = []
             for name, expression in expressions:
                 try:

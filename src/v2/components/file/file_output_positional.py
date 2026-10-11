@@ -100,11 +100,11 @@ def _fitted_column(text: pl.Expr, size: int, pad: str, align: str, keep: str) ->
 _FORMAT = (
     Key("schema_column", required=True, aliases=("SCHEMA_COLUMN",), doc="The column."),
     Key("size", type=object, required=True, aliases=("SIZE",), convert=_size, doc="Its width, in characters."),
-    Key("padding_char", default=" ", nullable=True, aliases=("PADDING_CHAR",), convert=_pad,
+    Key("padding_char", default=" ", aliases=("PADDING_CHAR",), convert=_pad,
         doc="What a shorter value is padded with: one character."),
-    Key("align", default="L", nullable=True, aliases=("ALIGN",), convert=_one_of(_ALIGN, "L"),
+    Key("align", default="L", aliases=("ALIGN",), convert=_one_of(_ALIGN, "L"),
         doc="Where a shorter value stands in its width: L, R or C."),
-    Key("keep", default="A", nullable=True, aliases=("KEEP",), convert=_one_of(_KEEP, "A"),
+    Key("keep", default="A", aliases=("KEEP",), convert=_one_of(_KEEP, "A"),
         doc="What is kept of a longer value: A all of it, L its left, M its middle, R its right."),
 )
 
@@ -165,15 +165,16 @@ class FileOutputPositional(Sink):
 
         types = frame.collect_schema()
         declared = {column.name: column for column in self.input_schema}
-        fields = []
-        for entry in formats:
+        def fitted(entry: Dict[str, Any]) -> pl.Expr:
             name = entry["schema_column"]
             if name in types:
                 text = _as_written(name, types[name], declared.get(name)).cast(pl.String).fill_null("")
             else:
-                text = pl.lit("")
-            fields.append(_fitted_column(text, entry["size"], entry["padding_char"], entry["align"], entry["keep"]))
-        lines = frame.select(pl.concat_str(fields).alias("line"))
+                # Nothing, once for every row: a plain literal would make one row of however many arrive.
+                text = pl.repeat("", pl.len(), dtype=pl.String)
+            return _fitted_column(text, entry["size"], entry["padding_char"], entry["align"], entry["keep"])
+
+        lines = frame.select(pl.concat_str([fitted(entry) for entry in formats]).alias("line"))
         header = b""
         if config["include_header"]:
             names = [_fitted(entry["schema_column"], entry["size"], entry["padding_char"], entry["align"], entry["keep"])
@@ -212,8 +213,16 @@ class FileOutputPositional(Sink):
                 os.remove(written)
             put_in_place(packed, target)
 
-        return Write(path=target, sink=sink, append=config["append"], ready=ready, place=place,
-                     empty_leaves_none=config["delete_empty_file"])
+        def as_text(rows: pl.DataFrame) -> pl.DataFrame:
+            # Each column as its first entry of `formats` fits it; one that is not written, as it stands.
+            first = {entry["schema_column"]: entry for entry in reversed(formats)}
+            return rows.select([
+                fitted(first[name]).alias(name) if name in first else pl.col(name).cast(pl.String)
+                for name in rows.columns
+            ])
+
+        return Write(path=target, sink=sink, ready=ready, place=place,
+                     empty_leaves_none=config["delete_empty_file"], as_text=as_text)
 
 
 def _zip_name(path: str) -> str:
