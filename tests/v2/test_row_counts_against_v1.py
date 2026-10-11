@@ -158,3 +158,39 @@ def test_row_the_schema_check_moves_to_reject_is_counted_as_rejected(tmp_path):
     v1, v2 = counted(made, {"in.txt": b"abc  1\ndef   \nghi  3\n"}, tmp_path)
     assert v1["in"] == counts(3, 3, 0) and v1["rej"] == counts(1, 1, 0)
     assert v2["in"] == counts(3, 2, 1) and v2["rej"] == counts(1, 1, 0)
+
+
+# ------------------------------------------------------------------
+# The components added with tickets 53 to 60
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("step, out, expected", [
+    ({"type": "Replicate", "config": {}}, SCHEMA, counts(4, 4, 0)),
+    ({"type": "Replace", "config": {"substitutions": [
+        {"input_column": "name", "search_pattern": "bob", "replace_string": "rob"}]}}, SCHEMA, counts(4, 4, 0)),
+    ({"type": "SplitRow", "config": {"col_mapping": [{"id": "row1.id"}, {"id": "row1.id"}]}}, "id:int", counts(4, 8, 0)),
+    ({"type": "UnpivotRow", "config": {"row_keys": ["id"]}}, "id:int, pivot_key:str, pivot_value:str", counts(4, 8, 0)),
+    ({"type": "Denormalize", "config": {"denormalize_columns": [{"input_column": "name"}, {"input_column": "id"}]}},
+     "amt:float, name:str, id:str", counts(4, 4, 0)),
+    ({"type": "AggregateSortedRow", "config": {
+        "groupbys": [{"input_column": "id", "output_column": "id"}],
+        "operations": [{"output_column": "amt", "function": "sum", "input_column": "amt"}]}}, "id:int, amt:float",
+     counts(4, 4, 0)),
+    ({"type": "ConvertType", "config": {"manualtable": [{"input_column": "id", "output_column": "n"}]}},
+     SCHEMA + ", n:float", counts(4, 4, 0)),
+], ids=["replicate", "replace", "split row", "unpivot row", "denormalize", "aggregate sorted row", "convert type"])
+def test_new_transforms_count_their_rows(tmp_path, step, out, expected):
+    made = through(step, SCHEMA, out)
+    assert same_counts(made, {"in.csv": DATA}, tmp_path)["it"] == expected
+
+
+def test_sample_row_counts_the_rows_it_picks_and_the_others(tmp_path):
+    from .components.test_sample_row import DATA as TWELVE, sampled
+    found = same_counts(sampled(range="1,5,10..20"), {"in.csv": TWELVE}, tmp_path)
+    assert found["it"] == counts(12, 5, 7)
+
+
+def test_convert_type_counts_the_rows_it_turns_away(tmp_path):
+    from .components.test_convert_type import DATA as TEXT, IN, converted
+    made = converted(IN + ", n2:int", manualtable=[{"input_column": "n", "output_column": "n2"}])
+    assert same_counts(made, {"in.csv": TEXT}, tmp_path)["it"] == counts(4, 3, 1)

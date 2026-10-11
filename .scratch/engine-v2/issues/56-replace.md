@@ -30,3 +30,20 @@ Built on 2026-10-11 (`src/v2/components/transform/replace.py`; 29 tests in
   have neither.
 - The converter's sample fails on both engines in the same way: it writes
   a word over a whole-number column that may not be missing.
+
+## Corrected after review (ticket 62)
+
+- A date column lost every value, also where no rule matched: the date was
+  searched as `2024-01-31 00:00:00`, which could not be read back by the
+  column's pattern. A date is now searched as the text its pattern gives,
+  or as its day alone when it has neither a pattern nor a time of day.
+- A context value in an advanced pattern or replacement is put in before
+  the pattern is read.
+- `die_on_error` is declared, as on every component of v1.
+- Octal escapes in a replacement (`\0`, `\101`) are read as Python reads
+  them. `\g<a>` for a group that is not there, and a replacement that is
+  no text, refuse the job in words of their own.
+- The README now says what really differs: patterns run on Polars' regular
+  expressions (more than look-around is refused, and a few spellings mean
+  something else), and a pattern that can match nothing is replaced once
+  less after a match.

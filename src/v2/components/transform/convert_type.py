@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 
-from ...column_types import from_text, to_text
+from ...column_types import from_text, plain_text, to_text
 from ...job.keys import Key
+from ...job.model import Column
 from ...rows import first_of, hidden, shown, visible
 from ..base import Transform
 from ..registry import REGISTRY
@@ -28,7 +29,7 @@ class ConvertType(Transform):
 
     A value is read as text, by the rules every reader of v2 has for the
     type. Text that cannot be read as the type turns its row away: to the
-    reject output, with `error_code` CONVERSION_ERROR and an `error_message`,
+    reject output, with `errorCode` CONVERSION_ERROR and an `errorMessage`,
     or it fails the job under `dieonerror`. Nothing in a value is a missing
     value, never a fault. A pair with another output column adds that
     column and keeps the one it read.
@@ -44,10 +45,13 @@ class ConvertType(Transform):
     outputs = {"main": ("flow", "main"), "reject": ("reject",)}
     keys = (
         Key("manualtable", type=list, default=[], items=_PAIR, doc="The columns to convert, each with its output column."),
-        Key("emptytonull", type=bool, default=False, aliases=("empty_to_null",),
+        Key("emptytonull", type=bool, default=False,
             doc="Whether text with nothing in it becomes a missing value, in every text column."),
-        Key("dieonerror", type=bool, default=False, aliases=("die_on_error",),
+        Key("dieonerror", type=bool, default=False,
             doc="Whether a value that cannot be read fails the job; off, its row goes to the reject output."),
+        Key("die_on_error", type=bool, default=True,
+            doc="Another key than `dieonerror`, as in v1: whether a missing value in a column the schema "
+                "declares not nullable fails the job; when off, the row goes to the reject output."),
         Key("autocast", type=bool, default=False, doc="Accepted: the engine reads values as their declared types anyway."),
     )
 
@@ -71,10 +75,14 @@ class ConvertType(Transform):
             column = declared.get(target) or declared.get(source)
             if column is None or column.type == "str":
                 if target != source:
-                    values.append(to_text(pl.col(source), types[source]).alias(target))
+                    values.append(plain_text(pl.col(source), types[source], self._pattern_of(source)).alias(target))
                 continue
-            text = to_text(pl.col(source), types[source]).fill_null("")
+            text = self._text(source, types[source], column)
             value, wrong = from_text(text, column)
+            if column.type == "int":
+                # A fraction is no whole number: v1 turns such a row away, and so does this.
+                number = text.str.strip_chars().cast(pl.Float64, strict=False)
+                wrong = wrong | (number.is_finite() & (number != number.floor())).fill_null(False)
             values.append(value.alias(f"__converted_{len(values)}:{target}"))
             cases.append((wrong, pl.format(f"Column '{source}' -> '{target}' ({column.type}): cannot read '{{}}'", text)))
         if not cases:
@@ -95,14 +103,40 @@ class ConvertType(Transform):
         renamed = [value.alias(value.meta.output_name().split(":", 1)[1]) if value.meta.output_name().startswith("__converted_")
                    else value for value in values]
         main = flagged.filter(~pl.col(_BAD)).drop(_BAD, _WHY).with_columns(renamed)
-        return {"main": main, "reject": _rejects(bad.rename({_WHY: "error_message"}).drop(_BAD), names)}
+        return {"main": main, "reject": _rejects(bad, names)}
+
+
+    def _pattern_of(self, name: str) -> Optional[Column]:
+        """The declared column of that name that has a date pattern, on the way out or on the way in."""
+        return next((column for column in list(self.schema) + list(self.input_schema)
+                     if column.name == name and column.date_pattern), None)
+
+    def _text(self, source: str, dtype: pl.DataType, target: Column) -> pl.Expr:
+        """A column as the text its values are read from as the target's type; a missing value as no text."""
+        value = pl.col(source)
+        if dtype == pl.String:
+            text = value
+        elif dtype == pl.Boolean and target.type in ("int", "float", "Decimal"):
+            text = value.cast(pl.Int8).cast(pl.String)
+        elif dtype.is_temporal() and target.type in ("datetime", "date"):
+            # Written by the target's own pattern, so that it reads back as the moment it is.
+            text = to_text(value, dtype, target)
+        else:
+            text = plain_text(value, dtype, self._pattern_of(source))
+        return text.fill_null("")
 
 
 def _rejects(frame: pl.LazyFrame, names: List[str]) -> pl.LazyFrame:
-    """The rows turned away as they arrived, with v1's two columns."""
+    """The rows turned away as they arrived, with the two columns every reject output of v2 has.
+
+    They are Talend's names. v1's convert type alone calls them
+    ``error_code`` and ``error_message``; a row it turns away for a missing
+    value has ``errorCode`` there too, in the same file.
+    """
     held = frame.collect_schema().names()
-    message = pl.col("error_message") if "error_message" in held and "error_message" not in names else pl.lit(None, dtype=pl.String)
+    message = pl.col(_WHY) if _WHY in held else pl.lit(None, dtype=pl.String)
+    # No input column has one of the two names: the engine has renamed such a column where it came in.
     return frame.select(
-        [pl.col(name) for name in names if name not in ("error_code", "error_message")]
-        + [pl.lit("CONVERSION_ERROR").alias("error_code"), message.alias("error_message")] + hidden(held)
+        [pl.col(name) for name in names]
+        + [pl.lit("CONVERSION_ERROR").alias("errorCode"), message.alias("errorMessage")] + hidden(held)
     )

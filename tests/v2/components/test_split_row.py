@@ -90,3 +90,55 @@ def test_mapping_is_needed():
 def test_number_written_in_a_group_is_a_number_also_where_the_column_is_text(tmp_path):
     # 1.50 is the number 1.5, and 007 the number 7, before the column's type is looked at.
     assert same(tmp_path, [{"v": "1.50", "w": "007"}], out="v:str, w:str")[0] == "1.5;7"
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 62)
+# ------------------------------------------------------------------
+
+KINDS = "id:int, d:datetime@%Y-%m-%d, s:str, b:bool, m:Decimal#2"
+KINDS_DATA = b"id;d;s;b;m\n1;2024-01-31;x;true;1.50\n2;2024-02-01;y;false;2.00\n"
+
+
+def kinds(tmp_path, mapping, out):
+    return same(tmp_path, mapping, KINDS_DATA, schema=KINDS, out=out)
+
+
+def test_date_beside_a_date_written_as_text_stays_a_date(tmp_path):
+    got = kinds(tmp_path, [{"v": "r.d"}, {"v": "'2024-03-01'"}], "v:datetime@%Y-%m-%d")
+    assert got == ["2024-01-31", "2024-03-01", "2024-02-01", "2024-03-01"]
+
+
+@pytest.mark.parametrize("mapping, got", [
+    ([{"v": "r.d"}, {"v": "r.s"}], ["2024-01-31 00:00:00", "x"]),
+    ([{"v": "r.d"}, {"v": "r.id"}], ["2024-01-31 00:00:00", "1"]),
+    ([{"v": "r.b"}, {"v": "r.s"}], ["True", "x"]),
+    ([{"v": "r.b"}, {"v": "r.id"}], ["True", "1"]),
+    ([{"v": "r.m"}, {"v": "r.id"}], ["1.50", "1"]),
+    ([{"v": "r.m"}, {"v": "'z'"}], ["1.50", "z"]),
+], ids=["date and text", "date and number", "true and text", "true and number", "Decimal and number", "Decimal and text"])
+def test_column_made_of_values_of_several_kinds_holds_each_as_it_is_written(tmp_path, mapping, got):
+    assert kinds(tmp_path, mapping, "v:str")[:2] == got
+
+
+def test_whole_and_fractional_numbers_together_are_floats(tmp_path):
+    assert same(tmp_path, [{"v": "row1.id"}, {"v": "2.5"}], out="v:str")[:2] == ["1.0", "2.5"]
+
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    # The row that misses the value is dropped on both. (v1 writes the whole numbers beside it as 100.0.)
+    from tests.v2 import answer_key
+    made = split([{"id": "row1.jan", "note": "row1.note"}], out="id:int!, note:str", die_on_error=False)
+    runs = [answer_key.run_job(made, {"in.csv": DATA}, tmp_path / name, runner)
+            for name, runner in (("v1", answer_key.run_v1), ("v2", answer_key.run_v2))]
+    assert [run.files["out.csv"].decode().splitlines()[1:] for run in runs] == [["100.0;a", "7.0;c"], ["100;a", "7;c"]]
+
+
+def test_no_groups_counts_no_rows_as_in_v1(tmp_path):
+    from src.v2 import run_job
+    from tests.v2.answer_key import run_job as in_folder, run_v1
+    counted = {}
+    made = split([])
+    in_folder(made, {"in.csv": DATA}, tmp_path / "v1", lambda job: counted.update(v1=run_v1(job)["it"]))
+    in_folder(made, {"in.csv": DATA}, tmp_path / "v2", lambda job: counted.update(v2=run_job(job, row_counts=True).counts["it"]))
+    assert counted["v2"] == counted["v1"] == {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}

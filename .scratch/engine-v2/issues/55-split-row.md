@@ -22,3 +22,17 @@ in `tests/v2/components/test_split_row.py`, against v1).
 - Each row made carries the row number of the row it came from (a test in
   `tests/v2/test_row_numbers.py`).
 - No difference from v1 found.
+
+## Corrected after review (ticket 62)
+
+- "No difference from v1 found" was wrong. Where the groups gave one
+  column values of several kinds, the column was turned into one Polars
+  type: a date became a number, true became 1. It now holds each value as
+  the text it is written as, which is what v1 writes, and the engine reads
+  it as the type the output declares. Held against v1 for a date, true or
+  false and a Decimal beside text and numbers.
+- One difference stays, and is in the README: a whole number beside a
+  missing one is written `100`, where v1 writes `100.0`.
+- `die_on_error` is declared. With no groups it counts no rows, as v1.
+- Not done: a column of the input named like one of its two working
+  columns (`__split_place`) fails with Polars' own words.

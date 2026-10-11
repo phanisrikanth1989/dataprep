@@ -20,3 +20,13 @@ in `tests/v2/components/test_sample_row.py`, against v1).
   they are (no error columns), in the order they came.
 - Rows it does not pick are the job's own doing: nothing is said in the log.
 - Row numbers pass. No difference from v1.
+
+## Corrected after review (ticket 62)
+
+- A number of the range is read as Python's `int()` reads it, which is how
+  v1 reads it (`+3`, `1_0`). A range of nothing but commas picks no row, as
+  in v1; an empty one and one that is no text refuse the job in words of
+  their own.
+- `die_on_error` is declared, as on every component of v1.
+- Places are counted among the rows that arrive: in a run for a few picked
+  rows of a reader, among those. The README says so.

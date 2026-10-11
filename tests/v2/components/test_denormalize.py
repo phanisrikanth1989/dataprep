@@ -108,3 +108,10 @@ def test_columns_that_cannot_be_used_refuse_the_job(columns, said):
 def test_converters_sample_loads():
     spec = next(c for c in json.loads(SAMPLE.read_text())["components"] if c["type"] == "Denormalize")
     load_job(denormalized(**{k: v for k, v in spec["config"].items() if k != "denormalize_columns"}))
+
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    # v1's base class reads it on every component: off, a row that misses a value it may not miss is dropped.
+    made = denormalized(out="id:int, name:str!, skill:str", die_on_error=False)
+    run = assert_matches_v1(made, {"in.csv": b"id;name;skill\n1;ann;x\n1;ann;y\n"}, tmp_path)
+    assert run.succeeded and run.files["out.csv"] == b"id;name;skill\n1;ann;x;y\n"

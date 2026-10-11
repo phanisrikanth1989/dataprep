@@ -51,3 +51,20 @@ def test_converters_sample_loads():
     made = json.loads(SAMPLE.read_text())
     spec = next(c for c in made["components"] if c["type"] == "Replicate")
     load_job(replicated(**spec["config"]))
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 62)
+# ------------------------------------------------------------------
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    made = replicated(1, die_on_error=False)
+    made["components"][1]["schema"]["output"][1]["nullable"] = False
+    run = assert_matches_v1(made, {"in.csv": DATA}, tmp_path)
+    assert run.succeeded and run.files["out0.csv"] == DATA
+
+
+@pytest.mark.parametrize("count", [0, 11, "many"])
+def test_output_count_out_of_v1s_range_refuses_the_job(count):
+    with pytest.raises(JobRefusedError, match="output_count"):
+        load_job(replicated(output_count=count))

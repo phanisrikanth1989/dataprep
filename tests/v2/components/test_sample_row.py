@@ -58,7 +58,7 @@ def test_no_rows_in(tmp_path):
 
 @pytest.mark.parametrize("picked, said", [
     ("a", "'a' is not a row's place"), ("3..1", "3..1 runs backwards"), ("0", "rows are counted from 1"),
-    ("1..2..3", "'1..2..3' is not a row's place"), ("", "names no row"), (" , ", "names no row"),
+    ("1..2..3", "'1..2..3' is not a row's place"), ("", "names no row"), ("  ", "names no row"),
 ])
 def test_range_that_cannot_be_read_refuses_the_job(picked, said):
     with pytest.raises(JobRefusedError, match=said):
@@ -68,3 +68,26 @@ def test_range_that_cannot_be_read_refuses_the_job(picked, said):
 def test_range_is_needed():
     with pytest.raises(JobRefusedError, match="range"):
         load_job(sampled())
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 62)
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("picked, kept", [("+3", ["3"]), ("1_0", ["10"]), (",", []), (" 2 .. 3 ", ["2", "3"])])
+def test_number_is_read_as_python_reads_one_which_is_how_v1_reads_it(tmp_path, picked, kept):
+    assert ids(same(tmp_path, range=picked)) == kept
+
+
+@pytest.mark.parametrize("picked, said", [("²", "is not a row's place"), (None, "range"), (5, "range")])
+def test_more_ranges_that_refuse_the_job_with_words_of_its_own(picked, said):
+    with pytest.raises(JobRefusedError, match=said) as caught:
+        load_job(sampled(range=picked))
+    assert "invalid literal" not in str(caught.value) and "NoneType" not in str(caught.value)
+
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    made = sampled(rejects=False, range="1..5", die_on_error=False)
+    made["components"][1]["schema"]["output"][1]["nullable"] = False
+    run = assert_matches_v1(made, {"in.csv": DATA}, tmp_path)
+    assert run.succeeded and len(run.files["out.csv"].splitlines()) == 6

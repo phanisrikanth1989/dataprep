@@ -39,6 +39,9 @@ class Denormalize(Transform):
             doc="The columns to put together; without any, every row is handed on as it is."),
         Key("null_as_empty", type=bool, default=False,
             doc="Whether a missing value stands as nothing between two delimiters; off, it is left out."),
+        Key("die_on_error", type=bool, default=True,
+            doc="Whether a missing value in a column the schema declares not nullable fails the job; "
+                "when off, the row is dropped."),
     )
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:

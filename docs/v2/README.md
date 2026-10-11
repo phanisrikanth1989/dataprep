@@ -188,8 +188,9 @@ lookup finds its match, and a later stage reads what this run wrote.
   as it fails any: an enclosure that is never closed under `csv_option`, a
   byte that is not of the file's encoding in a full-row file.
 - What depends on the other rows sees only the picked ones: a unique row
-  finds no repeat, an aggregate makes a group of the picked rows, a row
-  count and a `RunIf` on one count them.
+  finds no repeat, an aggregate makes a group of the picked rows, a sample
+  row counts its places among them, a row count and a `RunIf` on one count
+  them.
 
 The reader is read twice: once to find the rows, once to run them. On the
 payments scenario at 1,000,000 rows a run for one row takes 1.4 to 1.6 s.
@@ -276,7 +277,7 @@ in the summary of a run that asked for it, and of no other.
    "Expressions" below.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
-     JSON input;
+     JSON input; fixed flow input (rows written in the job config);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize;
@@ -796,22 +797,49 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 **Replace**
 
-- An advanced rule's pattern runs on Polars' regular expressions, which
-  have no look-around and no back-reference inside a pattern. A rule that
-  needs one is refused at load. A group of the match is put back in the
-  replacement as in v1 (`\1`, `\g<1>`).
+- Patterns run on Polars' regular expressions, not Python's. An advanced
+  rule whose pattern Polars cannot read is refused at load: look-around, a
+  back-reference inside the pattern, `\Z`, `a{,2}`, `(?#...)` and a few more
+  spellings Python takes. A few patterns both read mean something else:
+  a character class inside another (`[a[b]c]`), `&&` inside a class, `\<`.
+- A pattern that can match nothing (`x*`) is replaced once less than in v1
+  right after a match: of `x` under `x*` to `-`, v1 writes `--` and v2 `-`.
+- A group of the match is put back in the replacement as in v1 (`\1`,
+  `\g<1>`), and a replacement Python would not take refuses the job at
+  load, where v1 fails when the component runs.
+- A date is searched as the text its column's pattern gives, and as its
+  day alone when it has no pattern and no time of day. v1 searches the
+  second form whenever every value of the column is at midnight.
 
 **Convert type**
 
 - v1 on today's pandas turns away every row a pair converts in place (its
   own cast fails on a text column), so v1 is the answer key only for a pair
-  that names another output column. v2 reads a value by the rules its
-  readers have for the declared type, and turns away only a row whose
-  value cannot be read.
-- The reject output's message is v2's own (`Column 'n' -> 'n' (int):
-  cannot read 'x'`); v1's is pandas' text.
+  that names another output column. There v2 keeps and turns away the same
+  rows for whole numbers and floats, text or not, and for dates and
+  true/false read from typed columns.
+- Text is read by the rules v2's readers have for the declared type. v1
+  reads through pandas, which takes more: a date in any spelling whatever
+  the column's pattern, any text but `true` as false. v2 turns such a row
+  away.
+- The reject output has `errorCode` and `errorMessage`, as every reject
+  output of v2 and of Talend. v1's convert type alone calls them
+  `error_code` and `error_message`. The message is v2's own (`Column 'n' ->
+  'n' (int): cannot read 'x'`); v1's is pandas' text.
+- Two pairs that read one column fill both output columns. v1 fills the
+  last one only.
 - `autocast` asks for nothing more: the engine reads every value as the
   type its output column declares, as after any component.
+
+**Split row**
+
+- A whole number is written whole (`100`). v1 writes `100.0` for every
+  value of a whole-number column that has a missing value anywhere.
+
+**Sample row**
+
+- A range that cannot be read refuses the job at load. v1 fails when the
+  component runs.
 
 **Denormalize**
 
@@ -828,6 +856,17 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Keys that cannot be used (none named, one that is no column) refuse the
   job at load. v1 fails when the component runs. With `die_on_error` off
   both hand on no rows.
+
+**Fixed flow input**
+
+- The text `false` is false. v1 takes any text that is not empty for true
+  in a true/false column here, `false` and `no` among it.
+- A value that is not of its column's declared type goes missing. v1
+  writes it through as it is (`abc` in a Decimal column, `1.5` in a
+  whole-number column), `<NA>` for a missing Decimal, and `3.0` for a whole
+  number beside a missing one.
+- A failure names the row: `line 3 of the inline content of <id>`, or
+  `row 3 of <id>` for the other two ways of writing rows.
 
 **Positional input**
 

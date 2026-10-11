@@ -210,6 +210,21 @@ def to_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = Non
     return value.cast(pl.String)
 
 
+def plain_text(value: pl.Expr, dtype: pl.DataType, declared: Optional[Column] = None) -> pl.Expr:
+    """A column as the text it is searched or converted as, where a component turns values into text.
+
+    As ``to_text``, but for a date: by the pattern its column declares, so
+    that the result can be read back by the same pattern; and without a
+    pattern a day with no time of day is the day alone, as v1 has it.
+    """
+    if not dtype.is_temporal() or dtype == pl.Time:
+        return to_text(value, dtype)
+    if dtype == pl.Date or (declared is not None and declared.date_pattern):
+        return to_text(value, dtype, declared)
+    midnight = value.dt.time() == pl.time(0, 0, 0)
+    return pl.when(midnight).then(value.dt.strftime("%Y-%m-%d")).otherwise(to_text(value, dtype))
+
+
 def _float_text(value: pl.Expr) -> pl.Expr:
     """A float as Python writes it, which is what v1 writes.
 

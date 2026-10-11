@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List
+import warnings
+from typing import Any, Dict, List, Optional
 
 import polars as pl
 
-from ...column_types import to_text
-from ...job.keys import Key, Kind
+from ...column_types import plain_text
+from ...job.keys import Key, Kind, has_context_reference
+from ...job.model import Column
 from ..base import Transform
 from ..registry import REGISTRY
 
@@ -42,10 +44,17 @@ def _template(written: str) -> str:
                 named = re.match(r"<(\w+)>", written[at:])
                 made.append("${" + named.group(1) + "}")
                 at += named.end()
-            elif after.isdigit():
-                digits = after + (written[at] if at < len(written) and written[at].isdigit() else "")
+            elif after in "0123456789":
+                # Python's own reading: \0 and three octal digits are a character, one or two digits a group.
+                more = re.match(r"[0-7]{1,2}" if after == "0" else r"[0-9]", written[at:])
+                digits = after + (more.group(0) if more else "")
+                third = written[at + 1:at + 2] if len(digits) == 2 and after != "0" else ""
+                if after == "0" or (after in "0123" and digits[1:] and digits[1] in "01234567" and third and third in "01234567"):
+                    digits += third if after != "0" else ""
+                    made.append(chr(int(digits, 8)).replace("$", "$$"))
+                else:
+                    made.append("${" + str(int(digits)) + "}")
                 at += len(digits) - 1
-                made.append("${" + str(int(digits)) + "}")
             elif after in _ESCAPES:
                 made.append(_ESCAPES[after])
             else:
@@ -63,9 +72,12 @@ def _compiles(pattern: str, replacement: str) -> None:
 
 def _rules(value: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for entry in value:
-        if isinstance(entry.get("replace_string"), str):
+        written = entry.get("replace_string")
+        if not isinstance(written, str):
+            raise ValueError(f"replace_string: text is needed, and {written!r} is none")
+        if not has_context_reference(written):
             # What is searched for is plain text, so the replacement has no group but the whole match.
-            entry["replacement"] = _replacement("replace_string", entry["replace_string"], "")
+            entry["replacement"] = _replacement("replace_string", written, "")
     return value
 
 
@@ -73,7 +85,7 @@ def _replacement(key: str, written: str, pattern: str) -> str:
     """A replacement in Polars' spelling. Raises ValueError where Python would not take it for the pattern."""
     try:
         re.compile(pattern).sub(written, "")
-    except re.error as exc:
+    except (re.error, IndexError) as exc:
         raise ValueError(f"{key} {written!r}: {exc}") from None
     return _template(written)
 
@@ -82,10 +94,15 @@ def _advanced(value: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for entry in value:
         pattern, replace = entry.get("search_column"), entry.get("replace_column")
         if not isinstance(pattern, str) or not isinstance(replace, str):
+            raise ValueError("search_column and replace_column: text is needed for both")
+        if has_context_reference(pattern) or has_context_reference(replace):
+            # Read once the context value is in: the run reads the config again.
             continue
         try:
-            # As v1: a doubled backslash of the Talend job is one.
-            pattern = pattern.encode("utf-8").decode("unicode_escape")
+            with warnings.catch_warnings():
+                # As v1: a doubled backslash of the Talend job is one. An escape Python does not know stays.
+                warnings.simplefilter("ignore")
+                pattern = pattern.encode("utf-8").decode("unicode_escape")
         except (UnicodeDecodeError, ValueError):
             pass
         try:
@@ -145,6 +162,9 @@ class Replace(Transform):
             doc="Simple mode: whether only a value that is the searched text and nothing else is replaced."),
         Key("advanced_subst", type=list, default=[], items=_ADVANCED, convert=_advanced, doc="The rules of advanced mode."),
         Key("advanced_mode", kind=Kind.IGNORED, type=object, doc="Never read by v1: `simple_mode` decides."),
+        Key("die_on_error", type=bool, default=True,
+            doc="Whether a missing value in a column the schema declares not nullable fails the job; "
+                "when off, the row is dropped."),
     )
 
     def _pattern(self, rule: Dict[str, Any]) -> str:
@@ -154,6 +174,18 @@ class Replace(Transform):
         if self.config["strict_match"]:
             core = rf"^{core}$"
         return core if rule["case_sensitive"] else "(?i)" + core
+
+    def _searched(self, name: str, dtype: pl.DataType) -> pl.Expr:
+        """A column as the text a rule searches.
+
+        A date is its text by the pattern its column declares, so that the
+        engine can read the result back by the same pattern. Without a
+        pattern a day with no time of day is the day alone, as v1 has it.
+        """
+        declared: Optional[Column] = next(
+            (column for column in list(self.schema) + list(self.input_schema)
+             if column.name == name and column.date_pattern), None)
+        return plain_text(pl.col(name), dtype, declared)
 
     def build(self, inputs: Dict[str, pl.LazyFrame]) -> Dict[str, pl.LazyFrame]:
         (frame,) = inputs.values()
@@ -168,7 +200,7 @@ class Replace(Transform):
                 continue
             value = changed.get(name)
             if value is None:
-                value = to_text(pl.col(name), types[name])
+                value = self._searched(name, types[name])
             pattern = self._pattern(rule) if simple else rule["pattern"]
             changed[name] = value.str.replace_all(pattern, rule["replacement"])
         return {"main": frame.with_columns([value.alias(name) for name, value in changed.items()])}

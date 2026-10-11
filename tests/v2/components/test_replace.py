@@ -147,3 +147,74 @@ def test_replacement_or_pattern_python_would_not_take_refuses_the_job(config, sa
     made["components"][1]["config"] = config
     with pytest.raises(JobRefusedError, match=said):
         load_job(made)
+
+
+# ------------------------------------------------------------------
+# What a second reader of this component found (ticket 62)
+# ------------------------------------------------------------------
+
+DATED = b"id;d\n1;2024-01-31\n2;\n3;2024-02-01\n"
+
+
+def dated(tmp_path, rules, kind="datetime@%Y-%m-%d", out=None, **config):
+    made = replaced(rules, schema=f"id:int, d:{kind}", out=out, **config)
+    run = assert_matches_v1(made, {"in.csv": DATED}, tmp_path)
+    assert run.succeeded, run.error
+    return [line.split(";")[1] for line in run.files["out.csv"].decode().splitlines()[1:]]
+
+
+@pytest.mark.parametrize("kind, written", [("datetime@%Y-%m-%d", "2024-01-31"), ("datetime", "2024-01-31 00:00:00")])
+def test_date_column_a_rule_does_not_touch_keeps_its_dates(tmp_path, kind, written):
+    assert dated(tmp_path, [rule("d", "zzz", "y")], kind)[:2] == [written, ""]
+
+
+def test_date_without_a_pattern_is_searched_as_its_day_too(tmp_path):
+    assert dated(tmp_path, [rule("d", "2024-01-31", "2025-01-01")], "datetime")[0] == "2025-01-01 00:00:00"
+
+
+def test_date_is_searched_as_its_day_and_read_back_as_a_date(tmp_path):
+    assert dated(tmp_path, [rule("d", "2024", "2025")], strict_match=False) == ["2025-01-31", "", "2025-02-01"]
+    assert dated(tmp_path / "b", [rule("d", "2024-01-31", "2025-01-01")])[0] == "2025-01-01"
+
+
+def test_date_replaced_into_a_text_column(tmp_path):
+    got = dated(tmp_path, [rule("d", "-", "/")], out="id:int, d:str", strict_match=False)
+    assert got == ["2024/01/31", "", "2024/02/01"]
+
+
+def test_case_does_not_matter_unless_the_rule_says_so(tmp_path):
+    plain = {"input_column": "status", "search_pattern": "active", "replace_string": "A"}
+    assert same(tmp_path, [plain])[:2] == ["A", "A"]
+
+
+def test_context_value_in_an_advanced_pattern(tmp_path):
+    made = replaced(simple_mode=False, advanced_subst=[
+        {"input_column": "status", "search_column": "${context.x}", "replace_column": "${context.y}"}])
+    made["context"] = {"Default": {"x": {"value": "AC(T)", "type": "str"}, "y": {"value": "<\\1>", "type": "str"}}}
+    run = assert_matches_v1(made, {"in.csv": DATA}, tmp_path)
+    assert run.succeeded, run.error
+    assert run.files["out.csv"].decode().splitlines()[1].split(";")[1] == "<T>IVE"
+
+
+def test_die_on_error_is_the_engines_as_on_every_component(tmp_path):
+    # A row that misses a value it may not miss is dropped when die_on_error is off, as in v1.
+    made = replaced([rule("status", "x", "y")], schema="id:int, status:str", out="id:int!, status:str", die_on_error=False)
+    run = assert_matches_v1(made, {"in.csv": b"id;status\n1;a\n;b\n"}, tmp_path)
+    assert run.succeeded and run.files["out.csv"] == b"id;status\n1;a\n"
+
+
+def test_octal_escapes_in_a_replacement(tmp_path):
+    assert same(tmp_path, [rule("status", "ACTIVE", "\\101\\0")])[0] == "A\x00"
+
+
+@pytest.mark.parametrize("config, said", [
+    ({"substitutions": [rule("status", "a", "\\g<a>")]}, "replace_string"),
+    ({"substitutions": [rule("status", "a", None)]}, "replace_string"),
+    ({"simple_mode": False, "advanced_subst": [{"input_column": "note", "search_column": "a\\Z", "replace_column": ""}]},
+     "v2 cannot use the pattern"),
+])
+def test_more_that_refuses_the_job_with_words_of_its_own(config, said):
+    made = replaced()
+    made["components"][1]["config"] = config
+    with pytest.raises(JobRefusedError, match=said):
+        load_job(made)

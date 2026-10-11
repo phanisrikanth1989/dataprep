@@ -21,3 +21,10 @@ Built on 2026-10-11 (`src/v2/components/transform/replicate.py`; 7 tests in
   reads the rows once. The component hands its input on.
 - `output_count` is accepted and ignored: the flows decide.
 - Row numbers pass. No difference from v1.
+
+## Corrected after review (ticket 62)
+
+- `die_on_error` is declared, as v1's base class reads it on every
+  component: off, a row that misses a value it may not miss is dropped.
+- `output_count` is checked as v1 checks it (a whole number from 1 to 10)
+  and still changes nothing.
