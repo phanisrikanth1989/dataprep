@@ -1025,6 +1025,9 @@ def _discard(state: _Subjob) -> None:
 def _reason(error: BaseException) -> str:
     """One line of plain ASCII saying what went wrong."""
     text = " ".join(str(error).split())
+    if isinstance(error, UnicodeEncodeError):
+        # Python names its own codec ("charmap") and a position in a text nobody has seen.
+        text = f"{ascii(error.object[error.start:error.end][:20])} cannot be written in the file's encoding"
     for marker in (" Resolved plan until failure", " You might want to try:"):
         text = text.split(marker)[0]
     # Polars spells microseconds with a Greek letter; logs must stay ASCII.

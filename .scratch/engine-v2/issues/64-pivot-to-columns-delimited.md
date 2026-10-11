@@ -54,3 +54,20 @@ written and seen failing first).
   when the rows arrive otherwise.
 - Not built: handing the pivoted rows on (v1's extra), `csv_option` and
   `advanced_separator` (Talend's, which v1 does not act on either).
+
+## Corrected after review (ticket 67)
+
+- A sum of floats had float noise (`0.6000000000000001`); it is exact now,
+  as Talend adds (`tPivotToColumnsDelimited_main.javajet`: BigDecimal).
+- A whole float beyond 64 bits, and `inf`, were written as nothing.
+- Groups come in the order of their first row also when that row has no
+  pivot value; dates of a column with no pattern are written alike; a row
+  separator of nothing is a line end; a Decimal with no places is not
+  padded: all as v1 (the last as v2 writes Decimals everywhere).
+- Polars' own words no longer reach the user for a group column named
+  twice, the pivot column among the groups, or a pivot value that is a
+  group column's name.
+- `NB_LINE_OK` is the groups written, as v1 counts.
+- Wrong above: v1 fails on whole numbers when a cell is empty, not when
+  none is. The test that said "v1 fails here" ran a case v1 passes; it is
+  held against v1 now, and the failing case has its own test.

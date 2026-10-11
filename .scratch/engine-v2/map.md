@@ -297,6 +297,9 @@ are designed.
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
   -- thirteen findings, the same.
+  [Review of schema compliance check and pivot](issues/67-review-of-schema-compliance-check-and-pivot.md)
+  -- twenty-nine findings; float sums of the pivot and the strict date
+  check were wrong and are fixed.
   Still to build, in this order: file output Excel, file output
   positional, extract delimited fields, extract positional fields, extract
   regex fields, extract JSON fields, file input properties, file row

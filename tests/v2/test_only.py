@@ -639,6 +639,23 @@ def test_place_of_the_wrong_kind_or_with_no_row_is_said_for_rows_written_in_the_
     assert result.status == "failed" and result.error == "'in' has no row at line 2"
 
 
+def test_schema_compliance_check_and_pivot_see_the_picked_rows_alone(tmp_path):
+    check = {"type": "SchemaComplianceCheck", "config": {"schema": [{"name": "amount", "type": "int", "nullable": False}]}}
+    made = through(check, "id:int, amount:str")
+    data = {"in.csv": b"id;amount\n1;10\n2;x\n3;30\n4;\n"}
+    result = ran(tmp_path, only(made, where={"id": [2, 3]}), data)
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;amount", "3;30"]
+    pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
+             "config": {"pivot_column": "id", "aggregation_column": "amount", "groupbys": ["kind"], "filename": "out.csv"},
+             "schema": {"input": columns("kind:str, id:int, amount:int"), "output": []}}
+    made = job([reader("kind:str, id:int, amount:int", header_rows=1), pivot], [flow("row1", "in", "it")])
+    data = {"in.csv": b"kind;id;amount\na;1;10\na;2;20\nb;1;30\nb;3;40\n"}
+    result = ran(tmp_path, only(made, lines=[3, 4]), data)
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["kind;2;1", "a;20;", "b;;30"]
+
+
 def made_rows(**config):
     source = {"id": "in", "type": "RowGenerator", "config": config, "inputs": [], "outputs": ["row1"],
               "schema": {"input": [], "output": columns("id:str, amount:int")}}

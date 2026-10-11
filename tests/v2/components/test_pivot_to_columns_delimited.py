@@ -86,7 +86,8 @@ def test_separators_and_encoding(tmp_path):
 def test_field_that_holds_the_separator_is_enclosed(tmp_path):
     made = pivoted("id:int, q:str, amt:str", pivot_column="q", aggregation_column="amt", groupbys=["id"],
                    aggregation_function="first")
-    assert on_both(tmp_path, made, b'id;q;amt\n1;a,b;x\n2;c;say "hi"\n')["out.csv"] is not None
+    assert on_both(tmp_path, made, b'id;q;amt\n1;a,b;x\n2;c;say "hi"\n')["out.csv"] == (
+        b'id;a,b;c\n1;x;\n2;;"say ""hi"""\n')
     made["components"][1]["config"]["fieldseparator"] = ","
     assert on_both(tmp_path / "b", made, b'id;q;amt\n1;a,b;x\n2;c;say "hi"\n')["out.csv"] == (
         b'id,"a,b",c\n1,x,\n2,,"say ""hi"""\n')
@@ -103,10 +104,18 @@ def test_folder_that_is_not_there_is_made(tmp_path):
 
 
 def test_whole_numbers_with_no_empty_cell_are_written(tmp_path):
-    # v1 fails here: "Invalid value '' for dtype 'Int64'".
     made = pivoted("id:int, q:str, amt:int", pivot_column="q", aggregation_column="amt", groupbys=["id"])
-    result, written = v2(tmp_path, made, b"id;q;amt\n1;a;1\n1;b;2\n2;a;3\n2;b;4\n1;a;10\n")
-    assert result.status == "success" and written == b"id;a;b\n1;11;2\n2;3;4\n"
+    data = b"id;q;amt\n1;a;1\n1;b;2\n2;a;3\n2;b;4\n1;a;10\n"
+    assert on_both(tmp_path, made, data)["out.csv"] == b"id;a;b\n1;11;2\n2;3;4\n"
+
+
+def test_whole_numbers_with_an_empty_cell_are_written_where_v1_fails(tmp_path):
+    made = pivoted("id:int, q:str, amt:int", pivot_column="q", aggregation_column="amt", groupbys=["id"])
+    data = b"id;q;amt\n1;a;1\n2;b;4\n"
+    key = answer_key.run_job(made, {"in.csv": data}, tmp_path / "v1", answer_key.run_v1)
+    assert not key.succeeded  # "Invalid value '' for dtype 'Int64'"
+    result, written = v2(tmp_path, made, data)
+    assert result.status == "success" and written == b"id;a;b\n1;1;\n2;;4\n"
 
 
 def test_rows_that_miss_a_group_value_are_a_group_of_their_own_as_in_talend(tmp_path):
@@ -202,3 +211,134 @@ def test_row_with_no_pivot_value_takes_no_part(tmp_path):
 def test_first_and_last_are_of_the_values_that_are_there(tmp_path, function, cell):
     written = same(tmp_path, b"id;name;q;amt\n1;a;x;\n1;a;x;5\n1;a;x;7\n1;a;x;\n", aggregation_function=function)
     assert written == b"id;name;x\n1;a;" + cell + b"\n"
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 67)
+# ------------------------------------------------------------------
+
+ONE = dict(pivot_column="q", aggregation_column="amt", groupbys=["id"])
+
+
+def one(schema="id:int, q:str, amt:float", **config):
+    return pivoted(schema, **{**ONE, **config})
+
+
+def test_sum_of_floats_is_exact(tmp_path):
+    data = b"id;q;amt\n" + b"1;a;0.1\n" * 10 + b"1;b;0.1\n1;b;0.2\n1;b;0.3\n2;a;0.5\n"
+    assert on_both(tmp_path, one(), data)["out.csv"] == b"id;a;b\n1;1.0;0.6\n2;0.5;\n"
+
+
+def test_sum_of_floats_does_not_depend_on_the_order_of_the_rows(tmp_path):
+    # Talend adds the decimals the floats print as. v1 comes to 0.6 here: it loses the 1 beside the large values.
+    rows = [b"1;a;100000000000000", b"1;a;1", b"1;a;-100000000000000", b"1;a;0.1", b"1;a;0.2", b"1;a;0.3"]
+    for at, order in enumerate((rows, rows[::-1], rows[3:] + rows[:3])):
+        (tmp_path / str(at)).mkdir()
+        result, written = v2(tmp_path / str(at), one(), b"id;q;amt\n" + b"\n".join(order) + b"\n")
+        assert result.status == "success" and written == b"id;a\n1;1.6\n"
+
+
+def test_whole_floats_too_large_for_64_bits_are_written(tmp_path):
+    data = b"id;q;amt\n1;a;1\n2;a;12345678901234567890\n2;b;1e22\n"
+    assert on_both(tmp_path, one(), data)["out.csv"] == (
+        b"id;a;b\n1;1;\n2;12345678901234567168;10000000000000000000000\n")
+
+
+def test_infinite_value_is_written_and_its_column_stays_floats(tmp_path):
+    assert on_both(tmp_path, one(), b"id;q;amt\n1;a;1\n2;a;inf\n")["out.csv"] == b"id;a\n1;1.0\n2;inf\n"
+
+
+def test_groups_come_in_the_order_their_first_row_arrives_also_when_that_row_has_no_pivot_value(tmp_path):
+    made = one("id:int, q:int, amt:float")
+    assert on_both(tmp_path, made, b"id;q;amt\n1;;9\n2;5;3\n1;7;2\n")["out.csv"] == b"id;5;7\n1;;2\n2;3;\n"
+    # A group with no pivot value in any row is no row of the file.
+    assert on_both(tmp_path / "b", made, b"id;q;amt\n1;;9\n2;5;3\n")["out.csv"] == b"id;5\n2;3\n"
+
+
+def test_many_groups_and_pivot_values_keep_the_order_of_their_first_rows(tmp_path):
+    lines = [f"{(n * 7) % 101};p{(n * 13) % 37};{n % 5 + 0.5}" for n in range(3000)]
+    data = ("id;q;amt\n" + "\n".join(lines) + "\n").encode()
+    on_both(tmp_path, one(), data)
+
+
+def test_dates_of_a_column_are_all_written_with_their_time_when_one_has_a_time(tmp_path):
+    made = one("id:int, q:str, amt:datetime", aggregation_function="max")
+    data = b"id;q;amt\n1;a;2024-01-31 10:00:00\n2;a;2024-02-01 00:00:00\n3;b;2024-03-01\n"
+    assert on_both(tmp_path, made, data)["out.csv"] == (
+        b"id;a;b\n1;2024-01-31 10:00:00;\n2;2024-02-01 00:00:00;\n3;;2024-03-01\n")
+
+
+def test_row_separator_of_nothing_is_a_line_end(tmp_path):
+    assert on_both(tmp_path, one(rowseparator=""), b"id;q;amt\n1;a;1\n2;a;2\n")["out.csv"] == b"id;a\n1;1\n2;2\n"
+
+
+def test_decimal_with_no_declared_places_is_not_padded(tmp_path):
+    # v1 writes the digits as they were typed (4.50); v2 holds ten places and writes none that are zero.
+    made = one("id:Decimal, q:Decimal, amt:Decimal")
+    result, written = v2(tmp_path, made, b"id;q;amt\n1.50;2.50;3.50\n1.5;2.5;1\n2;3;4.25\n")
+    assert result.status == "success" and written == b"id;2.5;3\n1.5;4.5;\n2;;4.25\n"
+
+
+def test_group_whose_values_are_all_missing_is_still_a_row_as_in_talend(tmp_path):
+    # v1 leaves the row out for min, max, first and last (and writes it for sum and count).
+    result, written = v2(tmp_path, one(aggregation_function="max"), b"id;q;amt\n1;a;2.5\n2;a;\n2;b;\n")
+    assert result.status == "success" and written == b"id;a\n1;2.5\n2;\n"
+
+
+def test_missing_decimal_is_a_missing_value_as_a_missing_float_is(tmp_path):
+    # v1 holds a missing Decimal as something: it writes nothing for the sum and counts it.
+    data = b"id;q;amt\n1;a;1.5\n1;a;2.255\n1;b;\n2;a;3\n3;c;\n"
+    made = one("id:int, q:str, amt:Decimal#2")
+    result, written = v2(tmp_path, made, data)
+    assert result.status == "success" and written == b"id;a;b;c\n1;3.76;0.00;\n2;3.00;;\n3;;;0.00\n"
+    (tmp_path / "b").mkdir()
+    result, written = v2(tmp_path / "b", one("id:int, q:str, amt:Decimal#2", aggregation_function="count"), data)
+    assert result.status == "success" and written == b"id;a;b;c\n1;2;0;\n2;1;;\n3;;;0\n"
+
+
+def test_nothing_to_write_leaves_no_file_when_asked(tmp_path):
+    made = one("id:int, q:int, amt:float", delete_emptyfile=True)
+    assert on_both(tmp_path, made, b"id;q;amt\n1;;1\n") == {}
+    made = one("id:int, q:int, amt:float")
+    assert on_both(tmp_path / "b", made, b"id;q;amt\n1;;1\n") == {"out.csv": b"id\n"}
+
+
+def test_field_that_holds_a_line_break_is_enclosed(tmp_path):
+    source = {"id": "in", "type": "FixedFlowInputComponent", "inputs": [], "outputs": ["row1"],
+              "config": {"use_singlemode": False, "use_inlinecontent": True, "inline_content": "1;a;x\ny|2;b\rc;z",
+                         "row_separator": "|"},
+              "schema": {"input": [], "output": columns("id:int, q:str, amt:str")}}
+    made = one("id:int, q:str, amt:str", aggregation_function="first")
+    made["components"][0] = source
+    files = on_both(tmp_path, made, b"")
+    assert files["out.csv"] == b'id;a;"b\rc"\n1;"x\ny";\n2;;z\n'
+
+
+@pytest.mark.parametrize("config, said", [
+    ({"groupbys": ["id", "id"]}, "groupbys: 'id' is named twice"),
+    ({"groupbys": ["q"]}, "groupbys: 'q' is the pivot column, and the rows cannot be grouped by it as well"),
+])
+def test_column_named_twice_refuses_the_job(config, said):
+    with pytest.raises(JobRefusedError) as refused:
+        load_job(one(**config))
+    assert said in str(refused.value)
+
+
+def test_pivot_value_that_is_the_name_of_a_group_column_fails_in_plain_words(tmp_path):
+    result, written = v2(tmp_path, one(), b"id;q;amt\n1;id;1\n2;b;2\n")
+    assert result.status == "failed" and written is None
+    assert result.error == (
+        "the pivot column 'q' holds the value 'id', which is the name of a column the rows are grouped by: "
+        "the file would have two columns of that name")
+
+
+def test_value_the_encoding_cannot_write_fails_in_plain_words(tmp_path):
+    result, written = v2(tmp_path, one(), "id;q;amt\n1;a;1\n2;日本;1\n".encode())
+    assert result.status == "failed" and written is None
+    assert result.error == "'\\u65e5\\u672c' cannot be written in the file's encoding"
+
+
+def test_rows_read_and_groups_written_are_counted_as_in_v1(tmp_path):
+    made = dict(one(), run={"row_counts": True})
+    result, _ = v2(tmp_path, made, b"id;q;amt\n1;a;2\n1;b;3.5\n2;a;1\n2;;4\n3;a;\n")
+    assert result.status == "success" and result.counts["it"] == {"NB_LINE": 5, "NB_LINE_OK": 3, "NB_LINE_REJECT": 0}

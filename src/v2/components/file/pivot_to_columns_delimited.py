@@ -1,17 +1,19 @@
 """Pivot to columns delimited: the values of one column become the columns of a delimited file."""
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import polars as pl
 
-from ...column_types import plain_text, to_text
+from ...column_types import plain_text, to_text, value_text
 from ...errors import ConfigurationError
 from ...files import put_in_place
 from ...job.keys import Key, Kind
 from ...job.model import Column
+from ..aggregate.aggregate_row import _Input, _decimal_of_float, _float_sum
 from ..base import Sink, Write
 from ..registry import REGISTRY
 from .file_input_delimited import encoding, unescape
@@ -27,6 +29,11 @@ def _separator(value: str) -> str:
     if len(value) != 1:
         raise ValueError(f"must be one character, and {value!r} is {len(value)}")
     return value
+
+
+def _row_end(value: str) -> str:
+    # As in v1: nothing given is a line end.
+    return unescape(value) or "\n"
 
 
 def _columns(value: List[Any]) -> List[str]:
@@ -60,10 +67,14 @@ class PivotToColumnsDelimited(Sink):
     the pass is done, before the file is put in place.
 
     As in v1: a column of floats that are all whole is written as whole
-    numbers; a sum or a count over nothing but missing values is 0, while
-    the other functions leave the cell empty, and a column that would be
-    empty in every row is left out; no rows in write no file at all.
-    Rows that miss a group value are a group of their own, as in Talend.
+    numbers; a sum or a count over nothing but missing values is 0 (v1 has
+    that for floats and whole numbers, not for Decimals), while the other
+    functions leave the cell empty, and a column that would be empty in
+    every row is left out; no rows in write no file at all; rows and
+    columns come in the order their first rows arrive.
+    As in Talend: rows that miss a group value are a group of their own, a
+    group whose values are all missing is still a row, and floats are
+    added exactly.
     """
 
     names = ("pivot_to_columns_delimited", "PivotToColumnsDelimited", "tPivotToColumnsDelimited")
@@ -74,7 +85,7 @@ class PivotToColumnsDelimited(Sink):
         Key("groupbys", type=list, required=True, convert=_columns, doc="The columns to group by: a row of the file for each group."),
         Key("path", required=True, aliases=("filename",), doc="The file to write."),
         Key("create", type=bool, default=True, doc="Whether the file is written; folders that are missing are made."),
-        Key("rowseparator", default="\n", convert=unescape, doc="What ends a row."),
+        Key("rowseparator", default="\n", convert=_row_end, doc="What ends a row; a line end when it is nothing."),
         Key("fieldseparator", default=";", convert=_separator, doc="What separates the fields: one character."),
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The file's character encoding."),
         Key("delete_emptyfile", type=bool, default=False, doc="Whether no file is left when there is no group to write."),
@@ -101,6 +112,12 @@ class PivotToColumnsDelimited(Sink):
         named = (("pivot_column", [config["pivot_column"]]), ("aggregation_column", [config["aggregation_column"]]),
                  ("groupbys", config["groupbys"]))
         found = [f"{key}: there is no column '{name}'" for key, names in named for name in names if name not in numeric]
+        groups = config["groupbys"]
+        found += [f"groupbys: '{name}' is named twice" for name in sorted({name for name in groups if groups.count(name) > 1})]
+        if config["pivot_column"] in groups:
+            found.append(
+                f"groupbys: '{config['pivot_column']}' is the pivot column, and the rows cannot be grouped by it as well"
+            )
         value = config["aggregation_column"]
         if not found and config["aggregation_function"] == "sum" and not numeric[value]:
             found.append(f"aggregation_function: sum needs a column of numbers, and '{value}' is not one")
@@ -120,8 +137,12 @@ class PivotToColumnsDelimited(Sink):
         held = pl.col(value)
         cell = {"sum": held.sum(), "count": held.count(), "min": held.min(), "max": held.max(),
                 "first": held.drop_nulls().first(), "last": held.drop_nulls().last()}[function]
-        numbered = frame.with_row_index(_PLACE).filter(pl.col(pivot).is_not_null())
-        grouped = numbered.group_by(groups + [pivot], maintain_order=True).agg(
+        if function == "sum" and types[value].is_float():
+            # Added exactly, as the decimals the floats print as: Talend adds them so, and the order of the rows
+            # then makes no difference.
+            cell = _float_sum(_Input(held, types[value], _decimal_of_float(held)))
+        # The rows with no pivot value are grouped too: they fill no cell, and their group's place is theirs as well.
+        grouped = frame.with_row_index(_PLACE).group_by(groups + [pivot], maintain_order=True).agg(
             cell.alias(_VALUE), pl.col(_PLACE).min().alias(_PLACE))
         written = {"rows": 0}
 
@@ -144,6 +165,9 @@ class PivotToColumnsDelimited(Sink):
 
         def finish(rows: int) -> None:
             self.global_map[f"{self.id}_NB_LINE_OUT"] = written["rows"]
+            if f"{self.id}_NB_LINE_OK" in self.global_map:
+                # As v1 counts: the rows read, and the groups written as the rows that are fine.
+                self.global_map[f"{self.id}_NB_LINE_OK"] = written["rows"]
 
         return Write(path=path, sink=sink, ready=ready, place=place, finish=finish, empty_leaves_none=True)
 
@@ -152,11 +176,19 @@ class PivotToColumnsDelimited(Sink):
         config = self.config
         pivot, groups, separator = config["pivot_column"], config["groupbys"], config["fieldseparator"]
         declared = {name: self.declared(name) for name in types.names()}
-        table = table.with_columns(plain_text(pl.col(pivot), types[pivot], declared.get(pivot)).alias(_HEAD))
-        # Columns and rows come in the order they first appear among the rows that arrived.
-        heads = table.group_by(_HEAD, maintain_order=True).agg(pl.col(_PLACE).min()).sort(_PLACE)[_HEAD].to_list()
-        wide = table.pivot(on=_HEAD, index=groups, values=_VALUE, aggregate_function="first", maintain_order=True)
+        # Columns and rows come in the order they first appear among the rows that arrived, a group also where
+        # its first row has no pivot value.
         first = table.group_by(groups, maintain_order=True).agg(pl.col(_PLACE).min())
+        table = table.filter(pl.col(pivot).is_not_null())
+        table = table.with_columns(plain_text(pl.col(pivot), types[pivot], declared.get(pivot)).alias(_HEAD))
+        heads = table.group_by(_HEAD, maintain_order=True).agg(pl.col(_PLACE).min()).sort(_PLACE)[_HEAD].to_list()
+        twice = [head for head in heads if head in groups]
+        if twice:
+            raise ConfigurationError(
+                f"the pivot column '{pivot}' holds the value '{twice[0]}', which is the name of a column the rows "
+                "are grouped by: the file would have two columns of that name"
+            )
+        wide = table.pivot(on=_HEAD, index=groups, values=_VALUE, aggregate_function="first", maintain_order=True)
         wide = wide.join(first, on=groups, how="left", nulls_equal=True, maintain_order="left").sort(_PLACE).drop(_PLACE)
         heads = [head for head in heads if wide[head].null_count() < wide.height]
 
@@ -164,7 +196,7 @@ class PivotToColumnsDelimited(Sink):
         columns += [self._cell_text(wide[head], declared.get(config["aggregation_column"])) for head in heads]
         lines = [separator.join(_field(name, separator) for name in groups + heads)]
         lines += [separator.join(_field(text, separator) for text in row) for row in zip(*columns)] if columns else []
-        return lines if wide.height else lines[:1]
+        return lines
 
     @staticmethod
     def _group_text(values: pl.Series, declared: Optional[Column]) -> List[Optional[str]]:
@@ -176,9 +208,15 @@ class PivotToColumnsDelimited(Sink):
         dtype = values.dtype
         if dtype.is_float():
             held = values.drop_nulls().drop_nans()
-            if held.len() and (held == held.floor()).all():
-                return values.cast(pl.Int64, strict=False).cast(pl.String).to_list()
+            if held.len() and (held.is_finite() & (held == held.floor())).all():
+                # Through Python's whole numbers: a float may be whole and beyond 64 bits.
+                return [None if value is None or value != value else str(int(value)) for value in values.to_list()]
+        if dtype == pl.Datetime and not (declared is not None and declared.date_pattern):
+            # With no pattern, as v1 has it: the day alone, unless a date of the column has a time of day.
+            timed = (values.drop_nulls().dt.time() != datetime.time(0, 0)).any()
+            text = to_text(pl.col("v"), dtype) if timed else pl.col("v").dt.strftime("%Y-%m-%d")
+            return values.to_frame("v").select(text).to_series().to_list()
         if dtype.is_temporal():
-            # A date by its column's pattern, as in Talend; with none, its day alone when it has no time of day.
+            # A date by its column's pattern, as in Talend.
             return values.to_frame("v").select(plain_text(pl.col("v"), dtype, declared)).to_series().to_list()
-        return values.to_frame("v").select(to_text(pl.col("v"), dtype)).to_series().to_list()
+        return values.to_frame("v").select(value_text(pl.col("v"), dtype, declared)).to_series().to_list()

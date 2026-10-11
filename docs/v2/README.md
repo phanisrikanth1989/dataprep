@@ -872,17 +872,54 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   header line. v1 leaves that file with nothing in it.
 - Bytes are counted in UTF-8 and in one-byte character sets
   (`check_string_by_byte_length`). Any other `charset` is refused at load;
-  v1 counts in whatever Python knows.
+  v1 counts in whatever Python knows. A character a one-byte set cannot
+  write counts as one; v1 fails the job on it.
+- Under `strict_date_check` a date fits its pattern where v1 says it does
+  (v1 asks pandas; v2 is held to pandas' answer over 29 patterns and some
+  180 values, odd ones among them: `2024-1-5` fits `%Y-%m-%d`, `24-01-31`
+  does not). Not the same: digits of another script are no date in v2; a
+  pattern with a part other than year, month, day, hour, minute, second,
+  fraction, AM/PM and time zone (a month by name, say) is read by Polars;
+  and a pattern that is no pattern (`%Q`) refuses the job at load, where
+  v1 fails when the rows arrive.
+- A missing Decimal is a missing value. With `all_empty_are_null` off, v1
+  holds it as empty text and turns its row away as `invalid type`.
+- The length of a value that arrives typed is that of the text it is
+  written as (`2024-01-31` for a day with no time, `1.5` for a Decimal
+  with no declared places). v1 has the digits of such a Decimal as they
+  were typed, and fails on a whole-number column that has a missing value.
+- `length` written as text (`"2"`) is the number. v1 passes over it.
+- An entry of `empty_null_table` without `empty_is_null`, and a key v2
+  does not know in a column of `schema`, refuse the job. v1 passes over
+  both.
 
 **Pivot to columns delimited**
 
 - It is an output and hands no rows on. v1 also hands the pivoted rows to
   a flow that leaves it; v2 refuses a job with such a flow.
 - Whole numbers in the cells are written where v1 fails ("Invalid value ''
-  for dtype 'Int64'", whenever the value column holds whole numbers and no
+  for dtype 'Int64'", whenever the value column holds whole numbers and a
   cell is empty).
+- A sum of floats is exact, as in the aggregate and as Talend adds: 0.1
+  ten times is 1.0, whatever order the rows come in. v1 adds with a
+  running correction and comes to the same on ordinary data; it can lose
+  a small number beside very large ones.
 - Rows that miss a group value are a group of their own, as in Talend. v1
   leaves them out.
+- A group whose values are all missing is still a row, as in Talend. v1
+  leaves it out for min, max, first and last.
+- A missing Decimal is a missing value, as a missing float is in both: a
+  sum over none is 0.00, a count 0, and a column with no value at all is
+  left out. v1 holds a missing Decimal as something: it writes nothing for
+  the sum, counts it, and keeps the column.
+- A Decimal with no declared places is written without padding (`4.5`).
+  v1 has its digits as they were typed (`4.50`).
+- sum needs a column of numbers, and a job that sums anything else is
+  refused. v1 puts text together (`x007`) and counts the trues.
+- A column to group by that is named twice, or that is the pivot column,
+  refuses the job. A pivot value that is the name of a group column fails
+  it, in plain words (v1 fails there too).
+- `create` written as the text `false` is off. v1 takes any text for on.
 - A date that becomes a column name, or that is grouped by, is written by
   its column's pattern, and true/false to group by as `true`, both as in
   Talend. v1 writes the date with its time of day and the word as `True`.

@@ -47,3 +47,16 @@ v1; tests written and seen failing first).
 - Differs from v1, both in the README: the reject file's header line where
   no row is turned away, and the character sets bytes are counted in.
 - Not checked against Talend's own component: its source was not read.
+
+## Corrected after review (ticket 67)
+
+- `strict_date_check` took dates v1 turns away (`24-01-31`, a blank in
+  front, a missing fraction) and turned away one v1 takes. The check is
+  now written out as pandas reads a pattern and held to pandas over 29
+  patterns and some 180 values.
+- A number behind a no-break space is no number, as in v1. The key
+  `pattern` is not read, as in v1 (it was taken for `date_pattern`).
+- The length of a typed value is of the text it is written as. A date
+  pattern is held to a column of any type but a date.
+- "Differs from v1, both in the README" was short by several; they are in
+  the README now. The doc of `die_on_error` said more than it does.

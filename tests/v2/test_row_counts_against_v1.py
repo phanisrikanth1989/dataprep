@@ -12,7 +12,7 @@ import pytest
 from src.v2 import run_job as run_on_v2
 from tests.v2.answer_key import run_job, run_v1
 
-from .components.kit import columns, flow, job, through, writer
+from .components.kit import columns, flow, job, reader, through, writer
 from .components.test_file_delimited import copy
 from .components.test_file_input_excel import book, excel
 from .components.test_file_input_fullrow import read_lines
@@ -207,6 +207,15 @@ def test_convert_type_counts_the_rows_it_turns_away(tmp_path):
     from .components.test_convert_type import DATA as TEXT, IN, converted
     made = converted(IN + ", n2:int", manualtable=[{"input_column": "n", "output_column": "n2"}])
     assert same_counts(made, {"in.csv": TEXT}, tmp_path)["it"] == counts(4, 3, 1)
+
+
+def test_pivot_counts_the_rows_it_reads_and_the_groups_it_writes(tmp_path):
+    pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
+             "config": {"pivot_column": "q", "aggregation_column": "amt", "groupbys": ["id"], "filename": "out.csv"},
+             "schema": {"input": columns("id:int, q:str, amt:float"), "output": []}}
+    made = job([reader("id:int, q:str, amt:float", header_rows=1), pivot], [flow("row1", "in", "it")])
+    data = b"id;q;amt\n1;a;2\n1;b;3.5\n2;a;1\n2;b;4\n3;a;\n"
+    assert same_counts(made, {"in.csv": data}, tmp_path)["it"] == counts(5, 3, 0)
 
 
 def test_schema_compliance_check_counts_the_rows_that_fit_and_the_others(tmp_path):

@@ -720,6 +720,7 @@ def test_failed_subjob_leaves_every_file_as_it_was(tmp_path):
     made = two_outputs(first={"file_exist_exception": False}, second={"encoding": "ascii"})
     result = run_in(tmp_path, made, {"in.csv": "1;café\n".encode("utf-8"), "out.csv": b"old\n"})
     assert result.status == "failed" and result.failed_component == "out2"
+    assert result.error == "'\\xe9' cannot be written in the file's encoding"
     assert (tmp_path / "out.csv").read_bytes() == b"old\n"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["in.csv", "out.csv"]
     assert result.rows == {}
