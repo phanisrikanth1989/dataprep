@@ -20,8 +20,9 @@ MAY_COLLECT = {
     "file_input_excel.py": "there is no lazy Excel reader",
 }
 ROW_BY_ROW = re.compile(r"\.(map_elements|map_batches|map_rows|apply|iter_rows|rows)\(")
-# Components that are handed real rows by the engine and may walk them.
-HOLD_ROWS = {"context_load.py", "log_row.py", "python_dataframe.py", "file_input_excel.py"}
+# Components that are handed real rows by the engine and may walk them. The Excel output walks the rows it
+# wrote in the subjob's pass, when the pass is done: a workbook is made cell by cell.
+HOLD_ROWS = {"context_load.py", "log_row.py", "python_dataframe.py", "file_input_excel.py", "file_output_excel.py"}
 
 
 def code_lines(path):

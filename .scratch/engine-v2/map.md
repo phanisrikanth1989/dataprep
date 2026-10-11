@@ -293,6 +293,8 @@ are designed.
   [Pivot to columns delimited](issues/64-pivot-to-columns-delimited.md),
   [Row generator](issues/66-row-generator.md) -- expressions are Python
   with `random` in reach, as in v1; Java ones are refused.
+  [File output Excel](issues/68-file-output-excel.md) -- with openpyxl,
+  held against v1 by what is in the workbook.
   [Review of the first five](issues/62-review-of-the-first-five-new-components.md)
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
@@ -300,7 +302,7 @@ are designed.
   [Review of schema compliance check and pivot](issues/67-review-of-schema-compliance-check-and-pivot.md)
   -- twenty-nine findings; float sums of the pivot and the strict date
   check were wrong and are fixed.
-  Still to build, in this order: file output Excel, file output
+  Still to build, in this order: file output
   positional, extract delimited fields, extract positional fields, extract
   regex fields, extract JSON fields, file input properties, file row
   count; die, warn, set global var, file exist, file copy, file delete.

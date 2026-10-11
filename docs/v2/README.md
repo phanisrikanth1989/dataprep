@@ -278,8 +278,8 @@ in the summary of a run that asked for it, and of no other.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
      JSON input; fixed flow input (rows written in the job config); row
-     generator (rows made from expressions); pivot to columns delimited
-     (an output);
+     generator (rows made from expressions); Excel output; pivot to
+     columns delimited (an output);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
@@ -927,6 +927,40 @@ v1 is the answer key, with these exceptions. Each is deliberate.
   one row for each group and pivot value, not the rows that came in.
 - Not acted on, as in v1: `csv_option`, `advanced_separator`. (Talend acts
   on both.)
+
+**Excel output**
+
+- Written with openpyxl, as v1 writes it, and held against v1 by what is
+  in the workbook (sheets, cells, their kinds and number formats, column
+  widths): a workbook's bytes hold the time it was written.
+- Every row is written, one with nothing in it as an empty row, as in
+  Talend. v1 leaves such a row out and counts it as rejected.
+- With `delete_empty_file`, a workbook that nothing was added to
+  (`append_file`) is kept, as in Talend. v1 deletes it.
+- A number that is none (not a number, or without end) is no cell. v1
+  writes a cell with no value in it.
+- Text in a column declared a date with a pattern is written as it is. v1
+  writes nothing for text the pattern does not read.
+- The widths of `is_all_auto_szie` are v1's (the longest value's length
+  and two more), not what Excel would measure as Talend has it. A column
+  with a missing value is sized like any other; v1 fails on it.
+- Refused at load: a sheet name Excel does not take (longer than 31
+  characters, which v1 writes with a warning, or holding one of
+  `\ / * ? : [ ]`, where v1 fails when it comes to it); a first cell
+  before A1; `protect_file`, which v1 passes over, leaving the workbook
+  unprotected; `usestream`.
+- A character no workbook can hold fails the job with the column and the
+  row. v1 fails with openpyxl's words.
+- A workbook that cannot be written always fails the job. With
+  `die_on_error` off, v1 logs it and goes on with no file.
+- A date whose column declares a pattern is text, as in v1. (Talend
+  writes a date cell with that format.)
+- Two outputs of one subjob may fill two sheets of one workbook, or add
+  to one sheet, the second with `append_file`, as in v1.
+- A workbook that is there and cannot be read (`append_file`) fails the
+  job when its turn comes to be put in place; files the subjob wrote
+  before it are in place by then.
+- The rows are held in memory while the workbook is made, as in v1.
 
 **Fixed flow input**
 
