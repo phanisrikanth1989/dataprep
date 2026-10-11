@@ -267,6 +267,13 @@ def test_every_row_a_split_row_makes_carries_the_number_of_the_row_it_came_from(
     assert failed(tmp_path, chain(("SplitRow", {"col_mapping": groups}, PEOPLE)), {"in.csv": PEOPLE_DATA}) == NAMED
 
 
+def test_every_row_an_unpivot_makes_carries_the_number_of_the_row_it_came_from(tmp_path):
+    step = ("UnpivotRow", {"row_keys": ["id", "name"], "pivot_key": "what", "pivot_value": "years"},
+            "id:int, name:str, what:str, years:int")
+    made = chain(step, last="id:int, name:str, what:str, years:int!")
+    assert failed(tmp_path, made, {"in.csv": PEOPLE_DATA}) == NAMED.replace("'age'", "'years'")
+
+
 def test_row_a_convert_type_turns_away_names_its_source_row_when_that_stops_the_job(tmp_path):
     step = ("ConvertType", {"manualtable": [{"input_column": "age", "output_column": "age"}], "dieonerror": True},
             PEOPLE)
