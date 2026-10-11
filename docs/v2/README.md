@@ -277,7 +277,8 @@ in the summary of a run that asked for it, and of no other.
    "Expressions" below.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
-     JSON input; fixed flow input (rows written in the job config);
+     JSON input; fixed flow input (rows written in the job config); pivot
+     to columns delimited (an output);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
@@ -865,6 +866,23 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Bytes are counted in UTF-8 and in one-byte character sets
   (`check_string_by_byte_length`). Any other `charset` is refused at load;
   v1 counts in whatever Python knows.
+
+**Pivot to columns delimited**
+
+- It is an output and hands no rows on. v1 also hands the pivoted rows to
+  a flow that leaves it; v2 refuses a job with such a flow.
+- Whole numbers in the cells are written where v1 fails ("Invalid value ''
+  for dtype 'Int64'", whenever the value column holds whole numbers and no
+  cell is empty).
+- Rows that miss a group value are a group of their own, as in Talend. v1
+  leaves them out.
+- A date that becomes a column name, or that is grouped by, is written by
+  its column's pattern, and true/false to group by as `true`, both as in
+  Talend. v1 writes the date with its time of day and the word as `True`.
+- The table of groups is held in memory while it is turned into columns:
+  one row for each group and pivot value, not the rows that came in.
+- Not acted on, as in v1: `csv_option`, `advanced_separator`. (Talend acts
+  on both.)
 
 **Fixed flow input**
 
