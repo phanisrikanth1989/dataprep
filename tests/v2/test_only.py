@@ -598,3 +598,41 @@ def test_value_written_the_files_own_way_is_judged_when_the_reader_that_waits_fo
     assert out(tmp_path)[-1] == "def;2000.00"
     result = ran(tmp_path, only(made, where={"amt": "two"}), files)
     assert result.status == "failed" and result.error == "column 'amt' is Decimal; 'two' cannot be read as that"
+
+
+# ------------------------------------------------------------------
+# Rows written in the job config
+# ------------------------------------------------------------------
+
+def fixed(**config):
+    source = {"id": "in", "type": "FixedFlowInput", "config": config, "inputs": [], "outputs": ["row1"],
+              "schema": {"input": [], "output": columns(IDS)}}
+    return job([source, writer(IDS, inputs=("row1",))], [flow("row1", "in", "out")])
+
+
+CONTENT = dict(use_inlinecontent=True, inline_content="1;10\n\n2;20\n3;30\n")
+TABLE = dict(use_intable=True, intable=[{"element_ref": name, "value": value} for row in (("1", "10"), ("2", "20"), ("3", "30"))
+                                         for name, value in zip(("id", "amount"), row)])
+
+
+def test_rows_written_as_content_are_picked_by_line_or_by_value(tmp_path):
+    result = ran(tmp_path, only(fixed(**CONTENT), lines=[3]), {})
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;amount", "2;20"]
+    assert result.summary()["only"]["rows"] == ["line 3 of the inline content of in"]
+    ran(tmp_path, only(fixed(**CONTENT), where={"amount": 30}), {})
+    assert out(tmp_path) == ["id;amount", "3;30"]
+
+
+def test_rows_written_as_a_table_are_picked_by_row(tmp_path):
+    result = ran(tmp_path, only(fixed(**TABLE), rows=[2]), {})
+    assert out(tmp_path) == ["id;amount", "2;20"] and result.summary()["only"]["rows"] == ["row 2 of in"]
+
+
+def test_place_of_the_wrong_kind_or_with_no_row_is_said_for_rows_written_in_the_config(tmp_path):
+    assert refusals(only(fixed(**CONTENT), rows=[2])) == [
+        ("run.only.rows", "'in' holds its rows as lines of text: pick its rows with `lines`")]
+    assert refusals(only(fixed(**TABLE), lines=[2])) == [
+        ("run.only.lines", "'in' holds its rows in its config: pick its rows with `rows`")]
+    result = ran(tmp_path, only(fixed(**CONTENT), lines=[2]), {})
+    assert result.status == "failed" and result.error == "'in' has no row at line 2"

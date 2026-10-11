@@ -575,3 +575,45 @@ def test_long_text_a_map_cannot_read_is_cut_in_the_message(tmp_path):
     error = failed(tmp_path, made, {"in.csv": b"id;name;age\n1;" + b"x" * 5000 + b";30\n"})
     assert error == ("output 'row2' column 'n': '" + "x" * 100 + "...' cannot be read as int "
                      "(1 row of the output holds such a value); the row is line 2 of in.csv")
+
+
+# ------------------------------------------------------------------
+# Rows written in the job config
+# ------------------------------------------------------------------
+
+def fixed_rows(**config):
+    """rows written in the config (id may not be missing) -> file."""
+    source = {"id": "in", "type": "FixedFlowInput", "config": config, "inputs": [], "outputs": ["row1"],
+              "schema": {"input": [], "output": columns("name:str, id:int!")}}
+    return keyed(job([source, writer("name:str, id:int", inputs=("row1",))], [flow("row1", "in", "out")]), key="name")
+
+
+def test_fixed_flow_input_names_the_line_of_its_content(tmp_path):
+    made = fixed_rows(use_inlinecontent=True, inline_content="ann;1\n\nbob\ncy;3\n")
+    assert failed(tmp_path, made, {}) == (
+        "Column 'id' has NULL values but is not nullable; the row is line 3 of the inline content of in (name=bob)")
+
+
+def test_fixed_flow_input_names_the_row_of_its_table(tmp_path):
+    table = [{"element_ref": "name", "value": "ann"}, {"element_ref": "id", "value": "1"},
+             {"element_ref": "name", "value": "bob"}]
+    assert failed(tmp_path, fixed_rows(use_intable=True, intable=table), {}) == (
+        "Column 'id' has NULL values but is not nullable; the row is row 2 of in (name=bob)")
+
+
+def test_row_a_convert_type_turns_away_still_names_its_source_row_further_on(tmp_path):
+    # The rejects go to a sort that wants an id; the row turned away for its age has none.
+    text = "id:int, name:str, age:str"
+    convert = {"id": "it", "type": "ConvertType", "inputs": ["row1"], "outputs": ["ok", "bad"],
+               "config": {"manualtable": [{"input_column": "age", "output_column": "age"}]},
+               "schema": {"input": columns(text), "output": columns(PEOPLE)}}
+    needs = {"id": "needs", "type": "SortRow", "inputs": ["bad"], "outputs": ["row9"],
+             "config": {"criteria": [{"column": "name", "sort_type": "alpha", "order": "asc"}]},
+             "schema": {"input": columns(text), "output": columns("id:int!, name:str, age:str")}}
+    made = keyed(job(
+        [reader(text, header_rows=1), convert, writer(PEOPLE, inputs=("ok",)), needs,
+         writer(text, "rej", "rej.csv", ("row9",))],
+        [flow("row1", "in", "it"), flow("ok", "it", "out"), flow("bad", "it", "needs", "reject"), flow("row9", "needs", "rej")]),
+        key="name")
+    assert failed(tmp_path, made, {"in.csv": b"id;name;age\n1;ann;30\n;bob;old\n"}) == (
+        "Column 'id' has NULL values but is not nullable; the row is line 3 of in.csv (name=bob)")

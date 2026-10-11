@@ -1,0 +1,188 @@
+"""Fixed flow input, against v1 on the same job config and bytes."""
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from src.v2 import load_job, run_job
+from src.v2.errors import JobRefusedError
+from tests.v2.answer_key import assert_matches_v1
+
+from .kit import columns, flow, job, writer
+
+SAMPLE = Path(__file__).parents[2] / "talend_xml_samples" / "converted_jsons" / "Job_tFixedFlowInput_0.1.json"
+SCHEMA = "id:int, name:str, amt:float"
+
+
+def fixed(schema=SCHEMA, out=None, context=None, kind="FixedFlowInputComponent", **config):
+    """rows written in the config -> file."""
+    source = {"id": "in", "type": kind, "config": config,
+              "schema": {"input": [], "output": columns(schema)}, "inputs": [], "outputs": ["row1"]}
+    made = job([source, writer(out or schema, inputs=("row1",))], [flow("row1", "in", "out")])
+    if context:
+        made["context"] = {"Default": {name: {"value": value, "type": "str"} for name, value in context.items()}}
+    return made
+
+
+def values(**held):
+    return [{"schema_column": name, "value": value} for name, value in held.items()]
+
+
+def table(*rows, names=("id", "name", "amt")):
+    return [{"element_ref": name, "value": value} for row in rows for name, value in zip(names, row)]
+
+
+def same(tmp_path, **kwargs):
+    run = assert_matches_v1(fixed(**kwargs), {}, tmp_path)
+    assert run.succeeded, run.error
+    return run.files["out.csv"].decode().splitlines()[1:]
+
+
+def v2(tmp_path, made):
+    """Run on v2 alone, inside tmp_path; returns how it ended and the file written."""
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = run_job(made)
+    finally:
+        os.chdir(previous)
+    written = (tmp_path / "out.csv").read_bytes() if (tmp_path / "out.csv").exists() else None
+    return result, written
+
+
+def inline(content, **more):
+    return dict(use_singlemode=False, use_inlinecontent=True, inline_content=content, **more)
+
+
+def test_one_row_of_values_is_repeated(tmp_path):
+    assert same(tmp_path, nb_rows=3, values_config=values(id="7", name="ann", amt="1.5")) == ["7;ann;1.5"] * 3
+
+
+def test_one_row_by_default_and_none_when_asked_for_none(tmp_path):
+    assert same(tmp_path, values_config=values(id="7", name="ann", amt="2")) == ["7;ann;2"]
+    assert same(tmp_path / "b", nb_rows=0, values_config=values(id="7")) == []
+
+
+def test_column_without_a_value_is_missing(tmp_path):
+    assert same(tmp_path, values_config=values(name="x")) == [";x;"]
+
+
+def test_table_gives_a_row_for_every_run_of_as_many_entries_as_there_are_columns(tmp_path):
+    rows = table(("1", "ann", "1.5"), ("2", "bob", "2.25"), ("3", "", ""))
+    assert same(tmp_path, use_singlemode=False, use_intable=True, intable=rows, nb_rows=9) == [
+        "1;ann;1.5", "2;bob;2.25", "3;;"]
+
+
+def test_table_whose_last_row_is_short_and_an_entry_for_no_column(tmp_path):
+    rows = table(("1", "ann", "1.5")) + [{"element_ref": "id", "value": "2"}, {"element_ref": "nope", "value": "x"}]
+    assert same(tmp_path, use_singlemode=False, use_intable=True, intable=rows) == ["1;ann;1.5", "2;;"]
+
+
+def test_inline_content_gives_a_row_for_every_line_that_is_not_blank(tmp_path):
+    assert same(tmp_path, **inline("1;ann;1.5\n\n2;bob\n   \n3;cy;3;extra\n", nb_rows=1)) == [
+        "1;ann;1.5", "2;bob;", "3;cy;3.0"]
+
+
+@pytest.mark.parametrize("rows, fields, content", [
+    ("\\r\\n", "\\t", "1\tann\t1.5\r\n2\tbob\t2"), ("|", ",", "1,ann,1.5|2,bob,2"), ("\\|", "::", "1::ann::1.5|2::bob::2"),
+])
+def test_separators_of_inline_content(tmp_path, rows, fields, content):
+    assert same(tmp_path, **inline(content, row_separator=rows, field_separator=fields)) == ["1;ann;1.5", "2;bob;2.0"]
+
+
+def test_line_end_the_separator_does_not_take_stays_in_the_last_field(tmp_path):
+    run = assert_matches_v1(fixed(schema="id:int, name:str", **inline("1;ann\r\n2;bob")), {}, tmp_path)
+    assert run.files["out.csv"] == b"id;name\n1;ann\r\n2;bob\n"
+
+
+def test_inline_content_wins_over_the_table_and_the_table_over_the_single_row(tmp_path):
+    config = dict(inline("1;a;1"), use_intable=True, intable=table(("2", "b", "2")), values_config=values(id="3"))
+    assert same(tmp_path, **config) == ["1;a;1"]
+    assert same(tmp_path / "b", **dict(config, use_inlinecontent=False, use_singlemode=True)) == ["2;b;2"]
+
+
+def test_no_way_chosen_is_the_single_row(tmp_path):
+    assert same(tmp_path, use_singlemode=False, values_config=values(id="5", name="x")) == ["5;x;"]
+
+
+def test_plain_number_written_as_text_is_the_number_also_in_a_text_column(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str, c:str, d:str", values_config=values(a="007", b="1.50", c="-3", d="1e3"))
+    assert got == ["7;1.5;-3;1e3"]
+
+
+def test_column_of_numbers_and_text_is_written_as_each_stands(tmp_path):
+    assert same(tmp_path, schema="a:str", out="a:str", **inline("1\nx\n2.5")) == ["1", "x", "2.5"]
+
+
+def test_context_value_in_a_value_and_in_the_content(tmp_path):
+    assert same(tmp_path, context={"who": "ann", "n": "42"},
+                values_config=values(id="${context.n}", name="context.who")) == ["42;ann;"]
+    assert same(tmp_path / "b", context={"who": "ann"}, **inline("1;${context.who};2")) == ["1;ann;2"]
+
+
+def test_typed_columns(tmp_path):
+    schema = "d:datetime@%Y-%m-%d, ok:bool, m:Decimal#2, f:float"
+    got = same(tmp_path, schema=schema, **inline("2024-01-31;true;1.5;2.5\n2024-02-01;;2;3\n"))
+    assert got == ["2024-01-31;true;1.50;2.5", "2024-02-01;false;2.00;3.0"]
+
+
+def test_true_or_false_with_nothing_written_is_false_as_for_every_reader(tmp_path):
+    assert same(tmp_path, schema="id:int, ok:bool", **inline("1;true\n2;\n3;0\n4")) == [
+        "1;true", "2;false", "3;false", "4;false"]
+    assert same(tmp_path / "b", schema="id:int, ok:bool", values_config=values(id="1")) == ["1;false"]
+
+
+def test_the_text_false_is_false(tmp_path):
+    # v1 takes any text that is not empty for true here, the words false and no among it.
+    result, written = v2(tmp_path, fixed(schema="id:int, ok:bool", **inline("1;false\n2;FALSE\n3;true\n")))
+    assert result.status == "success" and written == b"id;ok\n1;false\n2;false\n3;true\n"
+
+
+def test_value_can_be_an_entry_of_globalmap_set_by_an_earlier_stage(tmp_path):
+    # Stage one reads two rows; stage two writes how many they were. v1 counts the same.
+    from .kit import reader
+    made = fixed(schema="n:int", values_config=values(n='((Integer)globalMap.get("first_NB_LINE"))'))
+    made["components"] += [reader("id:int", "first", "first.csv", ("row9",)), writer("id:int", "copy", "copy.csv", ("row9",))]
+    made["flows"].append(flow("row9", "first", "copy"))
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "first", "to": "in"}]
+    run = assert_matches_v1(made, {"first.csv": b"1\n2\n"}, tmp_path)
+    assert run.succeeded, run.error
+    assert run.files["out.csv"] == b"n\n2\n"
+
+
+def test_value_that_is_not_of_the_declared_type_goes_missing(tmp_path):
+    # v1 writes such values through as they are (abc in a Decimal column, 1.5 in a whole-number column),
+    # <NA> for a missing Decimal, and 3.0 for a whole number beside a missing one.
+    made = fixed(schema="m:Decimal#2, n:int, d:datetime@%Y-%m-%d", **inline("1.5;3;2024-01-31\nabc;1.5;31/01/2024\n;;\n"))
+    result, written = v2(tmp_path, made)
+    assert result.status == "success" and written == b"m;n;d\n1.50;3;2024-01-31\n;1;\n;;\n"
+
+
+def test_no_columns_declared_refuses_the_job():
+    made = fixed(values_config=[])
+    made["components"][0]["schema"]["output"] = []
+    with pytest.raises(JobRefusedError, match="schema: a fixed flow input needs its columns declared"):
+        load_job(made)
+
+
+@pytest.mark.parametrize("config, said", [
+    ({"nb_rows": -1}, "nb_rows"), ({"nb_rows": "many"}, "nb_rows"), ({"rows": 3}, "unknown config key"),
+    ({"field_separator": ""}, "a separator of nothing"),
+])
+def test_what_cannot_be_read_refuses_the_job(config, said):
+    with pytest.raises(JobRefusedError, match=said):
+        load_job(fixed(**config))
+
+
+def test_converters_sample_loads_and_runs_as_on_v1(tmp_path):
+    spec = next(c for c in json.loads(SAMPLE.read_text())["components"] if "Fixed" in c["type"])
+    made = fixed(**spec["config"])
+    made["components"][0]["schema"] = spec["schema"]
+    made["components"][1]["schema"]["input"] = spec["schema"]["output"]
+    run = assert_matches_v1(made, {}, tmp_path)
+    assert run.succeeded and len(run.files["out.csv"].splitlines()) == 6
+
+
+def test_die_on_error_is_the_engines_as_on_every_component():
+    load_job(fixed(values_config=values(id="1"), die_on_error=False))
