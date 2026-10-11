@@ -226,6 +226,16 @@ def test_positional_output_counts_the_rows_it_writes(tmp_path):
     assert same_counts(made, {"in.csv": b"id;name\n1;a\n2;b\n3;\n"}, tmp_path)["out"] == counts(3, 3, 0)
 
 
+def test_extract_delimited_fields_counts_the_rows_it_hands_on_and_turns_away_and_not_those_it_leaves_out(tmp_path):
+    from .components.test_extract_delimited_fields import extract
+    made = extract(schema="id:int, raw:float", out="id:int, a:str, b:str", fieldseparator=".", reject="",
+                   check_fields_num=True)
+    data = b"id|raw\n1|1.5\n2|\n3|2.5\n4|7\n"
+    assert same_counts(made, {"in.csv": data}, tmp_path)["it"] == counts(4, 3, 0)
+    made = extract(reject="", check_fields_num=True)
+    assert same_counts(made, {"in.csv": b"id|raw\n1|a;b;c\n2|d;e\n"}, tmp_path / "b")["it"] == counts(2, 1, 1)
+
+
 def test_pivot_counts_the_rows_it_reads_and_the_groups_it_writes(tmp_path):
     pivot = {"id": "it", "type": "PivotToColumnsDelimited", "inputs": ["row1"], "outputs": [],
              "config": {"pivot_column": "q", "aggregation_column": "amt", "groupbys": ["id"], "filename": "out.csv"},

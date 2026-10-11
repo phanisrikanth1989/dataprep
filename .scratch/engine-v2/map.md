@@ -308,7 +308,9 @@ are designed.
   [Review of schema compliance check and pivot](issues/67-review-of-schema-compliance-check-and-pivot.md)
   -- twenty-nine findings; float sums of the pivot and the strict date
   check were wrong and are fixed.
-  Still to build, in this order: extract delimited fields, extract positional fields, extract
+  [Extract delimited fields](issues/70-extract-delimited-fields.md) -- on
+  a base the other extract components share.
+  Still to build, in this order: extract positional fields, extract
   regex fields, extract JSON fields, file input properties, file row
   count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)

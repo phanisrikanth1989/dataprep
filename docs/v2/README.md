@@ -283,7 +283,7 @@ in the summary of a run that asked for it, and of no other.
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
-     check;
+     check, extract delimited fields;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -892,6 +892,29 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - An entry of `empty_null_table` without `empty_is_null`, and a key v2
   does not know in a column of `schema`, refuse the job. v1 passes over
   both.
+
+**Extract delimited fields**
+
+- The separator is taken as it is written, as in v1 (and as normalize
+  takes its own). Talend reads it as a pattern: a job that separates at
+  `|` or `.` there has it written `\\|`, which is to be written `|` here.
+- A piece is read as its column's declared type the way every transform's
+  output is: what cannot be read goes missing, an empty piece too. v1
+  writes text through in a Decimal column, takes any text for true (the
+  word `false` as well) and an empty piece for false, and writes `7.0`
+  for a whole number beside a missing one.
+- A date in the source column is split as the text its pattern writes. v1
+  splits Python's text for it (`2024-01-31 00:00:00`).
+- A source column that is not there refuses the job. v1 fails when the
+  rows arrive.
+- `die_on_error` is off when the job does not say: v1's own default for
+  the number of pieces. v1's engine takes it for on when it looks at the
+  columns that may not be missing; the converter always writes the key.
+- Where no row is turned away, the file behind the reject output has its
+  header line. v1 leaves that file with nothing in it.
+- A wrong number of pieces that fails the job names the row.
+- Not acted on, as in v1: `advanced_separator` (v1 looks for Talend type
+  names its schemas never hold), `check_date`.
 
 **Pivot to columns delimited**
 

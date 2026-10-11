@@ -656,6 +656,17 @@ def test_schema_compliance_check_and_pivot_see_the_picked_rows_alone(tmp_path):
     assert out(tmp_path) == ["kind;2;1", "a;20;", "b;;30"]
 
 
+def test_extract_delimited_fields_sees_the_picked_rows_alone(tmp_path):
+    from .components.test_extract_delimited_fields import extract
+    made = extract(check_fields_num=True, die_on_error=True)
+    data = {"in.csv": b"id|raw\n1|a;b;c\n2|d;e\n3|f;g;h\n"}
+    result = ran(tmp_path, only(made, where={"id": [3]}), data)
+    assert result.status == "success", result.error
+    assert out(tmp_path) == ["id;a;b;c", "3;f;g;h"]
+    result = ran(tmp_path, only(made, where={"id": [2]}), data)
+    assert result.status == "failed" and result.error == "Expected 3 tokens, got 2; the row is line 3 of in.csv"
+
+
 def made_rows(**config):
     source = {"id": "in", "type": "RowGenerator", "config": config, "inputs": [], "outputs": ["row1"],
               "schema": {"input": [], "output": columns("id:str, amount:int")}}
