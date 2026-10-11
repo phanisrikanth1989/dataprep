@@ -287,7 +287,7 @@ in the summary of a run that asked for it, and of no other.
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
    - the rest: Python dataframe, log row, context load, file row count,
-     die, warn, set global var, file exist.
+     die, warn, set global var, file exist, file copy.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -1296,6 +1296,28 @@ every converted job is a row of nothing.
 - An entry with no key refuses the job. v1 fails when it comes to it, or
   passes over it with `die_on_error` off.
 - A value that is a Java expression refuses the job, as everywhere.
+
+**File copy**
+
+Where v1 and Talend differ, v2 does what Talend's source does; where
+they agree, v1 is the answer key (what is in the folder afterwards).
+
+- A copy that fails lets the job go on, with why in `<id>_ERROR_MESSAGE`
+  and a warning in the log, unless `failon` is on. v1 fails the job
+  unless `die_on_error` is written and off, which the converter never
+  writes.
+- A file that is there and is not to be replaced (`replace_file` off) is
+  left, and that is no fault; v1 fails. The source is then not taken
+  away either, having no copy.
+- The time the file was changed is kept only with
+  `preserve_last_modified_time`; v1 always keeps it.
+- After a copy, `<id>_DESTINATION_FILEPATH`, `<id>_DESTINATION_FILENAME`,
+  `<id>_SOURCE_DIRECTORY` and `<id>_DESTINATION_DIRECTORY` are in
+  globalMap, as in Talend; v1 leaves nothing.
+- The source of a file copy has to be a file, and that of a folder copy a
+  folder; v1 copies a folder named as the file.
+- Nothing named to copy, nowhere to copy to, or a new name that is to be
+  taken and is not given, refuse the job before it runs.
 
 **File exist**
 
