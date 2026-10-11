@@ -12,7 +12,7 @@ import pytest
 from src.v2 import run_job as run_on_v2
 from tests.v2.answer_key import run_job, run_v1
 
-from .components.kit import through
+from .components.kit import columns, flow, job, through, writer
 from .components.test_file_delimited import copy
 from .components.test_file_input_excel import book, excel
 from .components.test_file_input_fullrow import read_lines
@@ -83,6 +83,19 @@ def test_json_reader_counts_the_records_it_passes_on_and_the_ones_it_turns_away(
 
 # v1's full-row input counts as read every line the file splits into: the header and footer it skips,
 # the empty lines it drops, the lines past its limit, and the nothing after the last line end.
+def test_row_generator_counts_the_rows_it_makes_and_the_ones_whose_expression_fails(tmp_path):
+    source = {"id": "in", "type": "RowGenerator", "inputs": [], "outputs": ["row1", "bad"],
+              "config": {"nb_rows": 5, "values": [{"schema_column": "id", "array": "1"}]},
+              "schema": {"input": [], "output": columns("id:int")}}
+    made = job([source, writer("id:int", inputs=("row1",)), writer("id:int", component_id="rej", path="rej.csv", inputs=("bad",))],
+               [flow("row1", "in", "out"), flow("bad", "in", "rej", kind="reject")])
+    assert same_counts(made, {}, tmp_path)["in"] == counts(5, 5, 0)
+    source["config"]["values"][0]["array"] = "1/0"
+    assert same_counts(made, {}, tmp_path / "b")["in"] == counts(5, 0, 5)
+    del source["outputs"][1], made["components"][2], made["flows"][1]
+    assert same_counts(made, {}, tmp_path / "c")["in"] == counts(5, 0, 5)
+
+
 LINES = b"h1\nh2\na\n\nb\nc\nf1\nf2"
 
 

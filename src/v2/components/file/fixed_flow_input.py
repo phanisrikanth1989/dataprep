@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
 
-from ...column_types import from_text, to_text
+from ...column_types import held_frame, to_text
 from ...job.keys import Key
 from ...job.model import Column
 from ...rows import hidden, visible
@@ -18,7 +18,6 @@ _ESCAPES = (("\\n", "\n"), ("\\t", "\t"), ("\\r", "\r"), ("\\|", "|"))
 _WHOLE = re.compile(r"-?\d+")
 _FRACTION = re.compile(r"-?\d*\.\d+")
 _GLOBAL = re.compile(r'globalMap\.get\("([^"]+)"\)')
-_BIGGEST = 2 ** 63
 
 
 def _separator(value: str) -> str:
@@ -44,25 +43,6 @@ def _number(value: Any) -> Any:
         if _FRACTION.fullmatch(stripped):
             return float(stripped)
     return value
-
-
-def _column(column: Column, values: List[Any]) -> pl.Series:
-    """One column of the rows.
-
-    A column declared a number holds numbers when every value is one. Any
-    other column holds each value as its text, which the engine reads as
-    the declared type: a date written in digits (20240131) is then a date
-    and not a number, and a number too long for 64 bits stays whole.
-    """
-    name = column.name
-    held = [value for value in values if value is not None]
-    numbers = held and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in held)
-    if column.type in ("int", "float") and numbers:
-        if all(isinstance(value, int) and -_BIGGEST <= value < _BIGGEST for value in held):
-            return pl.Series(name, values, dtype=pl.Int64)
-        if column.type == "float" or not all(isinstance(value, int) for value in held):
-            return pl.Series(name, [None if value is None else float(value) for value in values], dtype=pl.Float64)
-    return pl.Series(name, [None if value is None else str(value) for value in values], dtype=pl.String)
 
 
 _VALUE = (
@@ -121,12 +101,7 @@ class FixedFlowInput(Source):
     def read(self) -> Dict[str, pl.LazyFrame]:
         names = [column.name for column in self.schema]
         rows, places = self._rows(names)
-        frame = pl.DataFrame([_column(column, [row.get(column.name) for row in rows]) for column in self.schema])
-        # As for every reader: where true or false may be missing, nothing written is false.
-        unsure = [column for column in self.schema if column.type == "bool" and column.nullable]
-        frame = frame.with_columns([
-            from_text(pl.col(column.name).fill_null(""), column)[0].alias(column.name) for column in unsure
-        ])
+        frame = held_frame(self.schema, rows)
         frame = frame.with_columns(pl.Series(self.row_number, places, dtype=pl.UInt32))
         frame = self.picked(frame).with_columns(self.key_copies())
         return {"main": frame.select(visible(frame.columns) + hidden(frame.columns)).lazy()}

@@ -277,8 +277,9 @@ in the summary of a run that asked for it, and of no other.
    "Expressions" below.
 3. Replace or remove components v2 does not have. v2 has these:
    - files: delimited input and output; positional, full-row, Excel and
-     JSON input; fixed flow input (rows written in the job config); pivot
-     to columns delimited (an output);
+     JSON input; fixed flow input (rows written in the job config); row
+     generator (rows made from expressions); pivot to columns delimited
+     (an output);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
      replace, convert type, unpivot row, denormalize, schema compliance
@@ -894,10 +895,11 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 
 - The text `false` is false. v1 takes any text that is not empty for true
   in a true/false column here, `false` and `no` among it.
-- A value that is not of its column's declared type goes missing. v1
-  writes it through as it is (`abc` in a Decimal column, `1.5` in a
-  whole-number column), `<NA>` for a missing Decimal, and `3.0` for a whole
-  number beside a missing one.
+- A value that is not of its column's declared type goes missing (`abc`
+  in a Decimal column), and `1.5` in a whole-number column is cut to 1, as
+  everywhere a whole-number column is filled. v1 writes both through as
+  they are here, `<NA>` for a missing Decimal, and `3.0` for a whole number
+  beside a missing one.
 - A whole number too long for 64 bits goes missing in a column declared a
   whole number; in a text or Decimal column it is kept, as in v1.
 - A date in the last field of a line that ends in `\r\n`, under the
@@ -907,6 +909,33 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - `nb_rows` may be written as text or come from the context. v1 fails.
 - A failure names the row: `line 3 of the inline content of <id>`, or
   `row 3 of <id>` for the other two ways of writing rows.
+
+**Row generator**
+
+- An expression is Python with only the `random` module in reach, as in
+  v1; the Java expressions a converted job holds (`{{java}}...`) refuse
+  the job, as everywhere.
+- A row whose expression fails leaves by the reject output as in v1, and
+  the log says how many such rows there were and what failed in the first
+  (`id: division by zero`). With no flow on the reject output the log
+  warns that they were dropped; v1 drops them and logs an error for each.
+- The text `false` or `no` is false in a true/false column. v1 takes any
+  text that is not empty for true here.
+- A value that is not of its column's declared type goes missing (`abc`
+  in a whole-number column, as in v1; the number 20240131 in a date
+  column, where v1 writes 1970-01-01), and `1.7` in a whole-number column
+  is cut to 1, as everywhere, where v1 writes 1.7 through here. v1 writes
+  `<NA>` for a missing Decimal.
+- A true/false column with no expression is false. v1 writes `<na>`.
+- An entry of `values` for a column the schema does not have, or a second
+  entry for one column, refuses the job. v1 writes a column more.
+- A number of rows below 0 or that is no number refuses the job before it
+  runs. v1 fails when it comes to the component.
+- A context variable that does not exist refuses the job. v1 writes the
+  reference through as text.
+- The rows of a run are made once: `run.only` and a second reading see the
+  rows the first reading made, also where they are drawn at random.
+- A failure names the row: `row 3 of <id>`.
 
 **Positional input**
 

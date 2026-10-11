@@ -288,14 +288,19 @@ are designed.
   [Denormalize](issues/59-denormalize.md),
   [Aggregate sorted row](issues/60-aggregate-sorted-row.md) -- a group is a
   run of rows that agree, as in Talend,
-  [Fixed flow input](issues/61-fixed-flow-input.md).
+  [Fixed flow input](issues/61-fixed-flow-input.md),
+  [Schema compliance check](issues/63-schema-compliance-check.md),
+  [Pivot to columns delimited](issues/64-pivot-to-columns-delimited.md),
+  [Row generator](issues/66-row-generator.md) -- expressions are Python
+  with `random` in reach, as in v1; Java ones are refused.
   [Review of the first five](issues/62-review-of-the-first-five-new-components.md)
   -- fourteen findings, each fixed test first or said in the README.
-  Still to build, in this order: schema compliance check, pivot to columns
-  delimited, row generator; file output Excel, file output positional,
-  extract delimited fields, extract positional fields, extract regex
-  fields, extract JSON fields, file input properties, file row count; die,
-  warn, set global var, file exist, file copy, file delete.
+  [Review of four more](issues/65-review-of-four-more-new-components.md)
+  -- thirteen findings, the same.
+  Still to build, in this order: file output Excel, file output
+  positional, extract delimited fields, extract positional fields, extract
+  regex fields, extract JSON fields, file input properties, file row
+  count; die, warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such

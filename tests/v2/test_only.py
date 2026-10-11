@@ -6,6 +6,7 @@ and no others. Every other reader is read whole.
 """
 import json
 import logging
+import random
 
 import pytest
 
@@ -636,6 +637,49 @@ def test_place_of_the_wrong_kind_or_with_no_row_is_said_for_rows_written_in_the_
         ("run.only.lines", "'in' holds its rows in its config: pick its rows with `rows`")]
     result = ran(tmp_path, only(fixed(**CONTENT), lines=[2]), {})
     assert result.status == "failed" and result.error == "'in' has no row at line 2"
+
+
+def made_rows(**config):
+    source = {"id": "in", "type": "RowGenerator", "config": config, "inputs": [], "outputs": ["row1"],
+              "schema": {"input": [], "output": columns("id:str, amount:int")}}
+    return job([source, writer("id:str, amount:int", inputs=("row1",))], [flow("row1", "in", "out")])
+
+
+SIX = dict(nb_rows=6, values=[{"schema_column": "id", "array": "random.choice(['007', 'x'])"},
+                              {"schema_column": "amount", "array": "random.randint(1, 10**9)"}])
+
+
+def test_rows_a_generator_makes_are_picked_by_row_or_by_value(tmp_path):
+    whole = ran(tmp_path, made_rows(**SIX), {})
+    assert whole.status == "success", whole.error
+    rows = out(tmp_path)[1:]
+    assert len(set(rows)) == 6
+    # The values are drawn at random: a second run draws others, so the rows are picked from one run's start.
+    random.seed(11)
+    ran(tmp_path, made_rows(**SIX), {})
+    rows = out(tmp_path)[1:]
+    random.seed(11)
+    result = ran(tmp_path, only(made_rows(**SIX), rows=[2, 5]), {})
+    assert result.status == "success", result.error
+    assert out(tmp_path)[1:] == [rows[1], rows[4]]
+    assert result.summary()["only"]["rows"] == ["row 2 of in", "row 5 of in"]
+    random.seed(11)
+    ran(tmp_path, only(made_rows(**SIX), where={"amount": int(rows[3].split(";")[1])}), {})
+    assert out(tmp_path)[1:] == [rows[3]]
+
+
+def test_text_a_generator_makes_is_picked_as_it_stands(tmp_path):
+    # Unlike rows written in the config, 007 made by an expression stays 007.
+    always = dict(nb_rows=2, values=[{"schema_column": "id", "array": "007"}, {"schema_column": "amount", "array": "1"}])
+    result = ran(tmp_path, only(made_rows(**always), where={"id": ["007"]}), {})
+    assert result.status == "success" and out(tmp_path)[1:] == ["007;1", "007;1"]
+    result = ran(tmp_path, only(made_rows(**always), where={"id": ["7"]}), {})
+    assert result.status == "failed" and "no row" in result.error
+
+
+def test_place_of_the_wrong_kind_is_said_for_a_generator():
+    assert refusals(only(made_rows(**SIX), lines=[2])) == [
+        ("run.only.lines", "'in' makes its rows itself: pick its rows with `rows`")]
 
 
 @pytest.mark.parametrize("asked", ["007", "7", 7])

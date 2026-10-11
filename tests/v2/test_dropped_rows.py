@@ -456,3 +456,27 @@ def test_schema_compliance_check_tells_of_the_rows_that_do_not_fit(caplog, tmp_p
     assert result.status == "success"
     assert said == [f"[it] 2 rows were dropped {NO_TAKER}; the first: amount:invalid type; the row is line 3 of in.csv"]
     assert (tmp_path / "out.csv").read_bytes() == b"id;amount\n1;10\n"
+
+
+
+def test_row_generator_tells_of_the_rows_whose_expression_failed(caplog, tmp_path):
+    source = {"id": "in", "type": "RowGenerator", "inputs": [], "outputs": ["row1"],
+              "config": {"nb_rows": 3, "values": [{"schema_column": "id", "array": "1/0"},
+                                                  {"schema_column": "name", "array": "ann"}]},
+              "schema": {"input": [], "output": columns("id:int, name:str")}}
+    made = keyed(job([source, writer("id:int, name:str", inputs=("row1",))], [flow("row1", "in", "out")]), key="name")
+    result, said = told(caplog, tmp_path, made, {})
+    assert result.status == "success"
+    assert said == [f"[in] 3 rows were dropped {NO_TAKER}; the first: id: division by zero; the row is row 1 of in (name=ann)"]
+    assert (tmp_path / "out.csv").read_bytes() == b"id;name\n"
+
+
+def test_row_generator_tells_nothing_when_a_flow_takes_the_rows(caplog, tmp_path):
+    source = {"id": "in", "type": "RowGenerator", "inputs": [], "outputs": ["row1", "bad"],
+              "config": {"nb_rows": 2, "values": [{"schema_column": "id", "array": "1/0"}]},
+              "schema": {"input": [], "output": columns("id:int")}}
+    made = job([source, writer("id:int", inputs=("row1",)), writer("id:int", component_id="rej", path="rej.csv", inputs=("bad",))],
+               [flow("row1", "in", "out"), flow("bad", "in", "rej", kind="reject")])
+    result, said = told(caplog, tmp_path, made, {})
+    assert result.status == "success" and said == []
+    assert (tmp_path / "rej.csv").read_bytes() == b"id\n\n\n"

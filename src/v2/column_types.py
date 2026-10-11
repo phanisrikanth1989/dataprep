@@ -457,3 +457,42 @@ def _coerced(value: pl.Expr, dtype: pl.DataType, column: Column) -> pl.Expr:
 def _bool_from_text(value: pl.Expr) -> pl.Expr:
     lower = value.str.strip_chars().str.to_lowercase()
     return pl.when(lower.is_in(_TRUE)).then(True).when(lower.is_in(_FALSE)).then(False)
+
+
+# ------------------------------------------------------------------
+# Values held in Python (rows a source makes from its config)
+# ------------------------------------------------------------------
+
+_BIGGEST = 2 ** 63
+
+
+def _held_column(column: Column, values: List[Any]) -> pl.Series:
+    """One column of rows held in Python.
+
+    A column declared a number holds numbers when every value is one. Any
+    other column holds each value as its text, which the engine reads as
+    the declared type: a date written in digits (20240131) is then a date
+    and not a number, and a number too long for 64 bits stays whole.
+    """
+    name = column.name
+    held = [value for value in values if value is not None]
+    numbers = held and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in held)
+    if column.type in ("int", "float") and numbers:
+        if all(isinstance(value, int) and -_BIGGEST <= value < _BIGGEST for value in held):
+            return pl.Series(name, values, dtype=pl.Int64)
+        if column.type == "float" or not all(isinstance(value, int) for value in held):
+            return pl.Series(name, [None if value is None else float(value) for value in values], dtype=pl.Float64)
+    return pl.Series(name, [None if value is None else str(value) for value in values], dtype=pl.String)
+
+
+def held_frame(columns: List[Column], rows: List[Dict[str, Any]]) -> pl.DataFrame:
+    """Rows held in Python, each as column to value, as a frame the engine reads as the declared columns.
+
+    For a source that makes its rows from its config. As for every reader,
+    where true or false may be missing, nothing given is false.
+    """
+    frame = pl.DataFrame([_held_column(column, [row.get(column.name) for row in rows]) for column in columns])
+    unsure = [column for column in columns if column.type == "bool" and column.nullable]
+    return frame.with_columns([
+        from_text(pl.col(column.name).fill_null(""), column)[0].alias(column.name) for column in unsure
+    ])

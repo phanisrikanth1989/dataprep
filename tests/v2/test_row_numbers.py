@@ -6,6 +6,8 @@ file changes is held by every test that compares v2's files with v1's.
 """
 import os
 
+import random
+
 import pytest
 
 from src.v2 import load_job, run_job
@@ -600,6 +602,42 @@ def test_fixed_flow_input_names_the_row_of_its_table(tmp_path):
              {"element_ref": "name", "value": "bob"}]
     assert failed(tmp_path, fixed_rows(use_intable=True, intable=table), {}) == (
         "Column 'id' has NULL values but is not nullable; the row is row 2 of in (name=bob)")
+
+
+def made_rows(schema, **expressions):
+    return {"id": "in", "type": "RowGenerator", "inputs": [], "outputs": ["row1"],
+            "config": {"nb_rows": 8, "values": [{"schema_column": name, "array": text} for name, text in expressions.items()]},
+            "schema": {"input": [], "output": columns(schema)}}
+
+
+def first_drawn(seed, wanted, choices):
+    """The row at which Python's random numbers, from a start, first pick a value: the generator draws the same."""
+    random.seed(seed)
+    drawn = [random.choice(choices) for _ in range(8)]
+    random.seed(seed)
+    return drawn.index(wanted) + 1
+
+
+def test_row_generator_names_the_row_it_made(tmp_path):
+    source = made_rows("name:str, id:int!", name="ann", id="random.choice([1, 2, None])")
+    made = keyed(job([source, writer("name:str, id:int", inputs=("row1",))], [flow("row1", "in", "out")]), key="name")
+    row = first_drawn(4, None, [1, 2, None])
+    assert row > 1
+    assert failed(tmp_path, made, {}) == (
+        f"Column 'id' has NULL values but is not nullable; the row is row {row} of in (name=ann)")
+
+
+def test_row_generator_names_the_row_to_a_later_component(tmp_path):
+    # The map wants a number of every age.
+    source = made_rows("id:int, age:str", id="7", age="random.choice(['5', '6', 'x'])")
+    step = {"id": "it", "type": "Map", "inputs": ["row1"], "outputs": ["row2"],
+            "config": {"inputs": {"main": {"name": "row1"}}, "outputs": [{"name": "row2", "columns": [
+                {"name": "id", "expression": "row1.id"}, {"name": "n", "expression": "int(row1.age)"}]}]},
+            "schema": {"inputs": {"row1": columns("id:int, age:str")}}}
+    made = job([source, step, writer("id:int, n:int")], [flow("row1", "in", "it"), flow("row2", "it", "out")])
+    row = first_drawn(2, "x", ["5", "6", "x"])
+    assert row > 1
+    assert failed(tmp_path, made, {}).endswith(f"the row is row {row} of in")
 
 
 def test_row_a_convert_type_turns_away_still_names_its_source_row_further_on(tmp_path):
