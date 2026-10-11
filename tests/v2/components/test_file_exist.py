@@ -60,3 +60,14 @@ def test_both_v1_names_and_v2s_own(tmp_path):
     for at, kind in enumerate(("file_exist", "FileExistComponent", "FileExist", "tFileExist")):
         result = on_v2(job([exist(kind=kind, file_name="a.txt")], []), filled(tmp_path / str(at), FILES))
         assert result.global_map["look_EXISTS"] is True
+
+
+def test_link_to_nothing_is_not_there_and_a_tilde_is_no_home_folder(tmp_path):
+    # Ticket 85.
+    import os
+    folder = filled(tmp_path, FILES)
+    os.symlink("nowhere", folder / "broken")
+    os.symlink("a.txt", folder / "good")
+    assert on_v2(job([exist(file_name="broken")], []), folder).global_map["look_EXISTS"] is False
+    assert on_v2(job([exist(file_name="good")], []), folder).global_map["look_EXISTS"] is True
+    assert on_v2(job([exist(file_name="~")], []), folder).global_map["look_EXISTS"] is False

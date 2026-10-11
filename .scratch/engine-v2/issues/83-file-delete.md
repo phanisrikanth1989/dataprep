@@ -38,3 +38,12 @@ afterwards is held against v1's wherever something is deleted, and with
   words. Read in the source, not run in Talend. This one changes whether
   a job fails, so it is worth a look by the user.
 - Mutation check: 18 ways of breaking it, each caught.
+
+## Corrected after review (ticket 85)
+
+- A link written with a slash at its end led the delete into the folder
+  it points to, as in v1. A link is now taken away itself, always.
+- `.` and `..` emptied the folder the job runs in. They are refused now.
+- Not checked above: that `failon` is on by default in Talend. The
+  converter writes it on when the job does not say; Talend's own default
+  is in a file that was not read.

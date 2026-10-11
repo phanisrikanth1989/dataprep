@@ -26,7 +26,7 @@ def delete(kind="FileDelete", **config):
 ])
 def test_file_or_folder_is_deleted(tmp_path, config, gone, status):
     _, result = both(delete(**config), FILES, tmp_path)
-    assert sorted(set(FILES) | {"dir/deep/"} - set()) and sorted(set(tree(filled(tmp_path / "ref", FILES))) - set(tree(tmp_path / "v2"))) == sorted(gone)
+    assert sorted(set(tree(filled(tmp_path / "ref", FILES))) - set(tree(tmp_path / "v2"))) == sorted(gone)
     path = [value for key, value in config.items() if isinstance(value, str)][0]
     assert result.global_map["rm_CURRENT_STATUS"] == status and result.global_map["rm_DELETE_PATH"] == path
 
@@ -100,3 +100,109 @@ def test_both_v1_names_and_v2s_own(tmp_path):
     for at, kind in enumerate(("file_delete", "FileDelete", "tFileDelete")):
         on_v2(job([delete(kind=kind, filename="a.txt")], []), filled(tmp_path / str(at), FILES))
         assert "a.txt" not in tree(tmp_path / str(at))
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 85)
+# ------------------------------------------------------------------
+
+import logging
+import os
+
+
+@pytest.mark.parametrize("config", [
+    {"folder": True, "directory": "lnk"}, {"folder": True, "directory": "lnk/"}, {"folder_file": True, "path": "lnk"},
+    {"folder_file": True, "path": "lnk/"}, {"filename": "lnk"},
+])
+def test_link_to_a_folder_is_taken_away_and_the_folder_it_leads_to_is_never_touched(tmp_path, config):
+    # v1 deletes what the folder holds when the path ends in a slash, and fails otherwise; Talend empties it.
+    folder = filled(tmp_path, FILES)
+    os.symlink("dir", folder / "lnk")
+    result = on_v2(job([delete(**config)], []), folder)
+    after = tree(folder)
+    assert after["dir/b.txt"] == b"y" and after["dir/deep/c.txt"] == b"z"
+    assert result.status == "success" and not os.path.lexists(folder / "lnk")
+    assert result.global_map["rm_CURRENT_STATUS"] == ("File deleted." if "filename" in config else "Path deleted.")
+
+
+def test_link_to_a_file_and_a_link_to_nothing_are_taken_away_alone(tmp_path):
+    folder = filled(tmp_path, FILES)
+    os.symlink("a.txt", folder / "to_file")
+    os.symlink("nowhere", folder / "broken")
+    assert on_v2(job([delete(filename="to_file")], []), folder).status == "success"
+    assert on_v2(job([delete(folder_file=True, path="broken")], []), folder).status == "success"
+    assert (folder / "a.txt").read_bytes() == b"x" and not os.path.lexists(folder / "to_file") and not os.path.lexists(folder / "broken")
+
+
+def test_link_inside_a_folder_goes_with_it_and_what_it_leads_to_stays(tmp_path):
+    folder = filled(tmp_path, dict(FILES, **{"keep/k.txt": b"k"}))
+    os.symlink("../keep", folder / "dir" / "to_keep")
+    assert on_v2(job([delete(folder=True, directory="dir")], []), folder).status == "success"
+    assert tree(folder)["keep/k.txt"] == b"k" and "dir/" not in tree(folder)
+
+
+@pytest.mark.parametrize("config", [
+    {"folder": True, "directory": "."}, {"folder_file": True, "path": "dir/.."}, {"folder": True, "directory": ".."},
+    {"folder_file": True, "path": "./"},
+])
+def test_folder_the_job_runs_in_is_never_deleted(tmp_path, config):
+    # v1 and Talend empty it, and then say that nothing was deleted.
+    folder = filled(tmp_path / "work", FILES)
+    result = on_v2(job([delete(**config)], []), folder)
+    assert result.status == "failed" and result.global_map["rm_CURRENT_STATUS"] == "No path deleted."
+    assert result.error == f"Directory '{config.get('directory') or config['path']}' is the folder the job runs in, or one it lies in: it is not deleted"
+    assert tree(folder) == tree(filled(tmp_path / "ref", FILES))
+
+
+def test_folder_deleted_only_in_part_says_so(tmp_path):
+    folder = filled(tmp_path, dict(FILES, **{"dir/locked/x.txt": b"x"}))
+    (folder / "dir" / "locked").chmod(0o555)
+    try:
+        result = on_v2(job([delete(folder=True, directory="dir", failon=False)], []), folder)
+    finally:
+        (folder / "dir" / "locked").chmod(0o755)
+    assert result.global_map["rm_CURRENT_STATUS"] == "No path deleted."
+    assert result.global_map["rm_ERROR_MESSAGE"].startswith("Directory 'dir' can not be deleted: permission denied: '")
+    assert result.global_map["rm_ERROR_MESSAGE"].endswith("; some of what it held is gone")
+    assert "dir/b.txt" not in tree(folder) and tree(folder)["dir/locked/x.txt"] == b"x"
+
+
+def test_either_way_takes_a_file_for_a_file(tmp_path):
+    folder = filled(tmp_path, FILES)
+    os.symlink("dir", folder / "lnk")
+    result = on_v2(job([delete(folder_file=True, path="a.txt")], []), folder)
+    assert result.global_map["rm_CURRENT_STATUS"] == "File deleted."
+
+
+def test_filename_and_directory_win_over_path_which_only_stands_in_for_them(tmp_path):
+    on_v2(job([delete(filename="a.txt", path="dir/b.txt", directory="empty")], []), filled(tmp_path, FILES))
+    assert "a.txt" not in tree(tmp_path) and "dir/b.txt" in tree(tmp_path) and "empty/" in tree(tmp_path)
+    on_v2(job([delete(folder=True, filename="a.txt", path="dir", directory="empty")], []), filled(tmp_path / "b", FILES))
+    assert "empty/" not in tree(tmp_path / "b") and "dir/" in tree(tmp_path / "b") and "a.txt" in tree(tmp_path / "b")
+
+
+def test_delete_that_does_not_fail_the_job_warns(tmp_path, caplog):
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        on_v2(job([delete(filename="nope.txt", failon=False)], []), filled(tmp_path, FILES))
+    assert [record.getMessage() for record in caplog.records] == [
+        "[rm] File 'nope.txt' does not exist or is invalid or is not a file.; the job goes on"]
+
+
+def test_v1s_die_on_error_is_taken():
+    load_job(job([delete(filename="a.txt", die_on_error=False)], []))
+
+
+def test_link_to_a_file_is_no_folder_and_a_link_that_cannot_be_taken_away_says_so(tmp_path):
+    folder = filled(tmp_path, dict(FILES, **{"box/": None}))
+    os.symlink("a.txt", folder / "to_file")
+    os.symlink("../dir", folder / "box" / "lnk")
+    result = on_v2(job([delete(folder=True, directory="to_file", failon=False)], []), folder)
+    assert result.global_map["rm_CURRENT_STATUS"] == "Path does not exist or is invalid." and os.path.lexists(folder / "to_file")
+    (folder / "box").chmod(0o555)
+    try:
+        result = on_v2(job([delete(folder=True, directory="box/lnk", failon=False)], []), folder)
+    finally:
+        (folder / "box").chmod(0o755)
+    assert result.global_map["rm_CURRENT_STATUS"] == "No path deleted."
+    assert result.global_map["rm_ERROR_MESSAGE"] == "Directory 'box/lnk' can not be deleted: permission denied: 'box/lnk'"
+    assert tree(folder)["dir/b.txt"] == b"y"

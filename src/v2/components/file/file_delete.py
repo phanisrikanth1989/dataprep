@@ -7,9 +7,10 @@ import shutil
 from typing import List, Tuple
 
 from ...errors import ConfigurationError
-from ...job.keys import Key
+from ...job.keys import Key, Kind
 from ..base import Action, one_line
 from ..registry import REGISTRY
+from .file_copy import why
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ class FileDelete(Action):
     When there is nothing to delete, or it cannot be deleted, the job
     fails, as in Talend; with `failon` off it goes on, with why in
     `<id>_ERROR_MESSAGE` and a warning in the log.
+
+    Two things are never deleted, whatever v1 or Talend would do: what a
+    link leads to (the link itself is taken away, also when the path ends
+    in a slash), and the folder the job runs in or one it lies in.
     """
 
     names = ("file_delete", "FileDelete", "tFileDelete")
@@ -42,6 +47,7 @@ class FileDelete(Action):
         Key("recursive", type=bool, default=True, doc="Whether a folder goes with everything in it."),
         Key("failon", type=bool, default=True, aliases=("fail_on_error",),
             doc="Whether nothing to delete, or a delete that fails, fails the job."),
+        Key("die_on_error", kind=Kind.IGNORED, type=object, doc="`failon` says it; v1 reads this on every component."),
     )
 
     def _named(self) -> Tuple[str, str]:
@@ -72,6 +78,14 @@ class FileDelete(Action):
     def _deleted(self, path: str) -> Tuple[str, str]:
         """Delete it. Returns Talend's word for what happened, and what is wrong when something is."""
         config = self.config
+        link = path.rstrip("/" + os.sep) or path
+        if os.path.islink(link):
+            # A link is taken away itself; what it leads to is never touched.
+            if config["folder"] and not config["folder_file"] and not os.path.isdir(link):
+                return ("Path does not exist or is invalid.",
+                        f"Directory '{path}' does not exist or is invalid or is not a directory.")
+            as_file = not config["folder_file"] and not config["folder"] or not os.path.isdir(link)
+            return self._file(link) if as_file else self._unlinked(link, path)
         if config["folder_file"]:
             if os.path.isfile(path):
                 return self._file(path)
@@ -96,11 +110,26 @@ class FileDelete(Action):
             return "No file deleted.", f"File '{path}' can not be deleted: {(exc.strerror or str(exc)).lower()}"
         return "File deleted.", ""
 
+    @staticmethod
+    def _unlinked(link: str, path: str) -> Tuple[str, str]:
+        try:
+            os.unlink(link)
+        except OSError as exc:
+            return "No path deleted.", f"Directory '{path}' can not be deleted: {why(exc)}"
+        return "Path deleted.", ""
+
     def _folder(self, path: str) -> Tuple[str, str]:
+        here, gone = os.path.realpath(os.getcwd()), os.path.realpath(path)
+        if here == gone or here.startswith(gone.rstrip(os.sep) + os.sep):
+            return "No path deleted.", f"Directory '{path}' is the folder the job runs in, or one it lies in: it is not deleted"
         if not self.config["recursive"] and os.listdir(path):
             return "No path deleted.", f"Directory '{path}' can not be deleted: it is not empty"
+        held = sum(len(folders) + len(files) for _, folders, files in os.walk(path))
         try:
             shutil.rmtree(path)
         except OSError as exc:
-            return "No path deleted.", f"Directory '{path}' can not be deleted: {(exc.strerror or str(exc)).lower()}"
+            left = sum(len(folders) + len(files) for _, folders, files in os.walk(path))
+            partly = "; some of what it held is gone" if left < held else ""
+            said = why(exc) if exc.filename and exc.filename != path else (exc.strerror or str(exc)).lower()
+            return "No path deleted.", f"Directory '{path}' can not be deleted: {said}{partly}"
         return "Path deleted.", ""

@@ -45,3 +45,18 @@ afterwards against v1's).
 - Mutation check: 23 ways of breaking it, each caught.
 
 Not done: `force_copy_delete`, Talend's other way of moving a file.
+
+## Corrected after review (ticket 85)
+
+- The table above is of a file's copy only. A folder's copy followed v1
+  where Talend differs, and could lose data: copied into itself with the
+  source to be taken away, everything was deleted. A folder is now
+  copied as Talend copies it (under its own name, over what is there,
+  the source never taken away), and never into itself.
+- Wrong above: a source left when nothing was copied is Talend's rule
+  too (the removal is part of the copy, line 206; lines 231 to 262 only
+  look whether the source is still there).
+- The globalMap entries are left whatever becomes of the copy, with
+  Talend's values; a file named as the destination, a copy the system
+  refuses and a source that cannot be taken away are each said in plain
+  words with the path.

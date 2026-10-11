@@ -302,6 +302,9 @@ are designed.
   -- fourteen findings, each fixed test first or said in the README.
   [Review of four more](issues/65-review-of-four-more-new-components.md)
   -- thirteen findings, the same.
+  [Review of file exist, copy and delete](issues/85-review-of-file-exist-copy-and-delete.md)
+  -- twenty-six findings, six of them ways to lose data (a folder copied
+  into itself, a link followed by a delete), fixed.
   [Review of five more and the action kind](issues/84-review-of-five-more-and-the-action-kind.md)
   -- sixteen findings; a die did not stop the job, fixed.
   [Review of the four extract components](issues/77-review-of-the-four-extract-components.md)
