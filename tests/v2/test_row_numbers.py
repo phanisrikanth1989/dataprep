@@ -255,8 +255,9 @@ def test_number_travels_through_a_map(tmp_path):
     ("SampleRow", {"range": "2..9"}, PEOPLE),
     ("Replace", {"substitutions": [{"input_column": "name", "search_pattern": "cy", "replace_string": "cyd"}]}, PEOPLE),
     ("ConvertType", {"manualtable": [{"input_column": "name", "output_column": "name"}]}, PEOPLE),
+    ("SchemaComplianceCheck", {"schema": [{"name": "name", "type": "str", "nullable": False}]}, PEOPLE),
 ], ids=["unique row", "unique row without keys", "log row", "sort row", "filter rows", "replicate", "sample row",
-        "replace", "convert type"])
+        "replace", "convert type", "schema compliance check"])
 def test_number_travels_through_a_step_that_keeps_its_rows(tmp_path, step):
     assert failed(tmp_path, chain(step), {"in.csv": PEOPLE_DATA}) == NAMED
 

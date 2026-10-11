@@ -447,3 +447,12 @@ def test_nothing_is_told_when_the_second_reading_finds_no_such_row_any_more(capl
     monkeypatch.setattr(runner.pl, "collect_all", emptied_the_second_time)
     result, said = told(caplog, tmp_path, copying("id:int, amount:Decimal#2", header_rows=1), {"in.csv": DATA})
     assert result.status == "success" and said == [] and calls == [1, 1]
+
+
+def test_schema_compliance_check_tells_of_the_rows_that_do_not_fit(caplog, tmp_path):
+    step = {"type": "SchemaComplianceCheck", "config": {"schema": [{"name": "amount", "type": "int", "nullable": False}]}}
+    made = through(step, "id:int, amount:str")
+    result, said = told(caplog, tmp_path, made, {"in.csv": b"id;amount\n1;10\n2;x\n3;\n"})
+    assert result.status == "success"
+    assert said == [f"[it] 2 rows were dropped {NO_TAKER}; the first: amount:invalid type; the row is line 3 of in.csv"]
+    assert (tmp_path / "out.csv").read_bytes() == b"id;amount\n1;10\n"

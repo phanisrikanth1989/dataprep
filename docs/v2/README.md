@@ -280,7 +280,8 @@ in the summary of a run that asked for it, and of no other.
      JSON input; fixed flow input (rows written in the job config);
    - rows: filter rows, filter columns, sort row, unique row, aggregate
      row, aggregate sorted row, join, unite, map, normalize, replicate, sample row, split row,
-     replace, convert type, unpivot row, denormalize;
+     replace, convert type, unpivot row, denormalize, schema compliance
+     check;
    - the rest: Python dataframe, log row, context load.
 4. Deal with refused config keys: each refusal says why.
 
@@ -856,6 +857,14 @@ v1 is the answer key, with these exceptions. Each is deliberate.
 - Keys that cannot be used (none named, one that is no column) refuse the
   job at load. v1 fails when the component runs. With `die_on_error` off
   both hand on no rows.
+
+**Schema compliance check**
+
+- Where no row is turned away, the file behind the reject output has its
+  header line. v1 leaves that file with nothing in it.
+- Bytes are counted in UTF-8 and in one-byte character sets
+  (`check_string_by_byte_length`). Any other `charset` is refused at load;
+  v1 counts in whatever Python knows.
 
 **Fixed flow input**
 

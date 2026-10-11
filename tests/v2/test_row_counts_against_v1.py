@@ -194,3 +194,8 @@ def test_convert_type_counts_the_rows_it_turns_away(tmp_path):
     from .components.test_convert_type import DATA as TEXT, IN, converted
     made = converted(IN + ", n2:int", manualtable=[{"input_column": "n", "output_column": "n2"}])
     assert same_counts(made, {"in.csv": TEXT}, tmp_path)["it"] == counts(4, 3, 1)
+
+
+def test_schema_compliance_check_counts_the_rows_that_fit_and_the_others(tmp_path):
+    from .components.test_schema_compliance_check import DATA as ROWS, checked
+    assert same_counts(checked(), {"in.csv": ROWS}, tmp_path)["it"] == counts(7, 1, 6)
