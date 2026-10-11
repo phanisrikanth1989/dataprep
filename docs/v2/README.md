@@ -286,7 +286,8 @@ in the summary of a run that asked for it, and of no other.
      replace, convert type, unpivot row, denormalize, schema compliance
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
-   - the rest: Python dataframe, log row, context load, file row count.
+   - the rest: Python dataframe, log row, context load, file row count,
+     die.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -1230,6 +1231,20 @@ every converted job is a row of nothing.
   character.
 - A failure names a row by the line its property is on, and a run can be
   for a few properties, by line or by key.
+
+**Die**
+
+- Set off by a trigger, it stops the job as in v1, with v1's words.
+- With a flow leading to it, it stops the job when a row arrives and not
+  otherwise, as in Talend, and names the first such row. v1 stops the job
+  whether a row arrives or not, so a die behind a filter's rejects stops
+  every run.
+- Talend's names are left in globalMap beside v1's (`<id>_DIE_MESSAGE`,
+  `_DIE_MESSAGES`, `_DIE_CODE`, `_DIE_PRIORITY`).
+- The exit code is said in the message and left in globalMap; the command
+  line ends with 1 for any job that failed, as for every failure. (v1
+  does not end with it either.)
+- `exit_jvm` refuses the job: there is no JVM to exit.
 
 **File row count**
 

@@ -524,7 +524,7 @@ class Runner:
                         logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} for {write.path}"))
                     elif self.trace is not None:
                         state.other.append(os.path.realpath(write.path))
-                elif isinstance(component, Action):
+                elif isinstance(component, Action) and not inputs:
                     component.act()
                     outputs = {}
                     # It counts no rows unless it says so itself.
@@ -761,7 +761,7 @@ class Runner:
     def _count(self, component: Component, inputs: Dict[str, pl.LazyFrame], outputs: Dict[str, pl.LazyFrame]) -> None:
         """Count the rows of a component whose counts something in the job reads, or the run asked for."""
         wanted = self._wanted.get(component.id)
-        if not wanted or isinstance(component, (Sink, Action)):
+        if not wanted or isinstance(component, Sink) or (isinstance(component, Action) and not inputs):
             return
         counted = component.line_counts(inputs, outputs)
         global_map = self.run_context.global_map

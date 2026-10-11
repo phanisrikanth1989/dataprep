@@ -631,6 +631,10 @@ class Action(Component):
     It is a subjob of its own: only triggers reach it and leave it. What it
     finds out it leaves in globalMap, for a trigger's condition or a later
     subjob to read. It raises to fail the job.
+
+    A component that may also stand in a flow (a die a filter's rejects
+    lead to) is a ``Transform`` as well and allows itself an input: with a
+    flow to it the engine builds it, and without one it acts.
     """
 
     max_inputs: ClassVar[Optional[int]] = 0

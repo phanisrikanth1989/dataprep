@@ -68,7 +68,8 @@ def check_job(
                     key, _, reason = problem.partition(": ")
                     if not (late_context and _names_context(_written(spec, key))):
                         report.add(spec.where, key, reason)
-                if not found and all(flow.name in frames for flow in arriving) and not isinstance(component, (Sink, Action)):
+                acts = isinstance(component, Action) and not arriving
+                if not found and all(flow.name in frames for flow in arriving) and not isinstance(component, Sink) and not acts:
                     inputs = {flow.name: frames[flow.name] for flow in arriving}
                     if isinstance(component, Source) or component.needs_rows():
                         outputs = component.declared_outputs()

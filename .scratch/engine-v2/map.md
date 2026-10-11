@@ -322,7 +322,9 @@ are designed.
   only for a job that declares other columns.
   [File row count](issues/76-file-row-count.md) -- and with it a kind of
   component that acts and hands no rows on.
-  Still to build, in this order: die, warn, set global var, file exist, file copy, file delete.
+  [Die](issues/78-die.md) -- in a flow it stops the job when a row
+  arrives, as in Talend.
+  Still to build, in this order: warn, set global var, file exist, file copy, file delete.
 - [Rows an aggregate leaves out for a missing group value](issues/51-rows-an-aggregate-leaves-out-for-a-missing-group-value.md)
   -- decided from Talend's source: such rows are a group of their own
   there, so v2 keeps them. v1 loses them, and v2 differs from v1 for such
