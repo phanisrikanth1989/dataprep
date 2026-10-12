@@ -236,7 +236,7 @@ class OracleOutput(Sink):
         # no other's.
         session.savepoint(_MARK)
         try:
-            if config["table_action"] == CLEAR:
+            if self._table_action() == CLEAR:
                 session.run(f"delete from {table}")
             names = [column.name for column in self.input_schema]
             keys = [column.name for column in self.input_schema if column.key]
@@ -297,14 +297,18 @@ class OracleOutput(Sink):
         row = sent.row(at, named=True)
         key = ", ".join(f"{name}={shown(row[name])}" for name in keys)
         first = f"row {before + row[_AT] + 1} of the rows it was handed{f' ({key})' if key else ''}: {why}"
-        if self.config["die_on_error"]:
-            raise DatabaseError(f"the database refused {first}")
         counted.refused += len(refused)
         counted.first = counted.first or first
+        if self._gives_up(counted.refused):
+            raise DatabaseError(f"the database refused {counted.first}")
+
+    def _gives_up(self, refused: int) -> bool:
+        """Whether rows the database refused fail the component, once so many have been."""
+        return self.config["die_on_error"]
 
     def _defined(self, session: Session, table: str) -> None:
         """Do what `table_action` says of the table when it is a statement that defines."""
-        action = self.config["table_action"]
+        action = self._table_action()
         if action not in _DEFINING:
             return
         waiting = self.run_context.sessions.waiting(session)
@@ -332,6 +336,10 @@ class OracleOutput(Sink):
         """The key columns the table holds as a DATE."""
         fields = session.fields(f"select {', '.join(keys)} from {table}")
         return [name for name, field in zip(keys, fields) if field.said == "DATE"]
+
+    def _table_action(self) -> str:
+        """What is done to the table first."""
+        return self.config["table_action"]
 
     def _table(self, session: Session) -> str:
         """The table as the statements name it: in its schema, the component's own or its connection's."""

@@ -751,13 +751,22 @@ class Write:
 
 
 class Sink(Component):
-    """A component that writes its one input to a file."""
+    """A component that writes its one input to a file.
+
+    One that may stand with no flow leading to it (it names a file whose
+    rows it stores) allows itself no input and says where its rows come
+    from then, in ``rows``.
+    """
 
     outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {}
     min_inputs: ClassVar[int] = 1
 
     def write(self, frame: pl.LazyFrame) -> Write:
         """Describe the file to write from the input frame."""
+        raise NotImplementedError
+
+    def rows(self) -> pl.LazyFrame:
+        """The rows to write when no flow leads to it."""
         raise NotImplementedError
 
 

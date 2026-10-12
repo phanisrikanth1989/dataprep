@@ -380,6 +380,58 @@ statement does**:
   STRUCT or an ARRAY (`is_custom`), and a `BLOB`, an `XMLTYPE` or a
   `TIMESTAMP_WITH_TIMEZONE` that comes out.
 
+## Oracle bulk exec
+
+- Stores the rows of a file in `table`. **With no flow leading to it**,
+  as in Talend, it reads the file `data` itself: delimited text, a line
+  a row, `terminator_value` between the fields, read as every delimited
+  file is, by the declared columns and their patterns. **With a flow
+  leading to it** it stores that flow's rows and reads no file.
+- **Nothing of Oracle's is run.** Talend's component runs SQL*Loader,
+  which needs Oracle's client on the machine and the password on a
+  command line. Here the rows are stored as the
+  [Oracle output](#oracle-output) stores them: in batches, inside a
+  transaction, when the whole subjob has succeeded; on a connection's
+  session they wait for a commit.
+- A line that cannot be read as its declared types fails the job, names
+  the line, and nothing is sent to the database.
+- **`data_action`** has SQL*Loader's meanings:
+
+  | Value | What becomes of the rows the table holds |
+  |---|---|
+  | `INSERT` | there may be none: a table that holds rows fails the job |
+  | `APPEND` | they stay, and the file's rows are added |
+  | `REPLACE` | they are deleted first, in the same transaction: taken back with the rows when the subjob fails |
+  | `TRUNCATE` | the table is truncated first, which Oracle does not take back |
+  | `UPDATE` | refused: a load updates no rows; an Oracle output does |
+
+  `table_action` is the Oracle output's, and comes first.
+- `use_fields_enclosure` lets a field stand in double quotes, so that it
+  can hold the terminator or a line end. `encoding` is the file's, by
+  Oracle's name (`UTF8`, `WE8ISO8859P15`, `WE8MSWIN1252`) or Python's.
+- Of the load options (`options`, a name and then its value):
+
+  | Option | What it is here |
+  |---|---|
+  | `ROWS` | the rows a round trip takes; 10,000 without it |
+  | `SKIP` | lines left out at the start of the file |
+  | `LOAD` | the most rows read |
+  | `ERRORS` | how many rows the database may refuse before the job fails |
+  | any other (`DIRECT`, `BINDSIZE`, `PARALLEL`...) | read and without effect: it tunes a loader that is not run |
+
+- **Without `ERRORS`, the first row the database refuses fails the
+  job.** (SQL*Loader lets fifty pass and writes them to a file nobody
+  reads.) With it, that many are left out and told in one warning; one
+  more fails the job. `die_on_error` off leaves out any number.
+- It leaves in globalMap: `<id>_NB_LINE_DATA` (the rows it was handed),
+  `<id>_NB_LINE_BAD` (those the database refused), `<id>_NB_LINE_INSERTED`,
+  and `<id>_RETURN_CODE`: 0, or 2 when rows were refused.
+- A value is stored as the file holds it: blanks at its ends are kept.
+- Refused when on: `advanced_separator` (numbers with other separators),
+  `use_existing_clt_file` and `input_into_table_clause` (a control file
+  of SQL*Loader's), a `record_format` other than `DEFAULT`, and a
+  `fields_terminator` other than `OTHER`.
+
 ## What refuses the job
 
 - `connection` on a commit, a rollback or a close has to be the id of an

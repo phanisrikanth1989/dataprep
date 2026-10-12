@@ -450,6 +450,10 @@ documentation.
   many calls in one round trip, values in and out by the row's
   columns, a number out with every digit; a call counts as work that
   waits, and a statement that changed no row takes its word back.
+  [Oracle bulk exec](issues/125-oracle-bulk-exec.md) -- no SQL*Loader:
+  the file is read by the engine's own reader and stored as the output
+  stores, with the subjob; the first refused row fails the job unless
+  the load says how many it allows.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -524,8 +528,8 @@ list are of the first destination, which is reached):
   and on what a real Oracle said when tried. Every row rests once in a
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
-  connection, commit, rollback, close, input, output, row and stored
-  procedure. To come: bulk exec, and the two for SQL Server.
+  connection, commit, rollback, close, input, output, row, stored
+  procedure and bulk exec. To come: the two for SQL Server.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.
 

@@ -74,6 +74,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Map (tMap) | `map` | [Differences from v1: Rows](differences-from-v1/rows.md#map) |
 | Multi-schema XML input (tFileInputMSXML) | `file_input_msxml` | [Own rule: XML](own-rule/xml.md#multi-schema-xml-input) |
 | Normalize (tNormalize) | `normalize` | [Differences from v1: Rows](differences-from-v1/rows.md#normalize) |
+| Oracle bulk exec (tOracleBulkExec) | `oracle_bulk_exec` | [Own rule: Databases](own-rule/databases.md#oracle-bulk-exec) |
 | Oracle close (tOracleClose) | `oracle_close` | [Own rule: Databases](own-rule/databases.md#oracle-close) |
 | Oracle commit (tOracleCommit) | `oracle_commit` | [Own rule: Databases](own-rule/databases.md#oracle-commit) |
 | Oracle connection (tOracleConnection) | `oracle_connection` | [Own rule: Databases](own-rule/databases.md#oracle-connection) |

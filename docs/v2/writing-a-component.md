@@ -148,7 +148,9 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   `Write` with `scratch` set to a scratch file of the run
   (`self.run_context.temp_path(...)`): the pass writes the rows there,
   `ready` stores them from it and returns how many it stored, nothing is
-  moved, and `path` holds the words that name the table. A connection
+  moved, and `path` holds the words that name the table. A sink that
+  may stand with no flow to it (a bulk load that names its file) sets
+  `min_inputs = 0` and says in `rows()` where its rows come from then. A connection
   component sets `opens_session` to the kind
   of database (`"Oracle"`), and a component whose `connection` names one
   sets `uses_session`; the loader then checks the name.

@@ -703,8 +703,10 @@ class Runner:
                 held: Dict[str, pl.DataFrame] = {}
                 if isinstance(component, Sink):
                     heights: List[int] = []
-                    # A file holds the job's own columns and nothing of the engine's.
-                    handed = _counted(without(next(iter(inputs.values()))), heights)
+                    # A file holds the job's own columns and nothing of the engine's. With no flow to it, a sink
+                    # reads the rows it stores itself.
+                    arriving = next(iter(inputs.values())) if inputs else component.rows()
+                    handed = _counted(without(arriving), heights)
                     write = component.write(handed)
                     state.writes.append((component_id, write, heights))
                     outputs: Dict[str, pl.LazyFrame] = {}

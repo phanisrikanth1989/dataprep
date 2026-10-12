@@ -5,6 +5,7 @@ rollback takes back, a place that was marked can be gone back to, and a
 second session sees only what is stored. What is Oracle's alone is not
 here; that is tried against a real Oracle (the tests marked ``oracle``).
 """
+import datetime
 import decimal
 import re
 import sqlite3
@@ -16,6 +17,15 @@ from src.v2.statements import DEFINES
 
 # What SQLite runs without a transaction of its own being opened for it first.
 _NO_TRANSACTION = ("select", "begin", "commit", "rollback", "pragma")
+
+
+def _for_sqlite(value: Any) -> Any:
+    """A value as SQLite holds it: it has no Decimal and no date of its own."""
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat(sep=" ") if isinstance(value, datetime.datetime) else value.isoformat()
+    return value
 
 
 def _as_sqlite(statement: str) -> str:
@@ -96,7 +106,7 @@ class SqliteSession(Session):
             self._held.execute("begin")
         refused, changed = [], []
         for at, row in enumerate(rows.to_pylist()):
-            values = [float(value) if isinstance(value, decimal.Decimal) else value for value in row.values()]
+            values = [_for_sqlite(value) for value in row.values()]
             try:
                 done = self._held.execute(_as_sqlite(statement), values)
                 changed.append(done.rowcount)
