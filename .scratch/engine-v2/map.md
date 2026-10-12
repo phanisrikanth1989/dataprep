@@ -310,6 +310,9 @@ are designed.
   [Review of the four extract components](issues/77-review-of-the-four-extract-components.md)
   -- eighteen findings; a JSON loop path could fail the whole job, and
   ISO dates went missing, both fixed.
+  [Trace and only through the new components](issues/86-trace-and-only-through-the-new-components.md)
+  -- 24 tests, one traced run for a picked row through each; nothing
+  found wrong.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -404,6 +407,3 @@ decide, not fog on the way there.
   ([The performance bar](issues/05-performance-bar.md)).
 - Any change to `src/v1`.
 - Harvesting the old v2 roadmap and audit backlog left behind in ETL-AIAgent.
-  [Trace and only through the new components](issues/86-trace-and-only-through-the-new-components.md)
-  -- 24 tests, one traced run for a picked row through each; nothing
-  found wrong.
