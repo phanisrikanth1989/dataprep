@@ -17,6 +17,12 @@ value, and no value may change what a statement does:
 
 A statement that is nothing but one reference is what the reference
 holds, as it is: the job says "run what this holds".
+
+A statement that is run for each row of a flow may name the row's columns
+where it is joined (`"... where id = " + row1.id`). A value of a row is
+always bound, in quotes or out of them: the statement is one, and the rows
+are its values. A prepared statement has a mark (`?`) for each value it
+is given.
 """
 from __future__ import annotations
 
@@ -50,6 +56,9 @@ DEFINES = frozenset((
 # The longest name a value is bound under: what every Oracle still in use takes.
 _LONGEST = 30
 _PAIRS = {"[": "]", "{": "}", "(": ")", "<": ">"}
+# The name a column of the row goes by, as a context variable of that name, while a joined statement is read.
+_ROW = "v2_row_column_"
+_JAVA_TEXT = r'"(?:[^"\\]|\\.)*"'
 
 
 @dataclass(frozen=True)
@@ -58,11 +67,32 @@ class Bound:
 
     Attributes:
         name: The name that stands for it in the statement.
-        value: The value, as text.
+        value: The value; None for one that each row brings.
+        column: For a value of the row the statement is run for: the
+            column it is.
     """
 
     name: str
-    value: str
+    value: Any
+    column: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Given:
+    """What a mark (`?`) of a prepared statement stands for: a value, or a column of the row."""
+
+    value: Any = None
+    column: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _Value:
+    """A value met while a statement is taken apart: the words that name it, and what it holds or which column
+    of the row it is."""
+
+    label: str
+    held: Any = None
+    column: Optional[str] = None
 
 
 class _Join:
@@ -93,6 +123,15 @@ class Statement:
             return self.pasted, {}
         return self.shown(), {part.name: part.value for part in self.parts if isinstance(part, Bound)}
 
+    def by_place(self) -> Tuple[str, List[Bound]]:
+        """The statement with a place of its own for each value (`:1`, `:2`...), and what stands at each: for a
+        statement run once for each row of a batch."""
+        bound = [part for part in self.parts if isinstance(part, Bound)]
+        places = iter(range(1, len(bound) + 1))
+        text = "".join(f":{next(places)}" if isinstance(part, Bound) else " || " if part is _JOIN else part
+                       for part in self.parts)
+        return text, bound
+
     def placed(self) -> Tuple[str, List[str]]:
         """The statement with a `?` for each value, and the values in order; texts are joined with `+`."""
         text = "".join("?" if isinstance(part, Bound) else " + " if part is _JOIN else part for part in self.parts)
@@ -104,34 +143,43 @@ class Statement:
                        for part in self.parts)
 
 
-def read(written: str, context: Mapping[str, Any], global_map: Mapping[str, Any]) -> Statement:
+def read(
+    written: str,
+    context: Mapping[str, Any],
+    global_map: Mapping[str, Any],
+    row: Optional[Tuple[str, List[str]]] = None,
+    parameters: Optional[List[Given]] = None,
+) -> Statement:
     """Read a statement as a job config has it.
 
     Args:
         written: The statement.
         context: The run's context variables.
         global_map: The run's globalMap entries.
+        row: For a statement run for each row of a flow: the flow's name
+            and the columns of its rows.
+        parameters: For a prepared statement: what each of its marks
+            (`?`) stands for, in their order.
 
     Raises:
         ConfigurationError: When it names what is not there, holds Java
             that is more than joining, or a value stands where it could
             change what the statement does. No message shows a value.
     """
-    pieces = _pieces(written, context, global_map)
-    if len(pieces) == 1 and not isinstance(pieces[0], str):
-        label, held = pieces[0]
-        if not isinstance(held, str):
-            raise ConfigurationError(f"what {label} holds is no statement: it is no text")
-        return Statement([held], defines=_defines(held))
+    pieces = _pieces(written, context, global_map, row)
+    if len(pieces) == 1 and isinstance(pieces[0], _Value) and pieces[0].column is None:
+        if not isinstance(pieces[0].held, str):
+            raise ConfigurationError(f"what {pieces[0].label} holds is no statement: it is no text")
+        return Statement([pieces[0].held], defines=_defines(pieces[0].held))
     defines = _defines("".join(piece for piece in pieces if isinstance(piece, str)))
-    bound = _Writer(paste=False).written(pieces)
-    pasted = "".join(_Writer(paste=True).written(pieces)) if defines else None
+    bound = _Writer(False, parameters).written(pieces)
+    pasted = "".join(_Writer(True, parameters).written(pieces)) if defines else None
     return Statement(bound, defines, pasted)
 
 
-def unreadable(written: str) -> Optional[str]:
+def unreadable(written: str, row: Optional[Tuple[str, List[str]]] = None) -> Optional[str]:
     """Why a statement cannot be read whatever the context holds; None when it can. For the check at load."""
-    if parsed(written) is None and _joined(written) is None and _JAVA_JOIN.search(written):
+    if parsed(_with_row(written, row)) is None and _joined(written, row) is None and _JAVA_JOIN.search(written):
         return _JAVA
     return None
 
@@ -140,18 +188,30 @@ def unreadable(written: str) -> Optional[str]:
 # Taking a statement apart
 # ------------------------------------------------------------------
 
-def _joined(written: str) -> Optional[List[Any]]:
+def _joined(written: str, row: Optional[Tuple[str, List[str]]] = None) -> Optional[List[Any]]:
     """The terms of a statement the converter took the outermost quotes off; None when it is no joined text."""
-    joined = parsed(f'"{written}"')
+    joined = parsed(_with_row(f'"{written}"', row))
     return joined if joined is not None and len(joined) > 1 else None
 
 
-def _pieces(written: str, context: Mapping[str, Any], global_map: Mapping[str, Any]) -> List[Any]:
+def _with_row(written: str, row: Optional[Tuple[str, List[str]]]) -> str:
+    """A joined statement with each column of the row it names (`row1.id`) written as a term that can be read.
+
+    Only where Java joins: between Java's quotes such a name is the statement's own (a table given that name).
+    """
+    if row is None:
+        return written
+    named = re.compile(rf'{_JAVA_TEXT}|(?<![\w.]){re.escape(row[0])}\.(\w+)\b')
+    return named.sub(lambda found: found.group(0) if found.group(1) is None else f"context.{_ROW}{found.group(1)}", written)
+
+
+def _pieces(written: str, context: Mapping[str, Any], global_map: Mapping[str, Any],
+            row: Optional[Tuple[str, List[str]]] = None) -> List[Any]:
     """A statement as its texts and, between them, each value with the words that name it."""
-    terms = parsed(written)
+    terms = parsed(_with_row(written, row))
     if terms is None:
         # The converter takes the outermost quotes off what Talend wrote as one joined text.
-        terms = _joined(written)
+        terms = _joined(written, row)
     pieces: List[Any] = []
     if terms is None:
         if _JAVA_JOIN.search(written):
@@ -164,21 +224,27 @@ def _pieces(written: str, context: Mapping[str, Any], global_map: Mapping[str, A
                     # Written bare, and no variable: it may be a column of a table called context.
                     continue
                 raise ConfigurationError(f"context has no variable '{name}'")
-            pieces += [written[at:found.start()], (f"context.{name}", context[name])]
+            pieces += [written[at:found.start()], _Value(f"context.{name}", context[name])]
             at = found.end()
         pieces.append(written[at:])
     else:
         for kind, name in terms:
             if kind == "text":
                 pieces.append(name)
+            elif kind == "variable" and name.startswith(_ROW):
+                flow, columns = row
+                column = name[len(_ROW):]
+                if column not in columns:
+                    raise ConfigurationError(f"the rows of {flow} have no column '{column}'; they have: {', '.join(columns)}")
+                pieces.append(_Value(f"{flow}.{column}", column=column))
             elif kind == "variable":
                 if name not in context:
                     raise ConfigurationError(f"context has no variable '{name}'")
-                pieces.append((f"context.{name}", context[name]))
+                pieces.append(_Value(f"context.{name}", context[name]))
             else:
                 if name not in global_map:
                     raise ConfigurationError(f"globalMap has no entry '{name}'")
-                pieces.append((f"the entry '{name}' of globalMap", global_map[name]))
+                pieces.append(_Value(f"the entry '{name}' of globalMap", global_map[name]))
     # Texts that stand side by side are one text: a quote that ends one may be half of a pair.
     merged: List[Any] = []
     for piece in pieces:
@@ -204,10 +270,14 @@ class _Writer:
     Args:
         paste: Whether a value in quotes is written into its text, quotes
             doubled, and not bound: for a statement that defines.
+        parameters: What each mark (`?`) stands for; None when the
+            statement is not a prepared one, and a mark is left as it is.
     """
 
-    def __init__(self, paste: bool) -> None:
+    def __init__(self, paste: bool, parameters: Optional[List[Given]] = None) -> None:
         self.paste = paste
+        self.parameters = parameters
+        self.marks = 0
         self.out: List[Any] = []
         # Where it stands: in the statement itself (code), in a text in quotes, in the quotes of a name, in a
         # remark to the end of the line or between its marks, or in a text written q'...'.
@@ -225,7 +295,10 @@ class _Writer:
             if isinstance(piece, str):
                 self._text(piece)
             else:
-                self._value(*piece)
+                self._value(piece)
+        if self.parameters is not None and self.marks != len(self.parameters):
+            raise ConfigurationError(
+                f"the statement has {self.marks} marks (?) and {len(self.parameters)} value(s) are given for them")
         return self.out
 
     # ------------------------------------------------------------------
@@ -248,6 +321,10 @@ class _Writer:
                     self.state, step = "line", 2
                 elif pair == "/*":
                     self.state, step = "block", 2
+                elif char == "?" and self.parameters is not None:
+                    self._mark()
+                    at += 1
+                    continue
             elif self.state == "text":
                 if pair == "''":
                     step, self.fresh = 2, False
@@ -284,8 +361,44 @@ class _Writer:
             rest = rest[:-1]
         return not re.search(r"[\w$#]$", rest)
 
-    def _value(self, label: str, held: Any) -> None:
-        text = _as_text(held)
+    def _mark(self) -> None:
+        """A mark of a prepared statement: the value given for its place is bound there."""
+        self.marks += 1
+        if self.paste:
+            raise ConfigurationError("a statement that defines takes no bound value, and this one has a mark (?)")
+        if self.marks <= len(self.parameters or []):
+            given = self.parameters[self.marks - 1]
+            self.out.append(Bound(f"p{self.marks}", given.value, given.column))
+
+    def _of_the_row(self, value: _Value) -> None:
+        """A value of the row the statement is run for: bound where it stands, in quotes or out of them."""
+        if self.paste:
+            raise ConfigurationError("a statement that defines takes no bound value, and a value of a row can only "
+                                     f"be bound: {value.label} cannot stand in this one")
+        if self.state not in ("code", "text"):
+            raise ConfigurationError(f"{value.label} stands where no value can be bound: in a remark, or between "
+                                     "the quotes of a name")
+        bound = Bound(re.sub(r"\W", "_", value.label), None, value.column)
+        if self.state == "code":
+            self.out.append(bound)
+        else:
+            self._joined_in(bound)
+
+    def _joined_in(self, bound: Bound) -> None:
+        """A bound value in a text in quotes: all of the text, or joined to the rest of it by the database."""
+        if self.fresh:
+            # Nothing stands in the text yet: its opening quote goes, and the value takes its place.
+            del self.out[-1]
+        else:
+            self.out += ["'", _JOIN]
+        self.out += [bound, _JOIN, "'"]
+        self.fresh, self.joined = True, True
+
+    def _value(self, value: _Value) -> None:
+        if value.column is not None:
+            self._of_the_row(value)
+            return
+        label, text = value.label, _as_text(value.held)
         if self.state == "other":
             raise ConfigurationError(
                 f"{label} stands inside a text written q'...': write that text with plain quotes, so that the value "
@@ -307,13 +420,7 @@ class _Writer:
             self.out.append(text.replace("'", "''"))
             self.fresh = False
         else:
-            if self.fresh:
-                # Nothing stands in the text yet: its opening quote goes, and the value takes its place.
-                del self.out[-1]
-            else:
-                self.out += ["'", _JOIN]
-            self.out += [Bound(self._name(label), text), _JOIN, "'"]
-            self.fresh, self.joined = True, True
+            self._joined_in(Bound(self._name(label), text))
 
     def _name(self, label: str) -> str:
         """The name a value is bound under: one for each thing that is named, and never the same for two."""

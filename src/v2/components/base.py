@@ -776,8 +776,8 @@ class Action(Component):
     max_inputs: ClassVar[Optional[int]] = 0
     outputs: ClassVar[Dict[str, Tuple[str, ...]]] = {}
 
-    def act(self) -> None:
-        """Do it."""
+    def act(self) -> Optional[Dict[str, pl.LazyFrame]]:
+        """Do it. An action that makes a row of its own, for a flow that leaves it, hands back its outputs."""
         raise NotImplementedError
 
     def unfed(self) -> List[str]:

@@ -69,6 +69,9 @@ def check_job(
                     if not (late_context and _names_context(_written(spec, key))):
                         report.add(spec.where, key, reason)
                 acts = isinstance(component, Action) and not arriving
+                if acts and not found and component.wired:
+                    # An action that makes a row of its own: what follows it is checked against its columns.
+                    outputs = component.declared_outputs()
                 if not found and all(flow.name in frames for flow in arriving) and not isinstance(component, Sink) and not acts:
                     inputs = {flow.name: frames[flow.name] for flow in arriving}
                     if isinstance(component, Source) or component.needs_rows():

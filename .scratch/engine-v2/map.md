@@ -442,6 +442,10 @@ documentation.
   update-or-insert in two or three round trips to the end a row at a
   time would come to; a refused row is named; the engine learned a
   write that is no file.
+  [Oracle row](issues/123-oracle-row.md) -- one statement, once or for
+  each row of a flow with the row's values bound; a prepared statement
+  with a value for each mark; the converted sample runs as it is but
+  for its password.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -516,7 +520,7 @@ list are of the first destination, which is reached):
   and on what a real Oracle said when tried. Every row rests once in a
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
-  connection, commit, rollback, close, input and output. To come: row,
+  connection, commit, rollback, close, input, output and row. To come:
   stored procedure, bulk exec, and the two for SQL Server.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.

@@ -722,8 +722,8 @@ class Runner:
                     elif self.trace is not None and write.scratch is None:
                         state.other.append(os.path.realpath(write.path))
                 elif isinstance(component, Action) and not inputs:
-                    component.act()
-                    outputs = {}
+                    # It hands no rows on, but for one that makes a row of its own for the flow that leaves it.
+                    outputs = component.act() or {}
                     # It counts no rows unless it says so itself.
                     for stat in _STATS:
                         self.run_context.global_map.setdefault(f"{component_id}_{stat}", 0)

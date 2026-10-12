@@ -293,6 +293,50 @@ statement does**:
   columns are keys) and `use_hint_options`.
 - Scratch space is needed for about the size of the rows, compressed.
 
+## Oracle row
+
+- Runs the one statement `query` holds. What it is and what its values
+  are is under [What is written into a statement](#what-is-written-into-a-statement).
+- **Set off by a trigger, it runs the statement once.** What it changed
+  waits on the session of its connection for a commit component; with a
+  session of its own it is stored when the component is done.
+- **With a flow leading to it, it runs the statement once for each
+  row**, a batch of rows in one round trip, and hands the rows on as
+  they came. The rows are held in memory while it runs: it is for
+  thousands of rows, and an output is for millions.
+  - Where the statement is joined, it may name a column of the row:
+    `"delete from t where id = " + row1.id`. A value of a row is always
+    bound, in quotes or out of them: the statement is one, and the rows
+    are its values.
+  - A prepared statement (`use_preparedstatement`) has a mark (`?`) for
+    each entry of `set_preparedstatement_parameters`, in their order.
+    An entry's value is text or a number, a context variable, an entry
+    of globalMap, or a column of the row (`row1.id`); `parameter_type`
+    says what a written value is made into (`String`, `Int`, `Long`,
+    `Double`, `Float`, `BigDecimal`, `Boolean`, `Date`, `Timestamp`,
+    `Null`). A column of the row is bound as it is.
+  - A row the database refuses fails the job and names the row
+    (`line 3 of in.csv`); with `die_on_error` off the others are done,
+    and one warning says how many were refused.
+- **A statement that defines** (`CREATE`, `ALTER`, `TRUNCATE`...) is
+  stored by Oracle at once, with whatever waited on the session. It is
+  refused on a session with work that waits, and is not run for each
+  row of a flow.
+- A block of PL/SQL that commits, or defines, also stores what waited.
+  That cannot be seen before it runs. When it has happened, a warning
+  says whose work was stored that way.
+- **With a flow from it and none to it, it hands on one row with
+  nothing in it**, as Talend does: what the flow leads to runs once. A
+  commit that follows by a flow stores what the statement did.
+- With `die_on_error` off a statement the database refuses is said in a
+  warning and in `<id>_ERROR_MESSAGE`, and the job goes on.
+- It leaves the statement in `<id>_QUERY` as it was sent, with the
+  names of its values and no value. `use_nb_line` names the entry that
+  takes the number of rows it changed: `<id>_NB_LINE_INSERTED`,
+  `_NB_LINE_UPDATED` or `_NB_LINE_DELETED`.
+- Refused when on: `propagate_record_set` (a query's rows are read with
+  an input). A `Blob`, `Clob`, `Bytes` or `Time` for a mark is refused.
+
 ## What refuses the job
 
 - `connection` on a commit, a rollback or a close has to be the id of an

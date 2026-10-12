@@ -264,3 +264,105 @@ def test_what_cannot_be_read_whatever_the_context_holds_is_told_when_the_job_loa
     assert statements.unreadable("context.sql") is None
     assert statements.unreadable('"select \'" + TalendDate.getDate("yyyy") + "\' from dual"').startswith(
         "the statement is joined as Java joins text")
+
+
+# ------------------------------------------------------------------
+# A statement run for each row of a flow: a value of the row is bound, wherever it stands
+# ------------------------------------------------------------------
+
+def for_rows(written, row="row1", columns=("id", "name", "d"), **more):
+    return statements.read(written, CONTEXT, HELD, row=(row, list(columns)), **more)
+
+
+def test_a_value_of_the_row_is_bound_wherever_it_stands():
+    made = for_rows('"update t set name = \'" + row1.name + "\', d = \'" + context.d + "\' where id = " + row1.id')
+    text, bound = made.by_place()
+    assert text == "update t set name = :1, d = :2 where id = :3"
+    assert [(part.column, part.value) for part in bound] == [("name", None), (None, "2024-01-31"), ("id", None)]
+    assert made.shown() == "update t set name = :row1_name, d = :context_d where id = :row1_id"
+
+
+def test_a_value_of_the_row_inside_a_longer_text_is_joined_by_the_database():
+    made = for_rows('"select 1 from t where name like \'%" + row1.name + "%\' or id = " + row1.id + " or id = " + row1.id')
+    text, bound = made.by_place()
+    assert text == "select 1 from t where name like '%' || :1 || '%' or id = :2 or id = :3"
+    assert [part.column for part in bound] == ["name", "id", "id"]
+
+
+def test_a_column_the_row_does_not_have_is_said():
+    with pytest.raises(ConfigurationError) as failed:
+        for_rows('"delete from t where id = " + row1.nope')
+    assert str(failed.value) == "the rows of row1 have no column 'nope'; they have: id, name, d"
+
+
+def test_a_name_with_a_dot_inside_the_text_of_the_statement_is_no_value_of_the_row():
+    # Between Java's quotes it is SQL: a table called row1, or one given that name.
+    made = for_rows('"delete from t row1 where row1.id = " + row1.id')
+    assert made.by_place()[0] == "delete from t row1 where row1.id = :1"
+    assert for_rows("delete from t row1 where row1.id = 5").by_place() == ("delete from t row1 where row1.id = 5", [])
+
+
+def test_without_rows_a_name_like_that_of_a_row_is_java_that_is_not_read():
+    assert "joined as Java joins text" in refused('"delete from t where id = " + row1.id')
+
+
+def test_a_statement_for_rows_cannot_be_one_that_defines_with_a_value_of_the_row():
+    with pytest.raises(ConfigurationError) as failed:
+        for_rows('"create table x as select * from t where id = \'" + row1.id + "\'"')
+    assert str(failed.value) == ("a statement that defines takes no bound value, and a value of a row can only be "
+                                 "bound: row1.id cannot stand in this one")
+
+
+def test_a_value_of_the_row_stands_only_where_a_value_can_be_bound():
+    for written in ('"delete from t -- " + row1.id', '"delete from t /* " + row1.id + " */"', '"delete from \\"" + row1.name + "\\""'):
+        with pytest.raises(ConfigurationError) as failed:
+            for_rows(written)
+        assert "stands where no value can be bound: in a remark, or between the quotes of a name" in str(failed.value)
+
+
+def test_a_statement_that_defines_has_no_mark():
+    with pytest.raises(ConfigurationError) as failed:
+        statements.read("create table x as select * from t where a = ?", {}, {}, parameters=[statements.Given(value=1)])
+    assert str(failed.value) == "a statement that defines takes no bound value, and this one has a mark (?)"
+
+
+def test_by_place_every_value_has_a_place_of_its_own():
+    made = read("select * from t where a = '${context.d}' or b = '${context.d}' or c = '${context.s}'")
+    text, bound = made.by_place()
+    assert text == "select * from t where a = :1 or b = :2 or c = :3"
+    assert [part.value for part in bound] == ["2024-01-31", "2024-01-31", "bri"]
+
+
+# ------------------------------------------------------------------
+# A prepared statement: a value for each mark
+# ------------------------------------------------------------------
+
+def test_each_mark_takes_the_value_given_for_its_place():
+    made = statements.read("update t set a = ?, b = ? where c = ? and d = '?' -- why?", {}, {},
+                           parameters=[statements.Given(value="x"), statements.Given(value=5), statements.Given(column="id")],
+                           row=("row1", ["id"]))
+    text, bound = made.by_place()
+    assert text == "update t set a = :1, b = :2 where c = :3 and d = '?' -- why?"
+    assert [(part.column, part.value) for part in bound] == [(None, "x"), (None, 5), ("id", None)]
+    assert made.shown() == "update t set a = :p1, b = :p2 where c = :p3 and d = '?' -- why?"
+
+
+def test_a_value_for_a_mark_keeps_its_kind_and_is_handed_over_by_name_too():
+    made = statements.read("delete from t where a = ? and b = ?", {}, {},
+                           parameters=[statements.Given(value=5), statements.Given(value=None)])
+    assert made.named() == ("delete from t where a = :p1 and b = :p2", {"p1": 5, "p2": None})
+
+
+@pytest.mark.parametrize("written, given, said", [
+    ("delete from t where a = ? and b = ?", 1, "the statement has 2 marks (?) and 1 value(s) are given for them"),
+    ("delete from t where a = ?", 2, "the statement has 1 marks (?) and 2 value(s) are given for them"),
+    ("delete from t", 1, "the statement has 0 marks (?) and 1 value(s) are given for them"),
+])
+def test_as_many_values_as_marks(written, given, said):
+    with pytest.raises(ConfigurationError) as failed:
+        statements.read(written, {}, {}, parameters=[statements.Given(value=1)] * given)
+    assert str(failed.value) == said
+
+
+def test_without_values_given_a_mark_is_left_to_the_database():
+    assert oracle("select * from t where a = ?") == ("select * from t where a = ?", {})

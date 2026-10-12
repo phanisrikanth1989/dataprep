@@ -12,6 +12,7 @@ from typing import Any, List, Mapping, Optional, Tuple
 
 from src.v2.errors import DatabaseError
 from src.v2.sessions import NUMBER, OTHER, TEXT, ZONED, Field, Session
+from src.v2.statements import DEFINES
 
 # What SQLite runs without a transaction of its own being opened for it first.
 _NO_TRANSACTION = ("select", "begin", "commit", "rollback", "pragma")
@@ -40,12 +41,17 @@ class SqliteSession(Session):
 
     def run(self, statement: str, binds: Optional[Mapping[str, Any]] = None) -> int:
         self.asked.append(statement)
+        defines = statement.lstrip().split(None, 1)[0].upper() in DEFINES
         statement = _as_sqlite(statement)
         first = statement.lstrip().split(None, 1)[0].lower()
+        given = {name: float(value) if isinstance(value, decimal.Decimal) else value for name, value in dict(binds or {}).items()}
         try:
             if first not in _NO_TRANSACTION and not self._held.in_transaction:
                 self._held.execute("begin")
-            done = self._held.execute(statement, dict(binds or {}))
+            done = self._held.execute(statement, given)
+            if defines and self._held.in_transaction:
+                # As Oracle has it: a statement that defines stores itself, and what waited before it.
+                self._held.execute("commit")
         except sqlite3.Error as fault:
             raise DatabaseError(str(fault)) from None
         self.did.append(statement)
