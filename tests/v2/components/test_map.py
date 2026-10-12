@@ -1253,7 +1253,7 @@ def test_equality_operator_is_accepted(operator):
          "outputs[0].catch_output_reject: v2 has no rows whose expressions failed to send here"),
         ([out("o", [("a", "row1.id +", "int")])], "outputs[0].columns[0].expression: not a valid Python expression"),
         ([out("o", [("a", "row9.id", "int")])], "outputs[0].columns[0].expression: `row9`: unknown name 'row9'"),
-        ([out("o", [("a", "row1.id", "object")])], "outputs[0].columns[0].type: 'object' is not allowed"),
+        ([out("o", [("a", "row1.id", "bytes")])], "outputs[0].columns[0].type: 'bytes' is not allowed"),
         ([out("o", JOINED_COLUMNS, filter="row1.nope > 1", activate_filter=True)],
          "outputs[0].filter: `row1.nope`: row1 has no column 'nope'"),
         ([out("o", [("a", "{{java}}row1.id", "int")])], "outputs[0].columns[0].expression: Java expressions"),
@@ -1636,3 +1636,11 @@ def test_output_of_constants_is_empty_when_no_row_is_mapped(tmp_path):
     made = mapping(config([out("audit", CONSTANTS)]), {"row1": PEOPLE_SCHEMA}, {"audit": declared(CONSTANTS)})
     run = same(tmp_path, made, {"row1.csv": b"id;name;price\n"})
     assert run.files["audit.csv"] == b"source;batch\n"
+
+
+@pytest.mark.parametrize("declared_as", ["str", "object"])
+def test_output_column_declared_an_object_is_held_as_text_as_one_declared_str_is(tmp_path, declared_as):
+    # Talend's Object type converts to `object`. v1 leaves such a column as it is, exactly as it leaves a str column.
+    cols = [("id", "row1.id", "int"), ("name", "row1.name", declared_as), ("code", "row1.code", declared_as)]
+    run = same(tmp_path, mapping(config([out("o", cols)]), {"row1": ORDERS}, {"o": None}), {"row1.csv": ORDERS_DATA})
+    assert run.files["o.csv"] == b"id;name;code\n1;alice;A\n2;bob;B\n3;carol;\n4;dave;Z\n5;erin;A\n"

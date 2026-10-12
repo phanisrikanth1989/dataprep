@@ -401,3 +401,12 @@ def test_negative_precision_means_none_is_declared(kind):
     job = changed()
     job["components"][0]["schema"] = {"output": [{"name": "v", "type": kind, "precision": -1}]}
     assert load(job).components[job["components"][0]["id"]].schema[0].precision is None
+
+
+@pytest.mark.parametrize("written", ["object", "id_Object"])
+def test_column_talend_declares_an_object_is_held_as_text(written):
+    # The converter writes `object` for Talend's Object, and `str` for every other type v2 has no name for.
+    job = copy.deepcopy(V1_JOB)
+    job["components"][0]["schema"]["output"] = [{"name": "content", "type": written}]
+    job["components"][1]["schema"] = {"input": [], "output": []}
+    assert load(job).components["in_1"].schema[0].type == "str"

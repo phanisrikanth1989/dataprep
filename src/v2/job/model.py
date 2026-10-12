@@ -11,7 +11,8 @@ if TYPE_CHECKING:
 # v1 job configs write the first spelling of each group.
 TYPE_NAMES: Dict[str, str] = {}
 for _canonical, _spellings in {
-    "str": ("str", "string", "id_String"),
+    # Talend's Object is whatever the component that makes it hands on; in v2 that is text.
+    "str": ("str", "string", "id_String", "object", "id_Object"),
     "int": ("int", "integer", "long", "short", "byte", "id_Integer", "id_Long", "id_Short", "id_Byte"),
     "float": ("float", "double", "id_Float", "id_Double"),
     "bool": ("bool", "boolean", "id_Boolean"),

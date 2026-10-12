@@ -39,7 +39,9 @@
 Declared types are `str`, `int`, `float`, `bool`, `datetime`, `date` and
 `Decimal`; `date_pattern` is a Python `strftime` pattern (a Java-style
 pattern such as `yyyy-MM-dd` is understood too). A `Decimal` column holds
-its declared `precision` places, or ten when none is declared.
+its declared `precision` places, or ten when none is declared. A column
+declared `object`, which is what Talend's Object type converts to, is held
+as text.
 
 Text read from a file is never missing: an empty field is empty text. For
 every other type an empty or blank field is a missing value, except `bool`,
