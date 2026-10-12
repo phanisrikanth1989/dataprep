@@ -414,6 +414,15 @@ documentation.
   -- eight findings, all real; a value looked up while the job runs was
   read as text of the job config, and a file's name could be run as
   Python. Fixed: what is looked up is data.
+  [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md)
+  -- a direct path load always commits, a JDBC close commits what is
+  pending, and a reader inside the plan runs its query again for every
+  later reading.
+  [Databases: the decisions](issues/118-databases-the-decisions.md) --
+  every row rests once in a scratch file; one commit, by the engine,
+  when the subjob has succeeded; a value in quotes is bound; the
+  database converts each column, since the driver changes a number
+  without a word when left to.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -480,10 +489,13 @@ list are of the first destination, which is reached):
   Built: all six, on one reader and one writer. An independent review
   of them is to come. Left for later there: a check against an XSD, a
   predicate in the record path, `split`.
-- Database waits on
-  [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md):
-  which drivers, how rows go in and out without being held in memory,
-  what a transaction spans, and what is tested against.
+- Database is decided
+  ([Databases: the decisions](issues/118-databases-the-decisions.md)),
+  on what current tools do
+  ([How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md))
+  and on what a real Oracle said when tried. Every row rests once in a
+  scratch file; one commit, when the subjob has succeeded; a value in
+  quotes is bound, never pasted. Built: none yet.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.
 
