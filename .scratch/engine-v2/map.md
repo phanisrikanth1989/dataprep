@@ -334,6 +334,9 @@ documentation.
   [File properties](issues/94-file-properties.md) -- the schema says
   which properties are wanted; `exists` among them makes a missing file
   a row.
+  [Raw file input](issues/95-raw-file-input.md) -- a whole file as one
+  value of text, read strictly, held to a size the job can raise; a
+  column declared `object` is text in the loader now.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -386,8 +389,8 @@ documentation.
 For the thirty more components of 2026-10-12 (the paragraphs after this
 list are of the first destination, which is reached):
 
-- File jobs: raw file input, change file encoding, file archive and file
-  unarchive are still to be built, to
+- File jobs: change file encoding, file archive and file unarchive are
+  still to be built, to
   [File jobs: what current practice says](issues/93-file-jobs-what-current-practice-says.md).
 - Loops and job control wait on
   [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).

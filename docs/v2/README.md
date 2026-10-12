@@ -69,6 +69,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Positional output (tFileOutputPositional) | `file_output_positional` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#positional-output) |
 | Properties input: a properties or an ini file (tFileInputProperties) | `file_input_properties` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#properties-input) |
 | Python dataframe (tPythonDataFrame) | `python_dataframe` | [Differences from v1: Rows](differences-from-v1/rows.md#python-dataframe) |
+| Raw file input (tFileInputRaw) | `file_input_raw` | [Own rule: File jobs](own-rule/file-jobs.md#raw-file-input) |
 | Replace (tReplace) | `replace` | [Differences from v1: Rows](differences-from-v1/rows.md#replace) |
 | Replicate (tReplicate) | `replicate` | [Differences from v1: Rows](differences-from-v1/rows.md#replicate) |
 | Row generator: rows made from expressions (tRowGenerator) | `row_generator` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#row-generator) |

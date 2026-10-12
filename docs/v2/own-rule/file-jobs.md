@@ -61,3 +61,32 @@ not v1. ([What that means](README.md).)
   nothing. v1 has `mtime` in seconds and `mode_string` in octal, and its
   engine reads the keys in capitals (`FILENAME`, `MD5`), which are taken
   too.
+
+## Raw file input
+
+- One row whose one column holds the whole text of the file `filename`.
+  The column has the name the job declares, and `content`, Talend's name
+  for it, when the job declares none. More than one column refuses the
+  job.
+- The text is as the file has it: every line end is kept as it is. A
+  byte order mark at the start of the file is no part of the text.
+- It is read in `encoding` (ISO-8859-15 when none is given, as Talend's
+  default is). A byte that is no character there fails the job and says
+  where: `'in.xml' is not written in UTF-8: byte 12 of it, on line 3, is
+  no character there`. (Talend puts a replacement character there and
+  goes on.)
+- The whole file is held in memory as one value, and about three times
+  over while it is read. That is what the component is for, so it reads
+  no file larger than `size_limit_mb` megabytes (1024 when not given):
+  a larger one fails the job before a byte is read. A file to be gone
+  through row by row belongs to a reader.
+- A file that cannot be read fails the job. When the job config says
+  `die_on_error` is off, the job goes on with no row and a warning, and
+  why is in `<id>_ERROR_MESSAGE`. (Talend hands on a row of nothing
+  then.)
+- The path of a file that was read is left in `<id>_FILENAME_PATH`. The
+  file is read once in a run. A failure later in the flow names the row
+  as `the content of <filename>`.
+- Only text: `as_bytearray` and `as_inputstream` refuse the job, since
+  v2 has no column type that holds bytes or an open file. A column the
+  job declares as `object`, as a converted job does, is held as text.
