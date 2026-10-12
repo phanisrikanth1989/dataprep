@@ -31,7 +31,6 @@ _KINDS = {"DECIMAL": "number", "NUMERIC": "number", "DATE": "date", "TIMESTAMP":
 _BY_COLUMN = {"str": "text", "int": "number", "float": "number", "Decimal": "number", "bool": "number",
               "datetime": "datetime", "date": "date"}
 _NOT_READ = ("BLOB", "XMLTYPE", "TIMESTAMP_WITH_TIMEZONE")
-_MARK = "v2_sp"
 # Calls a round trip.
 _BATCH = 10_000
 

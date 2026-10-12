@@ -177,6 +177,54 @@ def test_a_text_written_oracles_other_way_takes_no_value():
                                                                     {"context_d": "2024-01-31"})
 
 
+@pytest.mark.parametrize("written", [
+    "select q'!'${context.codes}'!' from dual",
+    "select Q'#'${context.codes}'#' from dual",
+    "select nq'|'${context.t}'|' from dual",
+    # The mark may be a quote itself.
+    "select q'''${context.t}''' from dual",
+])
+def test_a_text_written_oracles_other_way_that_starts_with_a_quote_takes_no_value(written):
+    """The mark that opens such a text never ends it, whatever stands after it.
+
+    Found on the second pass over the database group. The reader took the
+    mark and the quote after it for the end of the text, and wrote the
+    value in as if it stood outside quotes: a list whose first text ended
+    with the mark then ended the text for Oracle, and the rest of the list
+    was the statement's.
+    """
+    assert "stands inside a text written q'...'" in refused(written)
+
+
+def test_what_stands_after_a_text_written_oracles_other_way_that_starts_with_a_quote_is_read_as_it_is():
+    assert oracle("select q'!'!' c, v from t where d = '${context.d}'") == (
+        "select q'!'!' c, v from t where d = :context_d", {"context_d": "2024-01-31"})
+    assert oracle("select q'!'it's'!' c from t where d = '${context.d}'") == (
+        "select q'!'it's'!' c from t where d = :context_d", {"context_d": "2024-01-31"})
+    # A text of nothing between two marks that are quotes.
+    assert oracle("select q'''' c from t where d = '${context.d}'") == (
+        "select q'''' c from t where d = :context_d", {"context_d": "2024-01-31"})
+
+
+@pytest.mark.parametrize("written", [
+    "select 1 from t where name like\nq'[it's ${context.d}]'",
+    "select 1 from t where name like\nnq'[it's ${context.d}]'",
+])
+def test_a_text_written_oracles_other_way_at_the_start_of_a_line_is_one_whatever_ends_the_line_before(written):
+    # A word at the end of the line before is no part of the q: the line break stands between them.
+    assert "stands inside a text written q'...'" in refused(written)
+
+
+def test_a_text_of_the_national_set_at_the_start_of_a_line_keeps_its_n():
+    assert oracle("select 1 from t where name like\nN'${context.d}'") == (
+        "select 1 from t where name like\n:context_d", {"context_d": "2024-01-31"})
+
+
+def test_a_text_written_oracles_other_way_that_a_value_follows_at_once_takes_no_value():
+    assert "stands inside a text written q'...'" in refused("select q'${context.t}' from dual")
+    assert "stands inside a text written q'...'" in refused("select q'!${context.t}!' from dual")
+
+
 # ------------------------------------------------------------------
 # What the whole statement may be
 # ------------------------------------------------------------------

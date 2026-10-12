@@ -398,8 +398,11 @@ def test_closing_with_work_waiting_fails_and_rolls_back(path):
     assert session.did[-2:] == ["rollback", "close"]
 
 
-def test_work_on_a_session_the_database_closed_does_not_wait(path):
-    """It is lost. A close has nothing to fail on, and a session that is dead is asked nothing about its work."""
+LOST = "the database has closed the session of 'conn': what out did on it was never stored, and is lost"
+
+
+def lost_with_its_session():
+    """Work that waited on a shared session when the database closed it."""
     sessions = Sessions()
     session = Broken("conn")
     sessions.share(session)
@@ -407,8 +410,75 @@ def test_work_on_a_session_the_database_closed_does_not_wait(path):
     session.run("x")
     sessions.subjob_succeeded()
     session.dead = True
-    assert sessions.close("conn") is True
+    return sessions, session
+
+
+@pytest.mark.parametrize("uncommitted", ["fail", "commit"])
+def test_a_close_over_work_that_was_lost_with_its_session_fails_and_says_whose(uncommitted):
+    """Found on the second pass over the database group: such work did not wait any more, so a close had nothing
+    to fail on, and a job whose rows were never stored ended as one that had succeeded."""
+    sessions, session = lost_with_its_session()
+    with pytest.raises(DatabaseError) as failed:
+        sessions.close("conn", uncommitted)
+    assert str(failed.value) == LOST
+    # A session that is dead is asked nothing about its work, and is let go all the same.
+    assert session.did[-1] == "close" and "rollback" not in session.did and "commit" not in session.did
+    with pytest.raises(DatabaseError):
+        sessions.shared("conn")
+
+
+def test_a_close_that_was_to_take_the_work_back_has_nothing_to_say_of_work_that_was_lost():
+    sessions, session = lost_with_its_session()
+    assert sessions.close("conn", "rollback") is True
     assert session.did[-1] == "close" and "rollback" not in session.did
+
+
+def test_a_job_that_ends_over_work_that_was_lost_with_its_session_says_so():
+    sessions, session = lost_with_its_session()
+    assert sessions.job_ends() == [("conn", LOST)]
+    assert session.did[-1] == "close" and "rollback" not in session.did
+
+
+def test_work_that_was_lost_with_its_session_does_not_wait_and_is_still_said_when_the_session_is_closed():
+    """A component that asks what waits is told nothing does; the close after it still says what was lost."""
+    sessions, session = lost_with_its_session()
+    assert sessions.waiting(session) == []
+    with pytest.raises(DatabaseError) as failed:
+        sessions.close("conn")
+    assert str(failed.value) == LOST
+
+
+def test_work_that_a_statement_stored_by_itself_is_not_lost_when_the_session_is_closed_after_it():
+    sessions = Sessions()
+    session = Broken("conn")
+    sessions.share(session)
+    sessions.working(session, "out")
+    session.run("x")
+    sessions.subjob_succeeded()
+    # Something committed without the engine, and then the database closed the session: nobody asked in between.
+    session.busy = False
+    session.dead = True
+    assert sessions.waiting(session) == [] and session.lost == []
+    assert sessions.close("conn") is True
+    assert sessions.job_ends() == []
+
+
+def test_a_subjob_that_fails_on_a_session_the_database_closed_names_everyone_whose_work_is_lost(caplog):
+    sessions = Sessions()
+    session = Broken("conn")
+    sessions.share(session)
+    sessions.working(session, "first")
+    session.run("x")
+    sessions.subjob_succeeded()
+    sessions.working(session, "a")
+    session.run("x")
+    session.dead = True
+    # A component of the same subjob asks what waits, and then works on it.
+    assert sessions.waiting(session) == []
+    sessions.working(session, "b")
+    with caplog.at_level("ERROR", logger="src.v2"):
+        sessions.subjob_failed()
+    assert "[conn] the database has closed its session: what first, a and b did on it is lost" in caplog.text
 
 
 @pytest.mark.parametrize("uncommitted, left", [("commit", [(1,)]), ("rollback", [])])

@@ -15,7 +15,8 @@ from ...engine.references import parsed
 from ...errors import ConfigurationError, DatabaseError
 from ...job.keys import CODE, Key, Kind
 from ...rows import HIDDEN, visible
-from ..base import DIE_ON_ERROR, FAULTS, Action, Transform, one_line
+from ...sessions import Session
+from ..base import DIE_ON_ERROR, FAULTS, Action, Transform, in_plain_words, one_line
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,10 @@ _TEXT = re.compile(r'"((?:[^"\\]|\\.)*)"')
 _NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)")
 # A statement whose doing cannot be told from the number of rows it says it changed: a block of PL/SQL, a call.
 _BLOCK = re.compile(r"(?:\s+|--[^\n]*\n?|/\*.*?\*/)*(?:begin|declare|call)\b", re.IGNORECASE | re.DOTALL)
+
+
+class _NotTakenBack(DatabaseError):
+    """A statement run for each row failed, and what it did before could not be taken back."""
 
 
 def _true(text: str) -> bool:
@@ -182,16 +187,45 @@ class OracleRow(Action, Transform):
             if not made.defines and session.alive():
                 # A statement the database refused has changed nothing: nothing of it waits to be stored.
                 sessions.changed_nothing(session, self.id)
+                # A block may have committed before it failed.
+                self._told_if_stored(session, waited)
             raise
         if not changed and not made.defines and not _BLOCK.match(text):
             # A query, or a statement that found no row: nothing of it waits to be stored. What a block of
             # PL/SQL changed cannot be seen, and counts.
             sessions.changed_nothing(session, self.id)
+        self._told_if_stored(session, waited)
+        self._left(made, changed)
+
+    def _take_back(self, session: Session, waited: List[str], fault: BaseException) -> None:
+        """Take back what the statement did for the rows before it failed, and with it the word that it waits to
+        be stored.
+
+        Raises:
+            _NotTakenBack: When the place that was marked is gone: the
+                statement ended the transaction it was in, as a block
+                that commits does. What it did stays, and the failure
+                says so beside its reason.
+        """
+        try:
+            session.rollback_to(_MARK)
+        except DatabaseError as kept:
+            if not session.alive():
+                # The database closed the session meanwhile: what the statement did went with it.
+                return
+            self._told_if_stored(session, waited)
+            raise _NotTakenBack(
+                f"{in_plain_words(fault)}; what the statement did before that could not be taken back ({kept}): a "
+                "statement that stores by itself leaves no place to go back to") from None
+        self.run_context.sessions.changed_nothing(session, self.id)
+
+    def _told_if_stored(self, session: Session, waited: List[str]) -> None:
+        """Say so when the statement stored by itself what waited on the session: a block of PL/SQL may commit, or
+        define."""
         if waited and not session.in_transaction():
             logger.warning(one_line(
                 f"[{self.id}] the statement stored what waited on the session by itself: the work of "
                 f"{', '.join(waited)} is stored now, with no commit of the job's"))
-        self._left(made, changed)
 
     # ------------------------------------------------------------------
     # For each row
@@ -201,6 +235,8 @@ class OracleRow(Action, Transform):
         (frame,) = inputs.values()
         try:
             self._for_each(frame)
+        except _NotTakenBack as fault:
+            self.fail_or_go_on(fault, " with what it did left as it is")
         except FAULTS as fault:
             self.fail_or_go_on(fault, " with what it did taken back")
         return {"main": frame}
@@ -220,6 +256,7 @@ class OracleRow(Action, Transform):
         session, own = oracle.session_of(self)
         if own:
             sessions.own(session)
+        waited = sessions.waiting(session)
         sessions.working(session, self.id)
         session.savepoint(_MARK)
         changed, refused, first = 0, 0, ""
@@ -236,16 +273,15 @@ class OracleRow(Action, Transform):
                         raise DatabaseError(f"the database refused the statement for a row: {told}")
                     refused += len(turned_away)
                     first = first or told
-        except FAULTS:
+        except FAULTS as fault:
             if session.alive():
-                # What it did is taken back, and with it the word that it waits to be stored.
-                session.rollback_to(_MARK)
-                sessions.changed_nothing(session, self.id)
+                self._take_back(session, waited, fault)
             raise
         if not changed and not _BLOCK.match(text):
             # As when it is run once: a query, or a statement that found no row for any of them, leaves nothing
             # waiting.
             sessions.changed_nothing(session, self.id)
+        self._told_if_stored(session, waited)
         if refused:
             said = (f"the database refused the statement for {refused} of the {frame.height} rows; the first: {first}")
             self.global_map[f"{self.id}_ERROR_MESSAGE"] = said

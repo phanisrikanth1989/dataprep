@@ -360,6 +360,9 @@ class OracleSession(Session):
         one. A query it takes for one row only (sent for many, the session
         is lost), so a query is run row by row, and what it hands back is
         not fetched. What a block changed cannot be counted.
+
+        A failure that leaves the session closed is no row's: it is raised,
+        and nothing more is asked.
         """
         several = not isinstance(rows, int)
         total = rows.num_rows if several else rows
@@ -372,6 +375,8 @@ class OracleSession(Session):
                 try:
                     cursor.execute(statement, given)
                 except self._driver.Error as fault:
+                    if not self._held.is_healthy():
+                        raise
                     refused.append((at, said(fault)))
             return refused, [0] * total if counts else []
         start = 0
@@ -380,7 +385,7 @@ class OracleSession(Session):
                 cursor.executemany(statement, rows.slice(start) if several else total - start)
                 break
             except self._driver.Error as fault:
-                if _not_compiled(fault):
+                if _not_compiled(fault) or not self._held.is_healthy():
                     raise
                 at = start + (getattr(fault.args[0], "offset", 0) or 0)
                 refused.append((at, said(fault)))
@@ -404,8 +409,8 @@ class OracleSession(Session):
                     cursor.executemany(block, len(rows))
                 return {place: [cursor.bindvars[place].getvalue(at) for at in range(len(rows))] for place in outs}
             except driver.Error as fault:
-                if _not_compiled(fault):
-                    # The call itself is at fault, and no one row of it.
+                if _not_compiled(fault) or not self._held.is_healthy():
+                    # The call itself is at fault, or the session is closed: no one row of it is.
                     raise DatabaseError(said(fault)) from None
                 raise CallFailed(getattr(fault.args[0], "offset", 0) or 0, said(fault)) from None
 

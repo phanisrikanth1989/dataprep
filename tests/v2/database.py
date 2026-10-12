@@ -70,13 +70,21 @@ class SqliteSession(Session):
 
     def commit(self) -> None:
         self.did.append("commit")
+        self._connected()
         if self._held.in_transaction:
             self._held.execute("commit")
 
     def rollback(self) -> None:
         self.did.append("rollback")
+        self._connected()
         if self._held.in_transaction:
             self._held.execute("rollback")
+
+    def _connected(self) -> None:
+        """A session that is closed ends no transaction: what python-oracledb said of one the database had closed,
+        for a commit and for a rollback, on 2026-10-12."""
+        if self.closed:
+            raise DatabaseError("DPY-1001: not connected to database")
 
     def savepoint(self, name: str) -> None:
         self.run(f"savepoint {name}")

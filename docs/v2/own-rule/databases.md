@@ -31,6 +31,11 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
   `DROP`, `TRUNCATE` and the like) stores what waited on the session
   before it. The engine sees that, and does not say afterwards that the
   work waits.
+- **Work that waited on a session the database closed is lost, and the
+  job has failed.** A close of that session fails and says whose work
+  it was, unless it was to take the work back anyway (`uncommitted:
+  rollback`). So does the end of a job that never closed it. A commit
+  on it fails in the database's own words.
 - A job run by another job has sessions of its own. None is shared
   between them.
 
@@ -111,6 +116,11 @@ statement does**:
   and the like) takes no bound value in Oracle. There a value in quotes
   is written as text with its quotes doubled, which Oracle reads as
   that text and nothing else.
+- **A text written Oracle's other way (`q'[...]'`, `q'!...!'`) takes no
+  value**, and the component fails saying so: write that text with
+  plain quotes, so that the value can be bound. Such a text is read as
+  Oracle reads it: whatever its mark is, with a quote as its first
+  character, and at the start of a line.
 - **A statement is read as its own database reads one.** For SQL Server
   a bound value is a mark (`?`) and texts are joined with `+`; a name
   may stand between square brackets (`[it's]`), a remark inside a
@@ -352,13 +362,21 @@ statement does**:
   - A row the database refuses fails the job and names the row
     (`line 3 of in.csv`); with `die_on_error` off the others are done,
     and one warning says how many were refused.
+  - A session the database closes while the rows are run is no row's
+    fault: the statement fails as a whole, and no row after it is tried.
 - **A statement that defines** (`CREATE`, `ALTER`, `TRUNCATE`...) is
   stored by Oracle at once, with whatever waited on the session. It is
   refused on a session with work that waits, and is not run for each
   row of a flow.
 - A block of PL/SQL that commits, or defines, also stores what waited.
   That cannot be seen before it runs. When it has happened, a warning
-  says whose work was stored that way.
+  says whose work was stored that way, also when the block failed
+  after it.
+- **A statement that commits by itself cannot be taken back.** Run for
+  each row, with a row it is refused for, the failure says why and
+  which row, and that what it did before could not be taken back: the
+  rows it was run for before and after that one in the same round trip
+  stay stored.
 - **With a flow from it and none to it, it hands on one row with
   nothing in it**, as Talend does: what the flow leads to runs once. A
   commit that follows by a flow stores what the statement did.
@@ -407,9 +425,10 @@ statement does**:
   too, and a warning then says whose work that was.
 - A call that fails fails the job, with Oracle's words and the row
   (`line 2 of in.csv`). The calls before it in the same subjob are
-  rolled back with it. A call that cannot be compiled (no such
-  procedure, the wrong number of arguments) fails as a whole, and
-  names no row.
+  rolled back with it; what a procedure committed by itself is not. A
+  call that cannot be compiled (no such procedure, the wrong number of
+  arguments) fails as a whole, and names no row. So does a call under
+  which the database closes the session.
 - `nls_language` and `nls_territory` set the session's before the first
   call, when they are not `NONE`.
 - Refused when the job loads: a `RECORDSET` argument (a cursor that a

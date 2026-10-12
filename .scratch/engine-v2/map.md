@@ -462,7 +462,10 @@ documentation.
   -- six findings and seven more of their kinds; a value in a remark
   could end the remark and change the statement, on both databases,
   fixed: every value that is written in is held to one rule wherever it
-  stands. The row for each row now runs blocks and queries too.
+  stands. The row for each row now runs blocks and queries too. A
+  second pass found those fixes hold, and seven faults more: a text
+  written `q'...'` that a value could end, and work lost with a session
+  the database closed, which now fails the job.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

@@ -382,8 +382,10 @@ class _Writer:
             if self.state == "code":
                 if char == "'":
                     if self.dialect.other_quotes and self._opens_other_quotes(piece, at):
+                        # The mark that opens the text goes with its quote: it ends nothing, whatever follows it
+                        # (q'!'...'!' is a text that starts with a quote).
                         opener = piece[at + 1:at + 2]
-                        self.state, self.ends = "other", _PAIRS.get(opener, opener) + "'"
+                        self.state, self.ends, step = "other", _PAIRS.get(opener, opener) + "'", 2
                     else:
                         self.state, self.fresh, self.joined = "text", True, False
                         self._open_text()
@@ -443,7 +445,7 @@ class _Writer:
         last, before = self.out[-1:], self.out[-2:-1]
         # An N that ends a word (THEN'...') is no N of a text.
         national = last in (["N"], ["n"]) and not (
-            before and isinstance(before[0], str) and re.search(r"[\w$#@]$", before[0]))
+            before and isinstance(before[0], str) and re.search(r"[\w$#@]\Z", before[0]))
         self.opener = (self.out.pop() if national else "") + "'"
         self.out.append(self.opener)
 
@@ -455,7 +457,8 @@ class _Writer:
         rest = before[:-1]
         if rest[-1:] in ("n", "N"):
             rest = rest[:-1]
-        return not re.search(r"[\w$#]$", rest)
+        # The very end, and not the end of a line: a line break before the q parts it from the word before.
+        return not re.search(r"[\w$#]\Z", rest)
 
     def _mark(self) -> None:
         """A mark of a prepared statement: the value given for its place is bound there."""

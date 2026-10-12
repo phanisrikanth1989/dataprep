@@ -161,5 +161,152 @@ were run again on the tree as it is: all caught.
 - **What is written into a statement shows in the log**, with the
   statement: a table's name, a number, a list. Only bound values never
   do. A password written into a statement outside quotes would show.
-- A second pass over the fixes, by the same reviewer, was asked for.
-  What it finds is under "The second pass".
+- The second pass, below, found more. **Three things in it change what
+  a job does**; they are under its own "For the user's eye".
+
+## The second pass
+
+The same reviewer read the tree with the fixes above, and was asked to
+break them. While it did, I read the fixed code again myself.
+
+### What the reviewer found
+
+- **The four fixes hold.** It could not make a value change a statement
+  on either database, could not get real work forgotten, and found the
+  new way a statement is run for each row right, on the real Oracle.
+- One note on speed: an insert of values with a query among them goes
+  one row at a time also when the query reads another table, or when
+  the word `select` only stands in a text. Kept as it is; why is under
+  "What was decided".
+- One note it did not count: a block that commits and then fails stored
+  what waited, and no warning said so. Fixed.
+- It could not try a session the database closes: it was not to touch
+  the containers. I tried that with the scratch Oracle's own
+  administrator. Two of the faults below came from it.
+
+### What my own reading found
+
+1. **A text written `q'!'...'!'` could be ended by a value.** Such a
+   text starts with a quote. The reader took the mark and that quote
+   for the end of the text, and wrote the value in as if no quotes
+   stood round it. Shown on the real Oracle: a query read a column it
+   never named. In the reader since ticket 121; never pushed.
+2. **A text written `q'[...]'` at the start of a line, after a line that
+   ends in a word, was taken for a plain text.** The check for "a word
+   stands before the q" also took a line break for the end. Found by
+   holding the reader beside the driver's own reader, place by place.
+3. **Work that waited on a session the database closed was lost without
+   a word.** A statement with `die_on_error` off failed on the closed
+   session, the job went on, and a close after it had "nothing to fail
+   on". The job ended as one that had succeeded; the rows of the
+   components before were never stored.
+4. **A session closed under a block, a query or a call run for each row
+   was blamed on rows.** Every row after it was said to be refused; a
+   call named the first row of its batch.
+5. **A block run for each row that commits, refused for one row, told
+   the job only `ORA-01086`**: that the place marked before it was
+   gone. Not why, not which row, not that the other rows stay stored.
+6. Run for each row, a statement that stored what waited said nothing
+   of it. Run once, it did.
+7. A name that was never used stood in the stored procedure. Gone.
+
+### Answer
+
+Fixed on 2026-10-12.
+
+- `src/v2/statements.py`: the mark that opens a `q'...'` text is read
+  with its quote, and never ends the text. A word before the q counts
+  only when it stands right against it.
+- `src/v2/sessions.py`: work that waited on a session the database
+  closed is kept as lost. A close of that session fails and says whose
+  it was, unless it was to roll back anyway; so does the end of a job.
+- `src/v2/oracle.py`: a failure that leaves the session closed is the
+  statement's own, for a block, a query and a call. No row is named,
+  and no row after it is tried.
+- `src/v2/components/database/oracle_row.py`: the warning that a
+  statement stored what waited is said for each row too, and also when
+  the statement failed after it. What could not be taken back is said
+  beside the reason and the row.
+- `tests/v2/database.py`: the stand-in fails a commit and a rollback on
+  a closed session, as the real driver was seen to.
+- `tests/v2/oracle/test_reader_beside_the_driver.py`: the comparison
+  that found fault 2, kept as a test against the real Oracle. About
+  100,000 small statements, each place of each.
+- Docs: `docs/v2/own-rule/databases.md`.
+
+### What was decided
+
+- **A close over work that was lost fails.** Ticket 119 had it the
+  other way ("a close has nothing to fail on"). Rows that were said to
+  be stored and are not must never end as a success.
+- **A close that was to roll back says nothing of lost work.** The job
+  asked for that work to go.
+- **The insert that reads as it writes stays one row at a time, lookups
+  of other tables too.** v2 cannot know what a view or a function
+  reads. A wrong value without a word is worse than a slow run, and a
+  round trip a row is what Talend's own component costs for every
+  statement. Not built: sending such an insert inside a block, which
+  would be one round trip a batch. Values behave differently inside
+  PL/SQL (a text over 32,767 characters, a true/false), so it needs
+  trying of its own.
+
+### What was learned of the driver
+
+- After the database closes a session, python-oracledb 26.0.1 still
+  says a transaction is open on it. A statement on it fails with
+  `DPY-4011`, and everything after that with `DPY-1001`, a commit and
+  a rollback too. Closing it is safe.
+- Its own reader takes any `q'` for the start of such a text, also
+  after a word (`xq'...'`). Oracle takes the word, as v2's reader does.
+  No statement Oracle accepts has a word against a quote, so nothing
+  follows from it.
+
+### Slips
+
+- **My first comparison "on the tree before the fix" ran on the tree
+  with the fix.** Python looked for the code beside the script first.
+  It proved nothing of the old tree. The tests were seen failing
+  against the old code instead, and the mutation check holds the
+  comparison.
+- **My first test of fault 3 made the stand-in end its transaction when
+  the session died.** The real driver does not, so the fix looked as if
+  it did nothing. The stand-in now answers as the driver was seen to.
+- Not every test was seen failing one by one: 21 of the 39 were. The
+  others hold what must stay as it is, or were written after the code;
+  the mutation check holds those.
+- A session of Oracle's own client (thick mode) is now asked whether a
+  transaction is open after the database closed it. Not tried: no
+  client was at hand.
+
+### How it was tested
+
+39 tests, one of them in place of the test that held the old decision:
+38 more.
+
+- 9 of the statement reader, 6 seen failing first.
+- 7 of the sessions, 4 seen failing first.
+- 4 of the Oracle session against the stand-in driver, 3 seen failing
+  first.
+- 14 of the row on SQLite, 7 seen failing first.
+- 5 against the real Oracle. The first was seen failing; the others
+  were written after probes had shown each fault on the real database.
+- Gate: 8,396 passed, 105 modules at 95% or more. Real Oracle: 72
+  passed. Real SQL Server: 62 passed.
+
+### Mutation check
+
+36 ways of breaking these fixes. 35 were caught at first. The one that
+was not: the comparison beside the driver did not hold the line-start
+case, which only the unit test did. Its statements were widened, and it
+is caught there now.
+
+**For the user's eye**
+
+- **A job that lost its session with work waiting on it fails now**,
+  at the close or at its end, and says whose work was lost. Before, it
+  could end as a success.
+- **A statement that commits by itself cannot be taken back by v2.** A
+  block run for each row, refused for one row: the others stay stored.
+  The failure now says so.
+- A `q'...'` text takes no value, as before. Two shapes of it that
+  were misread are read right now.

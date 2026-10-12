@@ -95,6 +95,23 @@ def test_a_block_that_defines_stores_what_waited_and_the_log_says_so(oracle_db, 
     assert "[r] the statement stored what waited on the session by itself: the work of first is stored now" in caplog.text
 
 
+@pytest.mark.parametrize("die_on_error", [True, False])
+def test_a_block_that_commits_and_then_fails_has_stored_what_waited_and_the_log_says_so(oracle_db, table, caplog, die_on_error):
+    components = [
+        {"id": "conn", "type": "tOracleConnection", "config": oracle_db.block(), "inputs": [], "outputs": []},
+        row(oracle_db, f"insert into {table} values (1, 'waits')", component_id="first", own=False),
+        row(oracle_db, "begin commit; raise_application_error(-20001, 'no'); end;", own=False, die_on_error=die_on_error),
+    ]
+    made = job(components, [], triggers=[{"type": "OnSubjobOk", "from": a, "to": b} for a, b in (("conn", "first"), ("first", "r"))])
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run_job(made)
+    assert result.status == ("failed" if die_on_error else "success")
+    # Stored, though the statement failed; said; and the job does not end saying it was never stored.
+    assert held_in(oracle_db, table) == [(1, "waits")]
+    assert "[r] the statement stored what waited on the session by itself: the work of first is stored now" in caplog.text
+    assert list(result.failures) == (["r"] if die_on_error else [])
+
+
 def test_a_statement_that_defines_is_refused_over_work_that_waits(oracle_db, table):
     components = [
         {"id": "conn", "type": "tOracleConnection", "config": oracle_db.block(), "inputs": [], "outputs": []},
@@ -170,6 +187,19 @@ def test_a_block_for_each_row_with_the_rows_values_bound(oracle_db, table, tmp_p
     assert result.status == "success", result.error
     assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (4, "d")]
     assert "[r] the database refused the statement for 2 of the 5 rows; the first: ORA-12899:" in caplog.text
+
+
+def test_a_block_for_each_row_that_commits_and_fails_for_a_row_says_why_and_what_stays(oracle_db, table, tmp_path):
+    # Found on the second pass: the job was told only ORA-01086, that the place marked before the statement was
+    # gone, and nothing of the row or of what stayed stored.
+    query = f'"begin insert into {table} (n, v) values (" + row1.ID + ", \'" + row1.V + "\'); commit; end;"'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n2;b\n3;much too long a text for the column\n4;d\n", query))
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error.startswith("the database refused the statement for a row: ORA-12899:")
+    assert f"the row is line 3 of {tmp_path / 'in.csv'}" in result.error
+    assert "; what the statement did before that could not be taken back (ORA-01086:" in result.error
+    assert result.error.endswith("a statement that stores by itself leaves no place to go back to")
+    assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (4, "d")]
 
 
 def test_a_block_that_cannot_be_compiled_is_no_rows_fault(oracle_db, tmp_path):

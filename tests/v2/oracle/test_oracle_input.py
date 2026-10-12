@@ -193,3 +193,17 @@ def test_a_value_in_a_remark_of_the_query_cannot_end_the_remark(oracle_db, wide,
     result, lines = reading(oracle_db, tmp_path, "id:Decimal#0, v:str", query, context={"who": "nightly_load"})
     assert result.status == "success", result.error
     assert lines[1:] == ["2; pad "]
+
+
+def test_a_value_in_a_text_written_the_other_way_cannot_end_the_text(oracle_db, wide, tmp_path):
+    # Found on the second pass: the text starts with a quote, and the reader took the mark and that quote for its
+    # end. Sent as it was, this read a column the query never named.
+    query = f"select q'!'${{context.who}}'!' as a, 'b' as b, 'c' as c from {wide} where id = 2"
+    result, lines = reading(oracle_db, tmp_path, "a:str, b:str, c:str", query, context={"who": "'x!', v, 'y'"})
+    assert (result.status, result.failed_component, lines) == ("failed", "in", None)
+    assert result.error.startswith("context.who stands inside a text written q'...'")
+    # What stands after such a text is read as Oracle reads it: a value in quotes there is bound.
+    query = f"select q'!'!' || v as a from {wide} where v = '${{context.who}}'"
+    result, lines = reading(oracle_db, tmp_path, "a:str", query, context={"who": "o'brien"})
+    assert result.status == "success", result.error
+    assert lines[1:] == ["'o'brien"]

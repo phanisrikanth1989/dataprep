@@ -186,6 +186,8 @@ class Session:
         schema: The schema its connection block names, where a table is
             looked for.
         pending: The ids of the components whose work on it is not stored.
+        lost: The ids of the components whose work waited on it when the
+            database closed it: never stored, and gone.
     """
 
     def __init__(
@@ -197,6 +199,7 @@ class Session:
         self.auto_commit = auto_commit
         self.schema = schema
         self.pending: List[str] = []
+        self.lost: List[str] = []
         # In the subjob being run: who changed something through it, and what was pending before the first did.
         self.in_subjob: List[str] = []
         self.before_subjob: List[str] = []
@@ -418,12 +421,15 @@ class Sessions:
 
         Raises:
             DatabaseError: When work was waiting and the close was to fail
-                on it. The session is closed all the same.
+                on it; or when work was lost with a session the database
+                closed, and the close was not to take it back anyway. The
+                session is closed all the same.
         """
         session = self._shared.get(connection_id)
         if session is None:
             return False
         waiting = self._unstored(session)
+        lost = list(session.lost)
         try:
             if waiting and uncommitted == "commit":
                 session.commit()
@@ -431,6 +437,8 @@ class Sessions:
                 session.rollback()
         finally:
             self._let_go(connection_id)
+        if lost and uncommitted != "rollback":
+            raise DatabaseError(_lost(connection_id, lost))
         if waiting and uncommitted == "fail":
             raise DatabaseError(
                 f"what {_named(waiting)} did on the session of '{connection_id}' was never stored, and is rolled "
@@ -512,7 +520,8 @@ class Sessions:
                 continue
             did, session.in_subjob = session.in_subjob, []
             if not session.alive():
-                logger.error(f"[{connection_id}] the database has closed its session: what {_named(session.pending)} "
+                gone = session.lost + [held for held in session.pending if held not in session.lost]
+                logger.error(f"[{connection_id}] the database has closed its session: what {_named(gone)} "
                              "did on it is lost")
                 self._let_go(connection_id)
                 continue
@@ -528,7 +537,8 @@ class Sessions:
         """Close every session that is still open.
 
         Work that waits on one is rolled back, and is a failure of the
-        job: rows that were loaded and never stored.
+        job: rows that were loaded and never stored. So is work that was
+        lost with a session the database closed.
 
         Returns:
             Each such failure: the connection component, and what to say.
@@ -537,6 +547,8 @@ class Sessions:
         told: List[Tuple[str, str]] = []
         for connection_id, session in list(self._shared.items()):
             waiting = self._unstored(session)
+            if session.lost:
+                told.append((connection_id, _lost(connection_id, session.lost)))
             if waiting:
                 _quietly(session.rollback)
                 told.append((connection_id, (
@@ -549,14 +561,26 @@ class Sessions:
     # ------------------------------------------------------------------
 
     def _unstored(self, session: Session) -> List[str]:
-        """The components whose work waits on a session; none when the database holds nothing unstored."""
-        if session.pending and not (session.alive() and session.in_transaction()):
+        """The components whose work waits on a session; none when the database holds nothing unstored.
+
+        Work that waited on a session the database has closed waits no
+        more: it is kept as lost, for whoever ends the session to say.
+        """
+        if session.pending and not session.in_transaction():
             # Something stored it without the engine: a statement that commits by itself.
+            session.pending = []
+        elif session.pending and not session.alive():
+            session.lost += [held for held in session.pending if held not in session.lost]
             session.pending = []
         return list(session.pending)
 
     def _let_go(self, connection_id: str) -> None:
         _closed(self._shared.pop(connection_id))
+
+
+def _lost(connection_id: str, component_ids: List[str]) -> str:
+    return (f"the database has closed the session of '{connection_id}': what {_named(component_ids)} did on it was "
+            "never stored, and is lost")
 
 
 def _named(component_ids: List[str]) -> str:

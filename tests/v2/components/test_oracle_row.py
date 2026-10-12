@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.v2 import load_job, run_job
-from src.v2.errors import JobRefusedError
+from src.v2.errors import DatabaseError, JobRefusedError
 from tests.v2.components.kit import columns, flow, job, reader, writer
 from tests.v2.components.test_oracle_connection import BLOCK, after, connection
 from tests.v2.database import WITH_DOES, SqliteSession, on_sqlite  # noqa: F401 -- a fixture
@@ -154,8 +154,6 @@ def test_a_statement_the_database_refuses_takes_nothing_of_an_earlier_statements
 
 
 def test_a_session_the_database_closed_under_a_statement_is_said_to_be_lost(emp, monkeypatch, caplog):
-    from src.v2.errors import DatabaseError
-
     def dies(self, statement, binds=None):
         if statement.startswith("delete"):
             self.closed = True
@@ -168,6 +166,57 @@ def test_a_session_the_database_closed_under_a_statement_is_said_to_be_lost(emp,
         result = run(once("delete from emp", with_commit=False))
     assert (result.status, result.failed_component) == ("failed", "r")
     assert "the database has closed its session: what r did on it is lost" in caplog.text
+
+
+def _ends(kind, **config):
+    return {"id": "x", "type": kind, "config": {"connection": CONN, **config}, "inputs": [], "outputs": []}
+
+
+@pytest.mark.parametrize("last, failed_at, said", [
+    ([_ends("tOracleClose", uncommitted="commit")], "x", "the database has closed the session of 'tDBConnection_1': "
+     "what first and r did on it was never stored, and is lost"),
+    ([_ends("tOracleClose")], "x", "the database has closed the session of 'tDBConnection_1': what first and r did "
+     "on it was never stored, and is lost"),
+    ([_ends("tOracleCommit")], "x", "DPY-1001: not connected to database"),
+    ([], CONN, "the database has closed the session of 'tDBConnection_1': what first and r did on it was never "
+     "stored, and is lost"),
+])
+def test_work_that_waited_on_a_session_the_database_closed_fails_the_job_however_it_ends(emp, monkeypatch, last, failed_at, said):
+    """Found on the second pass over the database group. The session is closed under a statement whose failure
+    does not stop the job, after another statement's work waited on it. Before, the job then ended as one that had
+    succeeded, whatever followed but a commit: the work was no longer said to wait, and nothing said it was lost."""
+    def dies(self, statement, binds=None):
+        if statement.startswith("update"):
+            # As the driver was seen to leave such a session: closed, and still saying a transaction is open.
+            self.closed = True
+            raise DatabaseError("DPY-4011: the database or network closed the connection")
+        return plain(self, statement, binds)
+
+    plain = SqliteSession.run
+    monkeypatch.setattr(SqliteSession, "run", dies)
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("update emp set name = 'x'", die_on_error=False)] + last
+    result = run(job(components, [], triggers=after(*(component["id"] for component in components))))
+    assert (result.status, result.failed_component, result.error) == ("failed", failed_at, said)
+    # What the first statement did was never stored.
+    assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
+
+
+def test_a_close_that_takes_work_back_says_nothing_of_work_that_was_lost_with_its_session(emp, monkeypatch):
+    def dies(self, statement, binds=None):
+        if statement.startswith("update"):
+            # As the driver was seen to leave such a session: closed, and still saying a transaction is open.
+            self.closed = True
+            raise DatabaseError("DPY-4011: the database or network closed the connection")
+        return plain(self, statement, binds)
+
+    plain = SqliteSession.run
+    monkeypatch.setattr(SqliteSession, "run", dies)
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("update emp set name = 'x'", die_on_error=False), _ends("tOracleClose", uncommitted="rollback")]
+    result = run(job(components, [], triggers=after(*(component["id"] for component in components))))
+    assert result.status == "success", result.error
+    assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
 
 
 def test_a_statement_after_another_on_one_session_is_not_said_to_have_stored_anything(emp, caplog):
@@ -223,6 +272,40 @@ def test_a_statement_that_defines_is_refused_over_work_that_waits(emp):
     assert result.failures["r"] == ("the statement is one that defines, and Oracle stores what waits on a session "
                                     "before one: the work of first would be stored with it. Put a commit before it")
     assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
+
+
+@pytest.mark.parametrize("die_on_error", [True, False])
+def test_a_statement_that_stores_by_itself_what_waited_and_then_fails_is_told_too(emp, monkeypatch, caplog, die_on_error):
+    """A block may commit and then fail. What waited is stored by then, though the statement is said to have
+    failed; noted by the second pass over the database group, which had no warning on that path."""
+    plain = SqliteSession.run
+
+    def store_and_fail(self, statement, binds=None):
+        if "-- stores" in statement:
+            self._held.execute("commit")
+            raise DatabaseError("ORA-20001: no")
+        return plain(self, statement, binds)
+
+    monkeypatch.setattr(SqliteSession, "run", store_and_fail)
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("delete from emp where id = 2 -- stores", die_on_error=die_on_error)]
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(job(components, [], triggers=after(CONN, "first", "r")))
+    assert result.status == ("failed" if die_on_error else "success")
+    assert ("[r] the statement stored what waited on the session by itself: the work of first is stored now, with no "
+            "commit of the job's") in caplog.text
+    # It is stored, and no failure of the job says it was never stored.
+    assert emp.stored(EMP) == [(2, "bob")]
+    assert "never stored" not in str(result.failures)
+
+
+def test_a_statement_that_fails_and_stored_nothing_is_not_said_to_have_stored_what_waited(emp, caplog):
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("delete from nope", die_on_error=False), commit()]
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(job(components, [], triggers=after(CONN, "first", "r", "c")))
+    assert result.status == "success", result.error
+    assert "stored what waited" not in caplog.text
 
 
 def test_a_statement_that_stores_by_itself_what_waited_is_told(emp, monkeypatch, caplog):
@@ -426,6 +509,114 @@ def test_a_statement_with_nothing_of_the_row_in_it_that_is_refused_for_a_row_nam
     assert result.failures["r"] == ("the database refused the statement for a row: UNIQUE constraint failed: emp.id; "
                                     f"the row is line 2 of {tmp_path / 'in.csv'}")
     assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
+
+
+def _stores_by_itself(monkeypatch):
+    """Make a statement run for each row one that commits when it has run, as a block of PL/SQL may."""
+    plain = SqliteSession.many
+
+    def stores(self, statement, rows, counts=False):
+        answer = plain(self, statement, rows, counts)
+        self._held.execute("commit")
+        return answer
+
+    monkeypatch.setattr(SqliteSession, "many", stores)
+
+
+def test_for_each_row_a_statement_that_stores_by_itself_and_is_refused_for_a_row_says_why_and_what_stays(emp, tmp_path, monkeypatch):
+    """Found on the second pass over the database group, against the real Oracle: the job was told only that the
+    place marked before the statement was gone (ORA-01086), and nothing of the row or of what stayed stored."""
+    _stores_by_itself(monkeypatch)
+    made = for_rows(tmp_path, "1;al\n2;much too long\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id',
+                    with_commit=False)
+    result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error.startswith("the database refused the statement for a row: CHECK constraint failed")
+    assert f"the row is line 2 of {tmp_path / 'in.csv'}" in result.error
+    assert result.error.endswith("; what the statement did before that could not be taken back (no such savepoint: "
+                                 "v2_row): a statement that stores by itself leaves no place to go back to")
+    assert emp.stored(EMP) == [(1, "al"), (2, "bob")]
+    # Nothing of it waits: the job does not end saying work was never stored.
+    assert list(result.failures) == ["r"]
+
+
+def test_for_each_row_a_session_closed_while_what_it_did_is_taken_back_leaves_the_first_reason(emp, tmp_path, monkeypatch):
+    def closes(self, name):
+        self.closed = True
+        raise DatabaseError("DPY-4011: the database or network closed the connection")
+
+    monkeypatch.setattr(SqliteSession, "rollback_to", closes)
+    made = for_rows(tmp_path, "1;al\n2;much too long\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id',
+                    with_commit=False)
+    result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error == ("the database refused the statement for a row: CHECK constraint failed: length(name) < 8; "
+                            f"the row is line 2 of {tmp_path / 'in.csv'}")
+
+
+def test_for_each_row_a_statement_that_stored_what_waited_and_is_then_refused_for_a_row_is_told_too(emp, tmp_path, monkeypatch, caplog):
+    _stores_by_itself(monkeypatch)
+    made = for_rows(tmp_path, "1;al\n2;much too long\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id',
+                    with_commit=False)
+    made["components"].insert(1, row("insert into emp values (3, 'cy')", component_id="first"))
+    made["triggers"] = after(CONN, "first", "in")
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert ("[r] the statement stored what waited on the session by itself: the work of first is stored now, with no "
+            "commit of the job's") in caplog.text
+    assert emp.stored(EMP) == [(1, "al"), (2, "bob"), (3, "cy")]
+
+
+def test_for_each_row_with_die_on_error_off_what_could_not_be_taken_back_is_said_to_be_left(emp, tmp_path, monkeypatch, caplog):
+    """A fault of the statement as a whole, in a later round trip of one that stores by itself."""
+    from src.v2.components.database import oracle_row
+    monkeypatch.setattr(oracle_row, "_BATCH", 1)
+    plain = SqliteSession.many
+    sent = []
+
+    def stores_then_fails(self, statement, rows, counts=False):
+        sent.append(statement)
+        if len(sent) == 2:
+            raise DatabaseError("ORA-01013: user requested cancel of current operation")
+        answer = plain(self, statement, rows, counts)
+        self._held.execute("commit")
+        return answer
+
+    monkeypatch.setattr(SqliteSession, "many", stores_then_fails)
+    made = for_rows(tmp_path, "1;al\n2;bo\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id',
+                    with_commit=False, die_on_error=False)
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(made)
+    assert result.status == "success", result.error
+    assert ("[r] ORA-01013: user requested cancel of current operation; what the statement did before that could not "
+            "be taken back (no such savepoint: v2_row): a statement that stores by itself leaves no place to go back "
+            "to; the job goes on with what it did left as it is") in caplog.text
+    assert emp.stored(EMP) == [(1, "al"), (2, "bob")]
+
+
+def test_for_each_row_a_statement_that_stores_by_itself_what_waited_is_told(emp, tmp_path, monkeypatch, caplog):
+    _stores_by_itself(monkeypatch)
+    made = for_rows(tmp_path, "1;al\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id', with_commit=False)
+    made["components"].insert(1, row("delete from emp where id = 2", component_id="first"))
+    made["triggers"] = after(CONN, "first", "in")
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(made)
+    assert result.status == "success", result.error
+    assert ("[r] the statement stored what waited on the session by itself: the work of first is stored now, with no "
+            "commit of the job's") in caplog.text
+    assert emp.stored(EMP) == [(1, "al")]
+
+
+def test_for_each_row_a_statement_that_stores_nothing_by_itself_is_not_said_to(emp, tmp_path, caplog):
+    made = for_rows(tmp_path, "1;al\n", '"update emp set name = \'" + row1.name + "\' where id = " + row1.id')
+    made["components"].insert(1, row("delete from emp where id = 2", component_id="first"))
+    made["triggers"] = after(CONN, "first", "in", "c")
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run(made)
+    assert result.status == "success", result.error
+    assert "stored what waited" not in caplog.text
+    assert emp.stored(EMP) == [(1, "al")]
 
 
 def test_for_each_row_what_it_changed_waits_for_a_commit(emp, tmp_path):

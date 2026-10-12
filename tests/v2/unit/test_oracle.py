@@ -768,11 +768,22 @@ class Batching:
         kind: ``changes`` for an insert, update, delete or merge; ``block`` for PL/SQL; ``query``.
         fails: The rows the statement fails for, by their place in everything that is sent.
         whole: What is wrong with the statement itself: it is said when a query is parsed, and when a block is run.
+        dies: The row at which the database closes the session, as the real one was seen to be left on
+            2026-10-12: that row is told the connection was closed, the session is healthy no more, and whatever
+            is asked after it is told that nothing is connected.
     """
 
-    def __init__(self, held, kind, fails=(), whole=None):
+    def __init__(self, held, kind, fails=(), whole=None, dies=None):
         self.held, self.kind, self.fails, self.whole, self.description = held, kind, set(fails), whole, None
-        self.refused, self.counts = [], []
+        self.refused, self.counts, self.dies = [], [], dies
+
+    def _gone(self, first, size):
+        """Raise what the driver says when the session is closed at one of the rows sent, or was before."""
+        if not self.held.healthy:
+            raise failing("DPY-1001: not connected to database", 0)
+        if self.dies is not None and first <= self.dies < first + size:
+            self.held.healthy = False
+            raise failing("DPY-4011: the database or network closed the connection", 0)
 
     def __enter__(self):
         return self
@@ -797,6 +808,7 @@ class Batching:
         if self.whole:
             raise self.whole
         sent = getattr(self.held, "sent", 0)
+        self._gone(sent, size)
         wrong = [at for at in range(size) if sent + at in self.fails]
         if wrong and self.kind == "block":
             # The real one stops at the first that fails, and says which it was.
@@ -810,6 +822,7 @@ class Batching:
         at = getattr(self.held, "sent", 0)
         self.held.sent = at + 1
         self.held.did.append(("execute", statement, binds))
+        self._gone(at, 1)
         if at in self.fails:
             raise failing("ORA-01722: invalid number", 0)
 
@@ -887,6 +900,25 @@ def test_a_query_that_cannot_be_read_is_at_fault_as_a_whole_and_is_run_for_no_ro
     assert not [did for did in held.did if did[0] == "execute"]
 
 
+@pytest.mark.parametrize("kind, statement", [("block", "begin p(:1); end;"), ("query", "select f(:1) from dual")])
+def test_a_session_the_database_closes_under_a_statement_for_each_row_is_no_rows_fault(monkeypatch, kind, statement):
+    """Found on the second pass over the database group: every row after it was said to have been refused, each
+    with the driver's word that nothing is connected."""
+    session, held = batching(monkeypatch, kind, dies=1)
+    with pytest.raises(DatabaseError) as failed:
+        session.many(statement, pyarrow.table({"a": [10, 11, 12, 13, 14]}), counts=True)
+    assert str(failed.value) == "DPY-4011: the database or network closed the connection"
+    # Nothing more is asked of it.
+    assert len([did for did in held.did if did[0] in ("many", "execute")]) == (1 if kind == "block" else 2)
+    assert held.did[-1] == "cursor closed"
+
+
+def test_a_row_the_database_refuses_while_the_session_lives_is_still_that_rows_fault(monkeypatch):
+    session, held = batching(monkeypatch, "query", fails=(1,))
+    refused, _ = session.many("select f(:1) from dual", pyarrow.table({"a": [10, 11, 12]}))
+    assert [at for at, _ in refused] == [1]
+
+
 def test_a_statement_that_takes_no_value_is_sent_for_as_many_times_as_there_are_rows(monkeypatch):
     session, held = batching(monkeypatch, "changes")
     refused, changed = session.many("insert into log values (sysdate)", 3, counts=True)
@@ -940,6 +972,18 @@ def test_a_call_that_cannot_be_compiled_is_at_fault_as_a_whole_and_names_no_one_
         session.call("begin p(:1); end;", [(at,) for at in range(40)], {})
     assert not isinstance(failed.value, CallFailed)
     assert str(failed.value) == said_so
+
+
+def test_a_session_the_database_closes_under_a_call_is_no_one_calls_fault(monkeypatch):
+    """The place the driver gives with it is nought, which is no call: the first of the batch was named."""
+    from src.v2.sessions import CallFailed
+    made, _ = calling(monkeypatch, fails=failing("DPY-4011: the database or network closed the connection", 0))
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    made.opened[0].healthy = False
+    with pytest.raises(DatabaseError) as failed:
+        session.call("begin p(:1); end;", [(at,) for at in range(40)], {})
+    assert not isinstance(failed.value, CallFailed)
+    assert str(failed.value) == "DPY-4011: the database or network closed the connection"
 
 
 def test_what_cannot_be_compiled_inside_a_procedure_while_it_runs_is_the_fault_of_its_call(monkeypatch):
