@@ -11,6 +11,13 @@ What it does not support it refuses at load, in one refusal report. Done
 means the components are built and pass their answer-key tests, not that they
 are designed.
 
+Carried further on 2026-10-12: thirty more of v1's components (file jobs,
+loops and job control, XML, database), built for long use and not to v1 or
+Talend ([Thirty more components, future-ready: the decisions](issues/87-thirty-more-future-ready-the-decisions.md)).
+For these, done means built to what current practice shows to be sound,
+researched first, and passing tests that hold them to their own
+documentation.
+
 ## Notes
 
 - This map carries execution: decision tickets first, then the build. The
@@ -313,6 +320,11 @@ are designed.
   [Trace and only through the new components](issues/86-trace-and-only-through-the-new-components.md)
   -- 24 tests, one traced run for a picked row through each; nothing
   found wrong.
+  [Thirty more components, future-ready: the decisions](issues/87-thirty-more-future-ready-the-decisions.md)
+  -- not to v1 or Talend: researched first, memory that does not grow,
+  all or nothing, safe by default, the same output for the same input.
+  [File touch](issues/88-file-touch.md) -- the first of them; made in one
+  step only if nothing is there, never through a link.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -361,6 +373,29 @@ are designed.
   builder, by kind of component and by kind of source.
 
 ## Not yet specified
+
+For the thirty more components of 2026-10-12 (the paragraphs after this
+list are of the first destination, which is reached):
+
+- File jobs: file properties, raw file input, change file encoding, file
+  archive and file unarchive are still to be designed, each from Talend's
+  definition (for the names a converted job uses) and from what is safe
+  and usual today for archives, checksums and encodings.
+- Loops and job control wait on
+  [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).
+  The engine has no way yet to run a subjob once for each item. In
+  Talend nearly every file job can be the target of an iterate link, so
+  whatever the engine learns has to reach an action and a source alike.
+  Whether a reader should take many files in one read, in place of a
+  loop, is part of it.
+- XML waits on
+  [How current tools read and write XML](issues/91-how-current-tools-read-and-write-xml.md).
+- Database waits on
+  [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md):
+  which drivers, how rows go in and out without being held in memory,
+  what a transaction spans, and what is tested against.
+- Paths are local paths everywhere in v2. Object stores (S3 and the
+  like) are not designed for.
 
 The destination is reached: the engine and its components (sixteen at
 first, eighteen since 2026-10-07) are built

@@ -287,7 +287,8 @@ in the summary of a run that asked for it, and of no other.
      check, extract delimited fields, extract positional fields, extract
      regex fields, extract JSON fields;
    - the rest: Python dataframe, log row, context load, file row count,
-     die, warn, set global var, file exist, file copy, file delete.
+     die, warn, set global var, file exist, file copy, file delete,
+     file touch.
 4. Deal with refused config keys: each refusal says why.
 
 Everything else stays as it is. The job config keeps v1's shape and v1's
@@ -537,6 +538,9 @@ where it is `false` as in v1. Missing values are written as empty fields.
 ## Differences from v1
 
 v1 is the answer key, with these exceptions. Each is deliberate.
+
+For the components under "Components built to their own rule", at the
+end, v1 is no answer key at all.
 
 **The engine**
 
@@ -1457,3 +1461,35 @@ the two safeguards said first.
   write, are refused for now.
 - A file name is one file. Polars would read `*`, `?` and `[` in it as a
   pattern; v2 does not let it.
+
+## Components built to their own rule
+
+These are built for long use and not to v1 or Talend: v1 is not their
+answer key, and their tests hold them to what is written here. A converted
+job config still loads as it is: the keys the converter writes are the
+keys read, and where v1's engine reads another name, that name is taken
+too.
+
+What they share:
+
+- What cannot be done fails the job and says why. Where the job config
+  itself carries `die_on_error` and it is off, the job goes on with a
+  warning, and why is in `<id>_ERROR_MESSAGE`.
+- A file is written beside its place and put there when it is whole.
+- Each counts one row (`<id>_NB_LINE`, `_OK`, `_REJECT`) unless it says
+  otherwise.
+
+**File touch**
+
+- The file `filename` is made empty when it is not there; when it is,
+  what it holds is kept and the time it was changed is set to now. A
+  folder that is there has its time set as well.
+- The file is made in one step that makes it only if nothing is there, so
+  a file another job made in the meantime keeps what it holds, and
+  nothing is made through a link: a link to nowhere fails the job.
+- The folder the file is to stand in has to be there, unless `createdir`
+  is on (v1's `create_directory` is taken too).
+- The path is left in `<id>_FILENAME`, and the log says whether the file
+  was made or was there.
+- It is a subjob of its own: a flow to it refuses the job. (Talend lets
+  rows flow through it, touching the file once for each.)
