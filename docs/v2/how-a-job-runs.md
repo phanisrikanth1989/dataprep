@@ -8,6 +8,10 @@
   put in its encoding, which is the last thing the rows can fail, and only
   then are the files moved in. A run that is stopped leaves no temporary
   file behind.
+- What a subjob did in a database is stored when the whole subjob has
+  succeeded, after every file is ready and before any is moved in, and is
+  rolled back when it has not. See
+  [Sessions and transactions](own-rule/databases.md#sessions-and-transactions).
 - Subjobs run in v1's order: those nothing triggers in job-config order,
   and what a subjob triggers right after it. `OnSubjobOk`, `OnSubjobError`,
   `OnComponentOk`, `OnComponentError` and `RunIf` are supported. Of the

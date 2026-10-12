@@ -32,6 +32,7 @@ from ..job.keys import normalize_config, without_secrets
 from ..job.model import ComponentSpec, Iterate, Job, Only, RunSettings, Trigger
 from ..column_types import VIOLATION, conform
 from ..rows import first_of, shown, visible, without
+from ..sessions import Unstored
 from .conditions import evaluate
 from .context import Items, RunContext
 from .picking import MOST, check_only, columns_of, holds, in_words
@@ -209,6 +210,7 @@ class Runner:
         self.children: Dict[str, Dict[str, Any]] = {}
         self.run_context.child_jobs = job.children
         self.run_context.run_child = self._run_child
+        self.run_context.oracle = job.oracle
         self._wanted = _wanted_stats(job, self.run_context.job_text)
         if row_counts:
             self._wanted = {component_id: list(_STATS) for component_id in job.components}
@@ -224,6 +226,9 @@ class Runner:
         finally:
             # Items nothing looped over: no link left their component, or the run was stopped.
             self.run_context.put_away()
+            # Sessions nothing closed. Work that still waits on one was never stored: the job has failed.
+            for component_id, reason in self.run_context.sessions.job_ends():
+                self._record(result, component_id, reason)
             self.run_context.cleanup()
         if result.failures:
             result.status = "failed"
@@ -620,7 +625,7 @@ class Runner:
             self._collect([], state)
             self._place(state)
         except _Failed as failure:
-            _discard(state)
+            self._discard(state)
             if self.trace is not None:
                 # The trace goes as far as the failure, and holds it.
                 if failure.component_id in self.job.components:
@@ -630,8 +635,8 @@ class Runner:
                 self.trace += state.trace
             return failure
         except BaseException:
-            # A run that is stopped (Ctrl-C) leaves no file half written either.
-            _discard(state)
+            # A run that is stopped (Ctrl-C) leaves no file half written either, and no row half stored.
+            self._discard(state)
             raise
         if self.trace is not None:
             self.trace += state.trace
@@ -1022,13 +1027,15 @@ class Runner:
         return results[first_wanted:]
 
     def _place(self, state: _Subjob) -> None:
-        """Put every file the subjob wrote in place.
+        """Put every file the subjob wrote in place, and store what it did in a database.
 
         Each file is first made ready where it was written. That is the
         last thing the rows can fail (a character the file's encoding cannot
         write), and it is done for every file before any is put in place:
-        a subjob that fails leaves every file as it was. Then the files are
-        moved, in the order their components run.
+        a subjob that fails leaves every file as it was. Then what the
+        subjob did in a database is stored: a commit can fail, and no file
+        is in place yet when one does. Then the files are moved, in the
+        order their components run.
         """
         left: Set[str] = set()
         for component_id, write, temp, rows in state.written:
@@ -1042,6 +1049,11 @@ class Runner:
                     left.add(where)
             except Exception as exc:  # noqa: BLE001
                 raise _Failed(component_id, _reason(exc)) from exc
+
+        try:
+            stored = self.run_context.sessions.subjob_succeeded()
+        except Unstored as fault:
+            raise _Failed(fault.component_id, _reason(fault)) from fault
 
         while state.written:
             component_id, write, temp, rows = state.written.pop(0)
@@ -1062,7 +1074,18 @@ class Runner:
                     write.finish(rows)
                 logger.info(f"[{component_id}] wrote {rows} row(s) to {write.path}")
             except Exception as exc:  # noqa: BLE001
-                raise _Failed(component_id, _reason(exc)) from exc
+                reason = _reason(exc)
+                if stored:
+                    # A commit is not taken back: what failed after it is said with what stands.
+                    reason += f"; what {_named(stored)} did in the database is stored, and stays stored"
+                raise _Failed(component_id, reason) from exc
+
+    def _discard(self, state: _Subjob) -> None:
+        """Undo what a subjob that did not finish has done: its unplaced files go, and its work in a database
+        is rolled back."""
+        for temp in state.temps:
+            _remove(temp)
+        self.run_context.sessions.subjob_failed()
 
     def _blame(self, produced: List[Tuple[str, pl.LazyFrame]]) -> Optional[str]:
         """Find the first component whose own output cannot be computed.
@@ -1213,10 +1236,11 @@ def _given(plan: pl.LazyFrame) -> str:
         return f" Polars could not print it ({_reason(exc)})"
 
 
-def _discard(state: _Subjob) -> None:
-    """Remove what a subjob that did not finish wrote and has not put in place."""
-    for temp in state.temps:
-        _remove(temp)
+def _named(component_ids: List[str]) -> str:
+    """Component ids as words: ``a``, ``a and b``, ``a, b and c``."""
+    if len(component_ids) < 2:
+        return "".join(component_ids)
+    return f"{', '.join(component_ids[:-1])} and {component_ids[-1]}"
 
 
 def _reason(error: BaseException) -> str:

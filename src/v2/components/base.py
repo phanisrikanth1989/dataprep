@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, List,
 
 import polars as pl
 
-from ..errors import ConfigurationError
+from ..errors import ConfigurationError, DatabaseError
 from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
 from ..rows import REASON, described, first_of, key_column, row_column, shown, visible
@@ -93,14 +93,14 @@ _CONTROL = {code: f"\\x{code:02x}" for code in (*range(32), 127)}
 _CONTROL.update({9: "\\t", 10: "\\n", 13: "\\r"})
 
 
-# What a component that works on files may meet and cannot help: the job config asks for what cannot be done, the
+# What a component may meet and cannot help: the job config asks for what cannot be done, a database or the
 # file system says no, or a name or a text is not in the encoding it has to be in.
-FAULTS = (ConfigurationError, OSError, UnicodeError)
+FAULTS = (ConfigurationError, DatabaseError, OSError, UnicodeError)
 
 
 def in_plain_words(fault: BaseException) -> str:
     """A fault as the one line that says it: what the file system said, in its words and with the file it named."""
-    if isinstance(fault, ConfigurationError):
+    if isinstance(fault, (ConfigurationError, DatabaseError)):
         return str(fault)
     if isinstance(fault, OSError) and fault.strerror:
         named = f": '{fault.filename}'" if isinstance(fault.filename, str) else ""
@@ -175,6 +175,12 @@ class Component:
     # Whether the component runs another job as a step of this one: the job its `process` names, found, loaded
     # and checked together with this one, and its `context_params` the values it is given.
     runs_job: ClassVar[bool] = False
+    # The kind of database a connection component opens a session with, for other components to work on
+    # (``Oracle``); None for every other component.
+    opens_session: ClassVar[Optional[str]] = None
+    # The kind of database a component works in through the session of the connection component its
+    # `connection` names; None for a component that works in none. See ``connection_named``.
+    uses_session: ClassVar[Optional[str]] = None
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -513,6 +519,20 @@ class Component:
             if flow_type in flow_types:
                 return port
         return None
+
+    @classmethod
+    def connection_named(cls, config: Mapping[str, Any]) -> Optional[str]:
+        """The id of the connection component whose session it works on, as its config says.
+
+        None when it works on no shared session: it uses none at all, or
+        its `use_existing_connection` is off and it opens one of its own.
+        The loader checks that the id is a connection component of the
+        job, of the kind ``uses_session`` names.
+        """
+        if cls.uses_session is None or not is_on(config.get("use_existing_connection", True)):
+            return None
+        named = config.get("connection")
+        return named.strip() if isinstance(named, str) else ""
 
     @classmethod
     def unread_paths(cls, raw_config: Dict[str, Any]) -> List[str]:

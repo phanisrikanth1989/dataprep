@@ -12,6 +12,7 @@ import polars as pl
 
 from ..errors import ConfigurationError
 from ..job.keys import Looked
+from ..sessions import Sessions
 from .references import JAVA_MARK, parsed, value_of
 
 _TEMPLATE = re.compile(r"\$\{context\.(\w+)\}")
@@ -95,6 +96,10 @@ class RunContext:
         self.used_fast_read = False
         # The sources of the subjob being run, by id: a failure asks them where a row's number is.
         self.sources: Dict[str, Any] = {}
+        # The database sessions of the run. A component works on one; the engine ends its transactions.
+        self.sessions = Sessions()
+        # How the job says its Oracle sessions are opened (its ``oracle_config``); the engine sets it.
+        self.oracle: Mapping[str, Any] = {}
 
     @staticmethod
     def noticing(frame: pl.LazyFrame, kind: pl.Expr) -> Tuple[pl.LazyFrame, Callable[[], bool]]:

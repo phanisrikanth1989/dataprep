@@ -44,6 +44,14 @@ class ConfigurationError(V2Error):
     """
 
 
+class DatabaseError(V2Error):
+    """A database said no: a session it would not open, a statement it refused, work it could not store.
+
+    Its text is what the database said, on one line, and never a value
+    that was bound or a password.
+    """
+
+
 class JobFailedError(V2Error):
     """A job started and did not finish.
 

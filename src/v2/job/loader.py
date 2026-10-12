@@ -123,7 +123,16 @@ JOB_KEYS: Tuple[Key, ...] = (
     Key("run", type=dict, default=None, nullable=True, fields=RUN_KEYS,
         doc="How the job is run: what the command line could say too. The command line wins over it."),
     Key("engine_config", kind=Kind.IGNORED, type=object, doc="v1 engine settings for components v2 does not have."),
-    Key("oracle_config", kind=Kind.IGNORED, type=object, doc="v1's Oracle settings."),
+    Key("oracle_config", type=dict, default=None, nullable=True, doc="How Oracle sessions are opened.",
+        fields=(
+            Key("thick_mode", type=bool, default=False,
+                doc="Whether Oracle's own client libraries are used. They are needed where a database asks for "
+                    "what the driver cannot do by itself (Native Network Encryption, Kerberos). The first job of "
+                    "a process that opens a session decides for all of them."),
+            Key("lib_dir", default=None, nullable=True,
+                doc="Where those libraries are, when the system does not say."),
+            Key("enabled", kind=Kind.IGNORED, type=object, doc="v1's switch; v2 opens a session when a component asks."),
+        )),
     Key("mssql_config", kind=Kind.IGNORED, type=object, doc="v1's SQL Server settings."),
     Key("job_type", kind=Kind.IGNORED, type=object, doc="Talend job type."),
     Key("version", kind=Kind.IGNORED, type=object, doc="Free-form version label."),
@@ -303,7 +312,9 @@ class _Loader:
             if trigger is not None:
                 job.triggers.append(trigger)
         job.routines = top.get("python_config")
+        job.oracle = top.get("oracle_config") or {}
         self._children(job)
+        self._check_connections(job)
         self._check_input_counts(job)
         stuck = loop(job)
         if stuck:
@@ -710,6 +721,28 @@ class _Loader:
 
         if any(loops(node) for node in list(after)):
             self.report.add("job", "triggers", "the triggers form a loop")
+
+    def _check_connections(self, job: Job) -> None:
+        """Refuse a component that names, as the connection whose session it works on, what is no such component."""
+        for spec in job.components.values():
+            named = spec.cls.connection_named(spec.config)
+            if named is None or has_context_reference(named):
+                continue
+            kind = spec.cls.uses_session
+            known = [other.id for other in job.components.values() if other.cls.opens_session == kind]
+            has = f"{kind} connections are: {', '.join(known)}"
+            if not named:
+                does = "ends" if "use_existing_connection" not in spec.config else "works on"
+                reason = f"names no component; give the id of the {kind} connection whose session it {does}"
+            elif named not in job.components:
+                reason = f"the job has no component '{named}'; its {has}" if known else (
+                    f"the job has no component '{named}', and no {kind} connection")
+            elif named not in known:
+                found = f"'{named}' ({job.components[named].type}) is no {kind} connection"
+                reason = f"{found}; the job's {has}" if known else f"{found}; the job has none"
+            else:
+                continue
+            self.report.add(spec.where, "connection", reason)
 
     def _check_input_counts(self, job: Job) -> None:
         for spec in job.components.values():

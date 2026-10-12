@@ -115,9 +115,10 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   config may tell to go on declares `DIE_ON_ERROR` among its keys, does
   its work in one method, and catches `FAULTS` around it:
   `except FAULTS as exc: self.fail_or_go_on(exc)`. `FAULTS` are a fault
-  it worded itself (`ConfigurationError`), what the file system refused
-  (`OSError`) and a name or a text that is not in the encoding it has to
-  be in (`UnicodeError`). The helper fails the job in plain words, or
+  it worded itself (`ConfigurationError`), what a database refused
+  (`DatabaseError`), what the file system refused (`OSError`) and a name
+  or a text that is not in the encoding it has to be in
+  (`UnicodeError`). The helper fails the job in plain words, or
   leaves why in `<id>_ERROR_MESSAGE`, warns and comes back; the
   component then counts its row as turned away.
 - **A file of its own, written first under another name.** The name is
@@ -134,6 +135,18 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   the component runs it with `self.run_context.run_child(self.id,
   values)`. See "Set-up and clean-up" in
   [How a job runs](how-a-job-runs.md#set-up-and-clean-up).
+- **A component that works in a database** does its work on a session
+  and never ends a transaction; the engine does
+  (`src/v2/sessions.py`). It asks the run for the session: the shared
+  one of a connection component (`self.run_context.sessions.shared(id)`)
+  or one it opens and hands over (`sessions.own(session)`). Before it
+  changes anything it says so (`sessions.working(session, self.id)`):
+  that is what marks the place a failure of the subjob goes back to, and
+  what a failure names. It calls the driver when it is built or when the
+  pass has run (`ready`), never in the pass: rows cross through a
+  scratch file. A connection component sets `opens_session` to the kind
+  of database (`"Oracle"`), and a component whose `connection` names one
+  sets `uses_session`; the loader then checks the name.
 - **A component that starts a loop** sets `loops = True`, declares
   `MAX_ITEMS` among its keys, and hands its items to the engine while it
   runs: `self.loop_over(items)`, each item being how the log names it and

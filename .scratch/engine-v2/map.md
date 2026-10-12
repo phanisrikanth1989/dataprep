@@ -423,6 +423,11 @@ documentation.
   when the subjob has succeeded; a value in quotes is bound; the
   database converts each column, since the driver changes a number
   without a word when left to.
+  [Sessions, and the Oracle connection, commit, rollback and close](issues/119-sessions-and-the-oracle-connection.md)
+  -- a component works on a session and never ends a transaction; the
+  engine commits when the subjob has succeeded, before any file is
+  moved, and rolls back when it has not; a close over work that waits
+  fails.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -495,7 +500,9 @@ list are of the first destination, which is reached):
   ([How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md))
   and on what a real Oracle said when tried. Every row rests once in a
   scratch file; one commit, when the subjob has succeeded; a value in
-  quotes is bound, never pasted. Built: none yet.
+  quotes is bound, never pasted. Built: the sessions, and the Oracle
+  connection, commit, rollback and close. To come: input, output, row,
+  stored procedure, bulk exec, and the two for SQL Server.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.
 

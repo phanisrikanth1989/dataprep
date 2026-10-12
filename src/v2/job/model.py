@@ -261,6 +261,8 @@ class Job:
         run: How the job config asks to be run (its ``run`` block).
         children: The jobs it runs as steps of its own, each by the id of
             the component that runs it. They are loaded with the job.
+        oracle: How its Oracle sessions are opened: the job config's
+            ``oracle_config``.
         read_from: The file the job config was read from, when it was read
             from one.
     """
@@ -276,6 +278,7 @@ class Job:
     triggers: List[Trigger] = field(default_factory=list)
     iterates: List[Iterate] = field(default_factory=list)
     children: Dict[str, "Job"] = field(default_factory=dict)
+    oracle: Dict[str, Any] = field(default_factory=dict)
     read_from: Optional[str] = None
 
     def incoming(self, component_id: str) -> List[Flow]:
