@@ -344,3 +344,55 @@ def test_what_the_converter_writes_is_taken(tmp_path):
 def test_every_name_of_it(tmp_path, kind):
     result, written, _ = written_by(tmp_path, kind=kind)
     assert result.status == "success" and len(rows_of(written)) == 3
+
+
+# ------------------------------------------------------------------
+# What the review of the XML group found (ticket 120)
+# ------------------------------------------------------------------
+
+READ_BACK = r'''
+import resource, sys
+from src.v2 import xml_writer
+
+def most():
+    held = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return held / (1 << 20) if sys.platform == "darwin" else held / 1024
+
+path, encoding, tags = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
+row = "<row><id>%d</id><name>\u540d\u524d %d</name><note>some words of a row</note></row>"
+with open(path, "w", encoding=encoding) as out:
+    out.write(f'<?xml version="1.0" encoding="{encoding}"?>' + "".join(f"<{tag}>" for tag in tags))
+    for at in range(0, 200_000, 1000):
+        out.write("".join(row % (n, n) for n in range(at, at + 1000)))
+    out.write("".join(f"</{tag}>" for tag in reversed(tags)))
+before = most()
+xml_writer.read_back(path, "out.xml")
+print(round(most() - before))
+'''
+
+
+@pytest.mark.parametrize("tags", ["sales", "sales,body", "sales,body,rows"])
+def test_reading_back_holds_no_tree_however_deep_the_rows_stand(tmp_path, tags):
+    """In an encoding only lxml reads, the rows were let go of only where they stood right under the root: under
+    two root tags the whole document was held as a tree."""
+    import subprocess
+    import sys
+    done = subprocess.run([sys.executable, "-c", READ_BACK, str(tmp_path / "out.xml"), "GBK", tags],
+                          capture_output=True, text=True, timeout=120,
+                          cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+    assert done.returncode == 0, done.stderr[-800:]
+    grown = int(done.stdout.strip())
+    # Emptied and not taken out of the tree, the rows still held 26 MB here.
+    assert grown < 12, f"{grown} MB were held to read back a document of {os.path.getsize(tmp_path / 'out.xml') >> 20} MB"
+
+
+def test_reading_back_in_such_an_encoding_still_finds_what_is_not_well_formed(tmp_path):
+    from src.v2 import xml_reader, xml_writer
+    for body, wrong in (("<a><b>\u540d</b></a>", None), ("<a><b>\u540d</a>", "Opening and ending tag mismatch"),
+                        ("<a><b>\u540d</b></a><c/>", "Extra content")):
+        (tmp_path / "out.xml").write_text(f'<?xml version="1.0" encoding="GBK"?>{body}', encoding="GBK")
+        if wrong is None:
+            xml_writer.read_back(str(tmp_path / "out.xml"), "out.xml")
+            continue
+        with pytest.raises(xml_reader.Fault, match=f"what was written to 'out.xml' is not well-formed XML: {wrong}"):
+            xml_writer.read_back(str(tmp_path / "out.xml"), "out.xml")

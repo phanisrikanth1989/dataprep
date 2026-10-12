@@ -138,3 +138,42 @@ def test_join_without_the_mark_and_without_an_entry_means_what_it_meant_before(t
     # something else now. Here the variable is put in where it stands and the rest stays as written.
     result, _ = ran(tmp_path, pointed('context.dir + "/in.csv"'))
     assert result.status == "failed" and 'sub + "/in.csv"' in result.error
+
+
+# ------------------------------------------------------------------
+# What a text names when it is nothing but one reference
+# ------------------------------------------------------------------
+
+def named(text):
+    from src.v2.engine.context import RunContext
+    run = RunContext("t", {"v": "00123", "n": 7, "none": None})
+    run.global_map.update(HELD)
+    return run.named(text)
+
+
+@pytest.mark.parametrize("text, held", [
+    ("context.v", "00123"), ("${context.v}", "00123"), (" context.v ", "00123"), ("  ${context.v}\n", "00123"),
+    ("context.n", 7), ("${context.none}", None), ("{{java}}context.v", "00123"), ('globalMap.get("p")', "in.csv"),
+    ('((Integer)globalMap.get("n"))', 5), ('"x" + ((String)globalMap.get("p"))', "xin.csv"),
+    ('{{java}}context.v + "-" + context.n', "00123-7"),
+])
+def test_one_reference_and_nothing_else_is_what_it_names_as_data(text, held):
+    found = named(text)
+    assert found is not None and found.value == held and type(found.value) is type(held)
+
+
+@pytest.mark.parametrize("text", ["context.v + 1", "x ${context.v}", "${context.v}${context.v}", "plain", "",
+                                  "context.nope", '"a" + context.v', 'globalMap.get("nope")', "(context.v)"])
+def test_more_than_one_reference_or_one_that_names_nothing_is_no_such_value(text):
+    assert named(text) is None
+
+
+@pytest.mark.parametrize("text, said", [
+    ("${context.nope}", "context has no variable 'nope'"),
+    ("{{java}}context.nope", "context has no variable 'nope'"),
+    ('{{java}}globalMap.get("nope")', "globalMap has no entry 'nope'"),
+])
+def test_a_reference_that_has_to_name_something_and_does_not_fails(text, said):
+    with pytest.raises(ConfigurationError) as failed:
+        named(text)
+    assert str(failed.value) == said

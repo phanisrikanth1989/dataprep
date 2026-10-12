@@ -238,11 +238,15 @@ Key("uncompress", kind=Kind.REFUSED, type=bool, reason="compressed files are not
 - Java (`{{java}}...`) is refused by the loader before the component sees
   it, but for a value that is only looked up (a globalMap entry or a
   context variable): that one is resolved like a context reference.
-- **`takes_looked=True` for a key whose text the component reads its own
-  way** (as an expression, as a number written as text). What was looked
-  up while the job runs is data: such a key is handed it as a `Looked`,
-  whose `value` is taken as it is. Without it a file named `1+1` is
-  worked out, and one named `00123` loses its zeros.
+- **`reads_references=True` for a key whose text the component reads its
+  own way** (as Python, as a number written as text). The value is then
+  left as written, and the component looks its references up itself:
+  `self.run_context.named(text)` hands back what a text names when it is
+  nothing but one reference (a context variable, an entry of globalMap),
+  as a `Looked` whose `value` is data, whatever it looks like. Without
+  it a file named `1+1` is worked out, and one named `00123` loses its
+  zeros. A value from the context or from globalMap may have come from a
+  file or from another job: it is never read as code.
 
 ## Expressions (`src/v2/expressions`)
 

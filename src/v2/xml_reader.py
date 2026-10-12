@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
@@ -31,6 +32,14 @@ _PREFIX = re.compile(rf"(?<![:\w.\-])({_NAME}):(?!:)(?=[A-Za-z_*])")
 # A run of steps up (`../..`) that starts a path, and an attribute and nothing more after one.
 _CLIMB = re.compile(r"(?<![\w.\]@*])((?:\.\./)*\.\.)(?![\w.])")
 _ATTRIBUTE_ALONE = re.compile(rf"/@(?:{_NAME}:)?(?:{_NAME}|\*)(?![\w.\-:/\[(])")
+# A path that only goes down, by names: nothing in it is worked out.
+_STEP_DOWN = rf"(?:@?(?:{_NAME}:)?(?:{_NAME}|\*)|text\(\))"
+_DOWN = re.compile(rf"{_STEP_DOWN}(?:/{_STEP_DOWN})*")
+# The name a slash may go on from, at the end of what stands before it; and the names that are operators
+# where something to work on stands before them.
+_NAME_BEFORE = re.compile(r"[A-Za-z_][\w.]*(?:-[\w.]+)*$")
+_OPERATORS = ("and", "or", "div", "mod")
+_NAMESPACE_AXIS = re.compile(r"(?<![\w.\-])namespace\s*::")
 
 
 class Fault(Exception):
@@ -144,6 +153,11 @@ def column_path(
     bare = _LITERAL.sub("''", path)
     if bare.startswith("/"):
         raise ValueError("starts at the root: a column is found from its record, by a path without the leading /")
+    rooted = _from_root(bare)
+    if rooted is not None:
+        raise ValueError(
+            f"holds a path that starts at the root ({rooted}): a column is found from its record, and what a path "
+            "from the root would find depends on how much of the document is in memory")
     axis = _AXES.search(bare)
     if axis is not None:
         raise ValueError(
@@ -157,9 +171,10 @@ def column_path(
             # waiting for. Anything else up there does.
             climb = max(climb, run.group(1).count(".."))
     path, find = _compiled(path, namespaces)
-    # Steps up and then a path down that holds no step up: the same value for every record under one element.
+    # Steps up and then a plain path down: the same value for every record under one element. Anything more
+    # (`../rate * qty`) is worked out from the record, as it is written.
     whole = re.fullmatch(r"((?:\.\./)+)(.+)", path)
-    if whole is not None and ".." not in _LITERAL.sub("''", whole.group(2)):
+    if whole is not None and _DOWN.fullmatch(whole.group(2)):
         return ColumnPath(name, written, climb, as_node, find, whole.group(1).count(".."),
                           etree.XPath(whole.group(2), namespaces=dict(namespaces) if namespaces else None))
     return ColumnPath(name, written, climb, as_node, find)
@@ -182,8 +197,41 @@ def path(written: str, namespaces: Optional[Mapping[str, str]] = None) -> Any:
     return _compiled(written.strip(), namespaces)[1]
 
 
+def _from_root(bare: str) -> Optional[str]:
+    """The first path inside an expression that starts at the root; None when every path starts where it stands.
+
+    Args:
+        bare: The expression, with every text in quotes emptied.
+    """
+    for slash in re.finditer(r"/+", bare):
+        before = bare[:slash.start()].rstrip()
+        if not _goes_on(before):
+            return re.match(r"[\w/:.@*\-]*", bare[slash.start():]).group(0)
+    return None
+
+
+def _goes_on(before: str) -> bool:
+    """Whether a slash goes on from the step that stands before it, and starts no path of its own."""
+    if before[-1:] in (")", "]", "."):
+        return True
+    if before[-1:] == "*":
+        # Any name (`*/b`), unless it multiplies: then something to multiply stands before it.
+        return not _ends_a_value(before[:-1].rstrip())
+    name = _NAME_BEFORE.search(before)
+    if name is None:
+        # A sign, a comma, a bracket that opens.
+        return False
+    return not (name.group(0) in _OPERATORS and _ends_a_value(before[:name.start()].rstrip()))
+
+
+def _ends_a_value(text: str) -> bool:
+    return bool(text) and (text[-1].isalnum() or text[-1] in "_.)]'\"*")
+
+
 def _compiled(path: str, namespaces: Optional[Mapping[str, str]]) -> Tuple[str, Any]:
     """A path as it is asked, and compiled. Without namespaces a prefix says nothing, and is left out."""
+    if _NAMESPACE_AXIS.search(_LITERAL.sub("''", path)):
+        raise ValueError("uses the axis 'namespace', which hands back namespaces and no value")
     if not namespaces:
         # Names are matched by their local name.
         path = "".join(piece if at % 2 else _PREFIX.sub("", piece) for at, piece in enumerate(_LITERAL.split(path)))
@@ -318,7 +366,9 @@ class Several:
     start tag is on, and its values as text. A record is whole when it
     ends, or when the element above it that a column climbs to does. What
     has been read is let go of, unless it stands in an element that
-    another kind still has to read.
+    another kind still has to read. What is no record of any kind is let
+    go of as well, a piece of the document after the other: memory follows
+    the largest record, whatever else the document holds.
 
     Args:
         source: The document, open for reading bytes.
@@ -387,9 +437,14 @@ class Several:
         nested = any(_may_hold(outer, inner) for outer in snapshots for inner in snapshots)
         head = self.source.read(256)
         self.source.seek(0)
+        encoding = None if _says_its_encoding(head) else self.encoding
+        # The root is asked for by its name, so that its start is told: it is the hold on the tree from which
+        # what has ended is let go of.
+        top = _root_tag(self.source, encoding, self.large_values)
+        source = _Asked(self.source)
         walker = etree.iterparse(
-            self.source, events=("start-ns", "end"), tag=sorted(tags),
-            encoding=None if _says_its_encoding(head) else self.encoding, **settings(self.large_values),
+            source, events=("start-ns", "start", "end"), tag=sorted(tags | {top} if top else tags),
+            encoding=encoding, **settings(self.large_values),
         )
         walker.resolvers.add(_refusing())
         spaced = False
@@ -398,6 +453,11 @@ class Several:
             if event == "start-ns":
                 # From here on a name may be in a namespace.
                 spaced = True
+                continue
+            if event == "start":
+                if source.before is None:
+                    root = node.getroottree().getroot()
+                    source.before = lambda: _sweep(root, snapshots, strict)
                 continue
             done = False
             for kind, (record, climb, above) in enumerate(read):
@@ -433,9 +493,15 @@ class Several:
                 top = node
                 for _ in range(column.up):
                     top = top.getparent()
-                if above[at][0] is not top:
-                    above[at] = (top, value(column.find_from_above(top), column.as_node, strict))
-                found, several = above[at][1]
+                    if top is None:
+                        break
+                if top is None:
+                    # The record is the root, or nearly: nothing is that far above it.
+                    found, several = None, False
+                else:
+                    if above[at][0] is not top:
+                        above[at] = (top, value(column.find_from_above(top), column.as_node, strict))
+                    found, several = above[at][1]
             else:
                 found, several = value(column.find(node), column.as_node, strict)
             if several:
@@ -490,6 +556,65 @@ class Records:
     def __iter__(self) -> Iterator[Tuple[int, List[Optional[str]]]]:
         for _, line, values in self._all:
             yield line, values
+
+
+class _Asked:
+    """A document that says when the parser is about to read on.
+
+    All it has read so far is in the tree then, and every record that has
+    ended in it has been handed over: lxml asks for the next piece only
+    when it has no event left to tell.
+    """
+
+    def __init__(self, source: Any) -> None:
+        self._source = source
+        # Called before each piece is read, once there is something to call.
+        self.before: Optional[Any] = None
+
+    def read(self, size: int = -1) -> bytes:
+        if self.before is not None:
+            self.before()
+        return self._source.read(size)
+
+
+def _root_tag(source: Any, encoding: Optional[str], large_values: bool) -> Optional[str]:
+    """The name of a document's root element, read from its start; the document is at its start again after.
+
+    None for a document with no element in it.
+
+    Raises:
+        lxml.etree.XMLSyntaxError: What stands before the root is not well formed.
+    """
+    probe = etree.XMLPullParser(events=("start",), encoding=encoding, **settings(large_values))
+    try:
+        while True:
+            piece = source.read(4096)
+            if not piece:
+                return None
+            probe.feed(piece)
+            for _, element in probe.read_events():
+                return element.tag
+    finally:
+        source.seek(0)
+
+
+def _sweep(root: Any, snapshots: List[Tuple[Tuple[str, ...], bool]], strict: bool) -> None:
+    """Let go of what has ended and no kind of record reads. Called while the parser waits for its next piece.
+
+    The elements that are open are the last ones, level by level; every
+    other has ended, and its records have been handed over. An element
+    that stands where a kind of record is read from (a record, or what its
+    columns climb to) is left with all that is in it: its own end lets go
+    of it.
+    """
+    node = root
+    while isinstance(node.tag, str) and not any(_is_at(node, steps, anywhere, strict) for steps, anywhere in snapshots):
+        ended = len(node) - 1
+        if ended > 0:
+            del node[:ended]
+        if not len(node):
+            return
+        node = node[0]
 
 
 def _may_hold(outer: Tuple[Tuple[str, ...], bool], inner: Tuple[Tuple[str, ...], bool]) -> bool:
@@ -550,21 +675,29 @@ def _value(found: Any, as_node: bool, strict: bool) -> Optional[str]:
         return as_xml(found, strict)
     if len(found) == 0 and isinstance(found.tag, str):
         # An element with nothing in it but text: that text is its value, with no second path asked.
-        if found.attrib and found.get(_NIL) == "true":
+        if found.attrib and _is_nil(found):
             return None
         return found.text or ""
-    if found.get(_NIL) == "true":
+    if _is_nil(found):
         return None
     return str(_text_of()(found))
 
 
+def _is_nil(element: Any) -> bool:
+    """Whether an element says its value is missing: XML Schema's true is `true` or `1`."""
+    return (element.get(_NIL) or "").strip() in ("true", "1")
+
+
 def _number(value: float) -> str:
-    """A number as XPath writes it: a whole one without a point."""
+    """A number as XPath writes it: with no exponent, and a whole one without a point, however large."""
     if value != value:
         return "NaN"
     if value in (float("inf"), float("-inf")):
         return "Infinity" if value > 0 else "-Infinity"
-    return str(int(value)) if value == int(value) and abs(value) < 1e15 else repr(value)
+    if value == int(value) and abs(value) < 1e15:
+        return str(int(value))
+    # The digits Python writes it with, which are the fewest that say it.
+    return format(Decimal(repr(value)), "f").removesuffix(".0")
 
 
 def as_xml(node: Any, strict: bool) -> str:

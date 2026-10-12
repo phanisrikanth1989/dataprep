@@ -125,8 +125,10 @@ def read_back(path: str, shown: str) -> None:
     try:
         with open(path, "rb") as source:
             for _, element in etree.iterparse(source, events=("end",), **xml_reader.settings(large_values=True)):
-                if element.getparent() is not None and element.getparent().getparent() is None:
-                    # A child of the root: let go of it, and of what stood before it.
-                    xml_reader._free(element)
+                # Let go of what has ended, at whatever depth it stands: an element goes when the one after it
+                # under the same element has ended too.
+                above = element.getparent()
+                while above is not None and element.getprevious() is not None:
+                    del above[0]
     except etree.XMLSyntaxError as fault:
         raise xml_reader.Fault(f"what was written to '{shown}' is not well-formed XML: {fault.msg}") from None

@@ -162,6 +162,13 @@ every converted job is a row of nothing.
   reads, once its Java has looked it up, as a number written as text,
   and writes 123. An entry that holds nothing is a missing value; v1
   writes the reference's own text there, as data.
+- **What a context variable holds is handed on as it is too.** v1
+  writes it into the value and then reads the whole as it reads any
+  text: a variable that holds `00123` gives 123, and one that holds
+  `;` or a line end in the inline content makes a field or a row. Here
+  the content is taken apart as it is written, and what a variable
+  holds is one value, with its zeros. A typed column still reads it as
+  its type.
 - `nb_rows` may be written as text or come from the context. v1 fails.
 - A failure names the row: `line 3 of the inline content of <id>`, or
   `row 3 of <id>` for the other two ways of writing rows.
@@ -178,6 +185,14 @@ every converted job is a row of nothing.
   named `1+1` is `1+1`, and Python in a file's name is not run. Under
   the mark v1 has it so too. Without the mark v1 writes the reference's
   own text. An entry that holds nothing is a missing value.
+- **A context variable is the value it holds, and is never run.** v1
+  writes what the variable holds into the expression and runs the
+  whole, so a variable that holds `1+1` gives 2, and one that holds
+  Python runs it. Here `context.x` alone is what it holds, as it is
+  (`1+1`, `1.50`, `None` as those texts). Inside an expression it is
+  that value: a plain number is the number, so `${context.n} + 1`
+  comes to what it does in v1, and any other text is text. Inside
+  quotes it is part of the text.
 - A row whose expression fails leaves by the reject output as in v1, and
   the log says how many such rows there were and what failed in the first
   (`id: division by zero`). With no flow on the reject output the log

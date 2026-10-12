@@ -23,9 +23,11 @@ What the readers share:
   ends, and the record is then let go of with all that stands before
   it. Where a column looks above its record (`../../status`), rows are
   made when the element it looks into ends, so that all of it is there:
-  what is held is then that element. (v1 holds a small document whole
-  and reads a large one another way, which gives other rows for such a
-  column. Talend holds the document whole.)
+  what is held is then that element. What is no record that is read (a
+  header, a summary at the end, the records of a kind no flow takes) is
+  let go of as well, a piece of the document after the other. (v1 holds
+  a small document whole and reads a large one another way, which gives
+  other rows for such a column. Talend holds the document whole.)
 - The parser's own limits hold: 256 levels of nesting, 10 MB for one
   value. `large_values` lifts them for a feed that is trusted.
 - **Names are matched by their local name**, whatever namespace they are
@@ -62,7 +64,8 @@ What the writers share:
 - **The file is read once before it is put in place**, as a reader would
   read it. A document that is not well formed fails the job and leaves
   the file that was there. A writer written by hand earns that check; it
-  takes about as long again as the writing.
+  takes about as long again as the writing, and holds nothing of what it
+  reads, however deep the rows stand.
 
 ## XML file input
 
@@ -76,12 +79,19 @@ What the writers share:
   XPath 1.0 path: `sku`, `@id`, `price/@currency`, `../status`,
   `../../@region`, `concat(../code, '-', sku)`. A column with no entry,
   or an entry with no path, is the child of the column's own name.
-  Refused when the job loads: a path that starts at the root, one that
-  climbs after it has gone down, one that climbs above the document, and
-  the axes that look outside the record (`ancestor`, `preceding`,
-  `following`, their siblings, `parent`): what they find would depend on
-  how much of the document is in memory. After `//`, a column reads its
-  record and the attributes of what is above it.
+  Refused when the job loads: a path that starts at the root, also one
+  inside a function or beside an operator (`count(//line)`,
+  `string(/orders/date)`), one that climbs after it has gone down, one
+  that climbs above the document, and the axes that look outside the
+  record (`ancestor`, `preceding`, `following`, their siblings,
+  `parent`): what they find would depend on how much of the document is
+  in memory. The `namespace` axis is refused too: it hands back
+  namespaces and no value. After `//`, a column reads its record and
+  the attributes of what is above it; a record that is the root has
+  nothing above it, and such a column is missing there.
+- A climb may be one part of what a path works out (`../rate * qty`,
+  `../code = code`): each part is found from the record, as it is
+  written.
 - What a path gives:
 
   | The path finds | The value |
@@ -90,9 +100,9 @@ What the writers share:
   | an attribute, or a text | that text |
   | nothing | missing |
   | an element with nothing in it | empty text |
-  | an element marked `xsi:nil="true"` | missing |
+  | an element marked `xsi:nil="true"` (or `"1"`, which XML Schema reads as true) | missing |
   | several nodes | the first; a warning says for which column, in how many records, and the first of them |
-  | a number or a truth (`count(line)`, `qty > 1`) | as XPath writes it: `2`, `true` |
+  | a number or a truth (`count(line)`, `qty > 1`) | as XPath writes it: `2`, `true`; a number with no exponent, and a whole one with no point, however large |
 
 - `nodecheck` on an entry ("Get Nodes" in Talend) gives the node itself
   as XML text, and not the text in it. Without `namespaces` it carries

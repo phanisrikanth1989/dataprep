@@ -458,3 +458,140 @@ def test_entry_that_is_no_text_keeps_its_kind_and_an_expression_written_in_the_j
     result, files = v2(tmp_path, made)
     assert result.status == "success", result.error
     assert files["out.csv"] == ["n;twice;v", "7;42;ann"]
+
+
+# ------------------------------------------------------------------
+# What a context variable holds is a value too, and never an expression
+# ------------------------------------------------------------------
+
+ALONE = ["context.v", "${context.v}", "(context.v)", " context.v ", "{{java}}context.v", "(( ${context.v} ))"]
+RUNNABLE = "random._os.mkdir('made_by_a_value')"
+
+
+@pytest.mark.parametrize("held", ["1+1", "1/0", "random.random()", "007", "1.50", "two words", "'quoted'", "None"])
+@pytest.mark.parametrize("written", ALONE)
+def test_what_a_context_variable_holds_is_the_value_itself_and_is_never_read_as_an_expression(tmp_path, written, held):
+    # A context variable may hold what a file or another job handed it: whatever it looks like, it is data.
+    result, files = v2(tmp_path, generator(schema="v:str", nb_rows=2, values=values(v=written), context={"v": held}))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held, held]
+
+
+@pytest.mark.parametrize("written", ALONE + [
+    '"" + context.v', 'context.v + ""', "str(${context.v})", "'${context.v}'", "[${context.v}][0]", "context.v * 1",
+    "f'{context.v}'", "'a' if ${context.v} else 'b'", "StringHandling.SPACE(${context.v})", "StringHandling.LEN(context.v)",
+    "not python ${context.v}", "${context.v} ${context.v}",
+])
+def test_what_a_context_variable_holds_is_never_run(tmp_path, written):
+    result, files = v2(tmp_path, generator(schema="v:str", nb_rows=1, values=values(v=written), context={"v": RUNNABLE}))
+    assert not (tmp_path / "made_by_a_value").exists()
+
+
+def test_a_file_name_handed_to_a_job_as_a_context_value_is_not_run_there(tmp_path):
+    """What the review found: a file's name, read by a row generator as `context.name`, made a folder."""
+    made = generator(schema="v:str", nb_rows=1, values=values(v="context.name"), context={"name": "placeholder"})
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = run_job(made, context={"name": RUNNABLE})
+    finally:
+        os.chdir(previous)
+    assert result.status == "success", result.error
+    assert (tmp_path / "out.csv").read_text().splitlines() == ["v", RUNNABLE]
+    assert not (tmp_path / "made_by_a_value").exists()
+
+
+def test_a_number_from_the_context_is_a_number_inside_an_expression(tmp_path):
+    got = same(tmp_path, schema="a:int, b:int, c:float, d:str", nb_rows=1, context={"n": "21", "lo": "5", "f": "1.5"},
+               values=values(a="context.n * 2", b="random.randint(${context.lo}, ${context.lo})", c="${context.f} + 1",
+                             d="'%s!' % context.n"))
+    assert got == ["42;5;2.5;21!"]
+
+
+def test_text_from_the_context_is_text_inside_an_expression(tmp_path):
+    # v1 pastes the value into the expression, and then it is a name nothing knows: the whole text is the value.
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str", nb_rows=1, context={"who": "ann", "code": "007"},
+                                           values=values(a="context.who + '_x'", b="context.who.upper()",
+                                                         c="context.code + '-' + context.who")))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c", "ann_x;ANN;007-ann"]
+
+
+def test_text_from_the_context_that_python_could_read_as_something_else_is_still_text(tmp_path):
+    # Only a plain number is read as what it looks like. `None`, a list, text in quotes: each is the text it is.
+    held = {"a": "None", "b": "[1, 2]", "c": "'q'", "d": "True", "e": "0x10", "f": "1_000"}
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str, d:str, e:str, f:str", nb_rows=1, context=held,
+                                           values=values(**{name: f"context.{name} + '!'" for name in held})))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c;d;e;f", "None!;[1, 2]!;'q'!;True!;0x10!;1_000!"]
+
+
+def test_a_context_variable_that_holds_nothing_is_no_text(tmp_path):
+    made = generator(schema="a:str, b:str", nb_rows=1, values=values(a="'<${context.v}>'", b="x ${context.v} y"))
+    made["context"] = {"v": None}
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b", "<>;x  y"]
+
+
+def test_a_context_value_inside_quotes_is_part_of_that_text(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann"},
+               values=values(a="'${context.who}' + '_x'", b='"<${context.who}>"'))
+    assert got == ["ann_x;<ann>"]
+
+
+def test_a_context_value_inside_quotes_cannot_end_them(tmp_path):
+    # Pasted into the quotes it would end them, and the name between would be worked out.
+    held = "' + random.__name__ + '"
+    result, files = v2(tmp_path, generator(schema="a:str", nb_rows=1, context={"v": held},
+                                           values=values(a="'<${context.v}>'")))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a", f"<{held}>"]
+
+
+def test_text_that_is_not_python_holds_its_context_values_as_text(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann"},
+               values=values(a="hello ${context.who}", b="'open ${context.who}"))
+    # The second is a text Python cannot even take apart: quotes that are never closed.
+    assert got == ["hello ann;'open ann"]
+
+
+def test_a_context_value_in_a_text_that_names_its_parts(tmp_path):
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str", nb_rows=1, context={"who": "ann", "n": "1.50"},
+                                           values=values(a="f'<${context.who}>'", b="f'{context.who}!'",
+                                                         c="f'${context.n} {context.n}'")))
+    assert result.status == "success", result.error
+    # Between the names of such a text the variable is the text it holds; as a name it is its value.
+    assert files["out.csv"] == ["a;b;c", "<ann>;ann!;1.50 1.5"]
+
+
+def test_a_context_value_inside_the_quotes_of_bytes_is_part_of_them(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann", "v": "' + b'x"},
+               values=values(a="b'<${context.who}>'.decode()", b="'-'"))
+    assert got == ["<ann>;-"]
+    (tmp_path / "b").mkdir()
+    result, files = v2(tmp_path / "b", generator(schema="a:str", nb_rows=1, context={"v": "' + b'x' + b'"},
+                                                 values=values(a="b'<${context.v}>'.decode()")))
+    assert files["out.csv"] == ["a", "<' + b'x' + b'>"]
+
+
+def test_a_context_variable_that_is_no_text_keeps_its_kind(tmp_path):
+    made = generator(schema="a:int, b:int, c:str", nb_rows=1, values=values(a="context.n", b="context.n + 1", c="context.n"))
+    made["context"] = {"Default": {"n": {"value": "7", "type": "id_Integer"}}}
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c", "7;8;7"]
+
+
+def test_a_context_variable_that_is_not_there(tmp_path):
+    # Written with ${}, it has to be there. Written bare, the text is left as it is, as in v1.
+    result, _ = v2(tmp_path, generator(schema="a:str", nb_rows=1, values=values(a="${context.nope}")))
+    assert (result.status, result.error) == ("failed", "context has no variable 'nope'")
+    got = same(tmp_path / "bare", schema="a:str", nb_rows=1, values=values(a="context.nope"))
+    assert got == ["context.nope"]
+
+
+def test_blanks_as_many_as_a_context_variable_says(tmp_path):
+    got = same(tmp_path, schema="a:str", nb_rows=1, context={"n": "3"},
+               values=values(a="'[' + StringHandling.SPACE(${context.n}) + ']'"))
+    assert got == ["[   ]"]

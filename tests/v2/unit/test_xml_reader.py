@@ -367,3 +367,226 @@ def test_encoding_of_the_job_is_used_for_a_document_that_says_none():
     assert rows(data, "/r/v", ["v=."], encoding="ISO-8859-15")[0] == [[TEXT]]
     with pytest.raises(etree.XMLSyntaxError):
         rows(data, "/r/v", ["v=."], encoding="UTF-8")
+
+
+# ------------------------------------------------------------------
+# What the review of the XML group found (ticket 120)
+# ------------------------------------------------------------------
+
+GROUPS = ("<r><g><rate>2</rate><code>K1</code><i><qty>3</qty><code>L1</code></i><i><qty>5</qty></i></g>"
+          "<g><i><qty>7</qty><code>L3</code></i><rate>10</rate><code>K2</code></g></r>")
+
+
+def whole(document, loop, paths):
+    """The same values asked of the document held whole: what a path means."""
+    root = etree.fromstring(document.encode())
+    found = []
+    for record in root.xpath(loop):
+        found.append([xml_reader.value(xml_reader.path(written.partition("=")[2])(record), False, False)[0]
+                      for written in paths])
+    return found
+
+
+@pytest.mark.parametrize("path", [
+    "../rate * qty", "../code = code", "../rate - qty", "../zzz | code", "../rate + ../rate", "../rate div qty",
+    "../rate > qty", "../code[. = 'K1']", "../rate", "../rate/text()", "../*", "concat(../code, '-', code)",
+])
+def test_a_climb_that_is_one_part_of_an_expression_is_worked_out_from_the_record(path):
+    """It was worked out wholly from the element above: `../rate * qty` as `rate * qty` up there, which is NaN."""
+    found = rows(GROUPS, "/r/g/i", [f"v={path}"])[0]
+    assert found == whole(GROUPS, "/r/g/i", [f"v={path}"])
+
+
+def test_what_a_climb_and_an_operator_come_to():
+    assert rows(GROUPS, "/r/g/i", ["times=../rate * qty", "same=../code = code", "either=../zzz | code"])[0] == [
+        ["6", "false", "L1"], ["10", "false", None], ["70", "false", "L3"]]
+
+
+def test_a_plain_path_down_from_above_is_still_found_once_for_all_the_records_under_one_element():
+    def up(path):
+        return column_path("c", path, False, None).up
+    assert [up(path) for path in ("../rate", "../../a/b", "../@n", "../a/@b", "../*", "../a/text()", "../p:a/b")] == [
+        1, 2, 1, 1, 1, 1, 1]
+    assert [up(path) for path in ("../rate * qty", "../a | b", "../a = b", "../a[1]", "../a[b]/c", "concat(../a, b)",
+                                  "../a + ../b", "..", "../a div 2", "../a and b")] == [0] * 10
+
+
+@pytest.mark.parametrize("written, at", [
+    ("string(/orders/header/date)", "/orders/header/date"),
+    ("count(//line)", "//line"),
+    ("(//status)[1]", "//status"),
+    ("sku | /orders/x", "/orders/x"),
+    ("concat(sku, '-', /orders/@region)", "/orders/@region"),
+    ("qty + //rate", "//rate"),
+    ("qty * /orders/rate", "/orders/rate"),
+    ("qty div /orders/rate", "/orders/rate"),
+    ("sku and //x", "//x"),
+    ("sku or //x", "//x"),
+    ("qty mod /orders/n", "/orders/n"),
+    ("sku[. = /orders/first]", "/orders/first"),
+    ("sku = /orders/first", "/orders/first"),
+    ("- /orders/n", "/orders/n"),
+    ("count( / )", "/"),
+])
+def test_a_path_from_the_root_anywhere_in_a_column_is_refused(written, at):
+    """Inside a function it was let through, and read a tree that was being let go of."""
+    with pytest.raises(ValueError) as refused:
+        column_path("c", written, False, None)
+    assert str(refused.value) == (
+        f"holds a path that starts at the root ({at}): a column is found from its record, and what a path from the "
+        "root would find depends on how much of the document is in memory")
+
+
+@pytest.mark.parametrize("written", [
+    "a/b", "a//b", ".//x", "*/b", "div/p", "mod/x", "and/or", "or//x", "a | b/c", "count(.//line)", "../a//b",
+    "concat('/x', a, \"//y\")", "concat('namespace::', a)", "a[b/c]", "@*", "text()", "a/text()", "sku[../code]/x", "a div b", "a*b",
+    "q:a/q:b", "a [ b ]/c", "(a)/b", "(a | b)//c", "a[1]/b", "string(a)/b" if False else "string(a/b)",
+])
+def test_a_path_that_stays_with_its_record_is_taken(written):
+    column_path("c", written, False, {"q": "urn:q"})
+
+
+def test_a_record_that_is_the_root_has_nothing_above_it():
+    """A column that climbs from it finds nothing, as in XPath. It failed with words nobody could use."""
+    document = "<node id='1'><node id='2'><node id='3'/></node></node>"
+    assert rows(document, "//node", ["id=@id", "up=../@id"])[0] == [["3", "2"], ["2", "1"], ["1", None]]
+    assert rows("<a id='7'><b/></a>", "//a", ["up=../@id", "more=../../@id"])[0] == [[None, None]]
+
+
+@pytest.mark.parametrize("written", ["namespace::*", "sku/namespace::p", "count(namespace::*)"])
+def test_the_namespace_axis_is_refused_wherever_a_path_is_read(written):
+    said = "uses the axis 'namespace', which hands back namespaces and no value"
+    with pytest.raises(ValueError) as refused:
+        column_path("c", written, False, None)
+    assert said in str(refused.value)
+    with pytest.raises(ValueError) as refused:
+        xml_reader.path(written)
+    assert said in str(refused.value)
+
+
+@pytest.mark.parametrize("path, written", [
+    ("a * 1000000000000000", "3000000000000000"),
+    ("a * 1000000000000000000000", "3000000000000000000000"),
+    ("(a - 2) * 100000000000000000000000", "100000000000000000000000"),
+    # The digits are the fewest that say the number the machine holds: three times that one is a little less.
+    ("a * 100000000000000000000000", "299999999999999970000000"),
+    ("a div 10000000", "0.0000003"),
+    ("a div 7", "0.42857142857142855"),
+    ("a * 0.5", "1.5"),
+    ("a - 3", "0"),
+    ("0 - a", "-3"),
+    ("(0 - a) * 1000000000000000", "-3000000000000000"),
+    ("a div 0", "Infinity"),
+    ("(0 - a) div 0", "-Infinity"),
+    ("number('x')", "NaN"),
+    ("a * 0 * -1", "0"),
+])
+def test_a_number_is_written_as_xpath_writes_one(path, written):
+    """With no exponent, and a whole one with no point, however large."""
+    assert rows("<r><x><a>3</a></x></r>", "/r/x", [f"v={path}"])[0] == [[written]]
+
+
+def test_nil_may_be_said_with_a_one():
+    document = """<r xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><x>
+      <a xsi:nil="1"/><b xsi:nil="true">kept out</b><c xsi:nil="0">c</c><d xsi:nil="false"/><e xsi:nil="1"><in/></e>
+      <f xsi:nil=" true "/></x></r>"""
+    assert rows(document, "/r/x", ["a=a", "b=b", "c=c", "d=d", "e=e", "f=f"])[0] == [[None, None, "c", "", None, None]]
+
+
+# ------------------------------------------------------------------
+# What is no record that is read is let go of as well
+# ------------------------------------------------------------------
+
+def test_what_has_ended_is_let_go_of_down_to_the_first_element_a_record_is_read_from():
+    # The open elements are the last ones, level by level: r, g, here.
+    root = etree.fromstring("<r a='1'><skip><a/><b/></skip><g><x/>t<y/><here><in/><open/></here></g></r>")
+    xml_reader._sweep(root, [(("r", "g", "here"), False)], False)
+    assert etree.tostring(root).decode() == '<r a="1"><g><here><in/><open/></here></g></r>'
+
+
+def test_nothing_in_an_element_some_record_waits_for_is_let_go_of():
+    document = "<r><old/><g><i>1</i><i>2</i><late/></g></r>"
+    for steps, anywhere in ((("r", "g"), False), (("g",), True), (("r", "*"), False)):
+        root = etree.fromstring(document)
+        xml_reader._sweep(root, [(("r", "x", "y"), False), (steps, anywhere)], False)
+        assert etree.tostring(root).decode() == "<r><g><i>1</i><i>2</i><late/></g></r>"
+
+
+def test_letting_go_reads_names_as_the_reader_does_and_stops_at_what_is_no_element():
+    spaced = etree.fromstring("<r xmlns:p='urn:p'><a/><p:g><x/><y/></p:g></r>")
+    xml_reader._sweep(spaced, [(("r", "g"), False)], False)
+    assert len(spaced) == 1 and len(spaced[0]) == 2
+    xml_reader._sweep(spaced, [(("r", "{urn:p}g"), False)], True)
+    assert len(spaced[0]) == 2
+    xml_reader._sweep(spaced, [(("r", "g"), False)], True)
+    assert len(spaced[0]) == 1
+    remark = etree.fromstring("<r><a/><b/><!-- the last thing so far --></r>")
+    xml_reader._sweep(remark, [(("r", "x"), False)], False)
+    assert etree.tostring(remark).decode() == "<r><!-- the last thing so far --></r>"
+    alone = etree.fromstring("<r/>")
+    xml_reader._sweep(alone, [(("r", "x"), False)], False)
+    assert etree.tostring(alone).decode() == "<r/>"
+
+
+HELD = r'''
+import io, resource, sys
+from src.v2.xml_reader import Records, Several, column_path, record_path
+
+def most():
+    held = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return held / (1 << 20) if sys.platform == "darwin" else held / 1024
+
+class Made:
+    """A document made as it is read, so that none of it is held but by the reader."""
+    def __init__(self, parts):
+        self._parts, self._left = iter(parts), b""
+    def read(self, size=-1):
+        while len(self._left) < size:
+            piece = next(self._parts, None)
+            if piece is None:
+                break
+            self._left += piece
+        handed, self._left = self._left[:size], self._left[size:]
+        return handed
+    def seek(self, where):
+        assert where == 0
+
+def bulk(megabytes):
+    piece = b"".join(b"<note><n>%d</n><t>some words that are no record</t></note>" % n for n in range(1000))
+    for _ in range(megabytes * (1 << 20) // len(piece)):
+        yield piece
+
+RECORDS = [b"<line><sku>A</sku></line><line><sku>B</sku></line><line><sku>C</sku></line>"]
+SHAPES = {
+    "after": lambda: [b"<orders>", *RECORDS, b"<summary>", *bulk(24), b"</summary></orders>"],
+    "before": lambda: [b"<orders><summary>", *bulk(24), b"</summary>", *RECORDS, b"</orders>"],
+    "beside": lambda: [b"<orders>", *RECORDS, *bulk(24), *RECORDS, b"</orders>"],
+    "no record": lambda: [b"<nothing><summary>", *bulk(24), b"</summary></nothing>"],
+}
+class Whole(Made):
+    """The head of the document is read once to see how it is written, and then from its start again."""
+    def __init__(self, shape):
+        self._shape = shape
+        super().__init__(shape())
+    def seek(self, where):
+        super().__init__(self._shape())
+
+before = most()
+walk = Records(Whole(SHAPES[sys.argv[1]]), record_path("/orders/line", None), [column_path("sku", "sku", False, None)])
+found = [values[0] for _, values in walk]
+print(round(most() - before), "".join(found))
+'''
+
+
+@pytest.mark.parametrize("shape, records", [("after", "ABC"), ("before", "ABC"), ("beside", "ABCABC"), ("no record", "")])
+def test_a_document_whose_bulk_is_no_record_is_not_held(shape, records):
+    """24 MB that are no record were held whole, as a tree of twelve times their size. Memory follows the largest
+    record, as the docs say, whatever else the document holds."""
+    import subprocess
+    import sys
+    done = subprocess.run([sys.executable, "-c", HELD, shape], capture_output=True, text=True, timeout=120,
+                          cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    assert done.returncode == 0, done.stderr[-800:]
+    grown, _, found = done.stdout.strip().partition(" ")
+    assert found == records
+    assert int(grown) < 40, f"{grown} MB were held for a document of 24 MB that are no record"

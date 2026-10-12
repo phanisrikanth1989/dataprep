@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import polars as pl
 
 from ...column_types import held_frame, to_text
-from ...job.keys import Key, Looked
+from ...job.keys import Key, has_context_reference
 from ...job.model import Column
 from ...rows import hidden, visible
 from ..base import Source
@@ -47,11 +47,11 @@ def _number(value: Any) -> Any:
 
 _VALUE = (
     Key("schema_column", required=True, doc="The column."),
-    Key("value", type=object, default=None, nullable=True, takes_looked=True, doc="What it holds in every row."),
+    Key("value", type=object, default=None, nullable=True, reads_references=True, doc="What it holds in every row."),
 )
 _ENTRY = (
     Key("element_ref", default="", doc="The column."),
-    Key("value", type=object, default=None, nullable=True, takes_looked=True, doc="What it holds in this row."),
+    Key("value", type=object, default=None, nullable=True, reads_references=True, doc="What it holds in this row."),
 )
 
 
@@ -67,8 +67,13 @@ class FixedFlowInput(Source):
 
     As in v1, text that is a plain number is that number before the
     column's type is looked at (`007` is 7, in a text column too), and a
-    value written `globalMap.get("KEY")` is that entry of globalMap. What
-    an entry holds is handed on as it is: `00123` looked up stays `00123`.
+    value written `globalMap.get("KEY")` is that entry of globalMap.
+
+    What is looked up while the job runs is handed on as it is, whatever
+    it looks like: `00123` from an entry of globalMap or from a context
+    variable stays `00123`, and a value with a context variable in it is
+    text. The inline content is taken apart as it is written: what a
+    variable holds is one value, and makes no field and no row.
 
     The rows are held in memory: they are as many as the config writes.
     A failure names a row as `line 3 of the inline content of <id>` or
@@ -83,7 +88,7 @@ class FixedFlowInput(Source):
         Key("use_inlinecontent", type=bool, default=False, doc="Whether the rows are the lines of `inline_content`."),
         Key("values_config", type=list, default=[], items=_VALUE, doc="The single row: each column with its value."),
         Key("intable", type=list, default=[], items=_ENTRY, doc="The table, entry after entry, row after row."),
-        Key("inline_content", default="", takes_looked=True, doc="The rows as text."),
+        Key("inline_content", default="", reads_references=True, doc="The rows as text."),
         Key("row_separator", default="\n", convert=_separator,
             doc="What ends a row of `inline_content`; `\\n`, `\\t`, `\\r` and `\\|` may be written as escapes."),
         Key("field_separator", default=";", convert=_separator, doc="What separates its fields; the same escapes."),
@@ -136,9 +141,10 @@ class FixedFlowInput(Source):
         config = self.config
         if config["use_inlinecontent"]:
             content = config["inline_content"]
-            if isinstance(content, Looked):
+            whole = self.run_context.named(content) if has_context_reference(content) else None
+            if whole is not None:
                 # All of it was looked up: one value, whatever it holds, and no text to take apart.
-                return [{name: self._held(content if at == 0 else None) for at, name in enumerate(names)}], [1]
+                return [{name: whole.value if at == 0 else None for at, name in enumerate(names)}], [1]
             rows, places = [], []
             for place, line in enumerate(content.split(config["row_separator"]), start=1):
                 if not line.strip():
@@ -160,11 +166,14 @@ class FixedFlowInput(Source):
 
     def _held(self, value: Any) -> Any:
         """A value as written, as what the row holds."""
-        if isinstance(value, Looked):
+        if isinstance(value, str) and has_context_reference(value):
             # Looked up while the job runs: data, handed on as it is. `00123` is no number written as text.
-            return value.value
-        if isinstance(value, str):
+            named = self.run_context.named(value)
+            if named is not None:
+                return named.value
             entry: Optional["re.Match[str]"] = _GLOBAL.search(value)
             if entry and self.global_map.get(entry.group(1)) is not None:
                 return self.global_map[entry.group(1)]
+            # A context variable in the middle of text: text, with what the variable holds in its place.
+            return self.run_context.resolve(value)
         return _number(value)

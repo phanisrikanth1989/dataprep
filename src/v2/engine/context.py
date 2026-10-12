@@ -188,6 +188,34 @@ class RunContext:
         text = _TEMPLATE.sub(lambda match: _as_text(self._value(match.group(1))), text)
         return _BARE.sub(self._bare, text)
 
+    def named(self, text: str) -> Optional[Looked]:
+        """What a text names when it is nothing but one reference: one context variable, or an item reference.
+
+        For a component that reads the text of a config value its own way
+        (as Python, as a number written as text): what this hands back is
+        data, whatever it looks like, and is not to be read that way.
+
+        Returns:
+            The value, as ``Looked``; None when the text is more than one
+            reference, or names a variable or an entry that is not there
+            and is left as written.
+
+        Raises:
+            ConfigurationError: When ``${context.x}`` names a variable that
+                does not exist, or a marked item reference an entry or a
+                variable that does not.
+        """
+        alone = text.strip()
+        whole = _TEMPLATE.fullmatch(alone) or _BARE.fullmatch(alone)
+        if whole is None:
+            found = self.resolved(text)
+            return found if isinstance(found, Looked) else None
+        if whole.group(1) in self.context:
+            return Looked(self.context[whole.group(1)])
+        if alone.startswith("$"):
+            raise ConfigurationError(f"context has no variable '{whole.group(1)}'")
+        return None
+
     def _value(self, name: str) -> Any:
         if name not in self.context:
             raise ConfigurationError(f"context has no variable '{name}'")

@@ -1,20 +1,35 @@
 """Row generator: rows made from expressions written in the job config."""
 from __future__ import annotations
 
+import ast
+import io
 import logging
 import random
 import re
-from typing import Any, Dict, List, Optional, Tuple
+import tokenize
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import polars as pl
 
 from ...column_types import held_frame
-from ...job.keys import Key, Kind, Looked
+from ...job.keys import Key, Kind, Looked, has_context_reference
 from ...rows import hidden, visible
 from ..base import Source, one_line
 from ..registry import REGISTRY
 
+if TYPE_CHECKING:
+    from ...engine.context import RunContext
+
 logger = logging.getLogger(__name__)
+
+# A context variable in an expression: as `${context.x}`, or bare.
+_REFERENCE = re.compile(r"\$\{context\.(\w+)\}|\bcontext\.(\w+)\b")
+# The name that stands for one in the expression Python is given, and what is added to it for its value as text.
+_NAME = "__v2_context_"
+_TEXT = "t"
+_NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+# The text between the names of an f-string, as Python 3.12 and later tell it apart.
+_FSTRING_MIDDLE = getattr(tokenize, "FSTRING_MIDDLE", None)
 
 _SPACE = re.compile(r"StringHandling\.SPACE\(([^)]+)\)")
 _LEN = re.compile(r"StringHandling\.LEN\(([^)]+)\)")
@@ -32,13 +47,6 @@ def _count(value: Any) -> int:
     return rows
 
 
-def _spaces(match: "re.Match[str]") -> str:
-    try:
-        return repr(" " * int(eval(match.group(1).strip(), {"__builtins__": {}})))  # noqa: S307 -- nothing in reach
-    except Exception:  # noqa: BLE001 -- as v1: a count that cannot be worked out is no blanks
-        return repr("")
-
-
 def _length(match: "re.Match[str]") -> str:
     text = match.group(1).strip()
     if text[:1] in _QUOTES and text[-1:] == text[:1]:
@@ -54,19 +62,57 @@ def _as_itself(text: str) -> str:
     return text
 
 
-class _Expression:
-    """One column's expression, read once and worked out for every row."""
+def _as_text(value: Any) -> str:
+    return "" if value is None else str(value)
 
-    def __init__(self, written: Any) -> None:
+
+def _as_python(value: Any) -> Any:
+    """What a context variable holds, as an expression has it: text that is a plain number is that number, as when
+    v1 writes the text into the expression; any other text is text."""
+    if isinstance(value, str) and _NUMBER.fullmatch(value.strip()):
+        try:
+            return ast.literal_eval(value.strip())
+        except (ValueError, SyntaxError):
+            # 007 is no number Python reads.
+            pass
+    return value
+
+
+class _Expression:
+    """One column's expression, read once and worked out for every row.
+
+    A context variable the expression names is the value it holds and
+    never text of the expression: each stands in the expression under a
+    name of its own, and the value is handed to Python under that name.
+    So what a variable holds is never run, whatever it looks like.
+    """
+
+    def __init__(self, written: Any, run_context: "RunContext") -> None:
         self.code = None
         # What was looked up while the job runs is the value, whatever it looks like: it is never read as Python.
-        self.looked = written if isinstance(written, Looked) else None
-        if self.looked is not None:
-            return
-        self.text = _LEN.sub(_length, _SPACE.sub(_spaces, str(written)))
+        self.looked: Optional[Looked] = None
+        # What the context variables in the expression hold, under the names that stand for them: as Python has
+        # each, and under a second name as text.
+        self.names: Dict[str, Any] = {}
+        self._held: Dict[str, Any] = {}
+        text = str(written)
+        if isinstance(written, str) and has_context_reference(written):
+            self.looked = run_context.named(written)
+            if self.looked is not None:
+                return
+            text = self._named(written, run_context.context)
+            alone = text.strip()
+            while alone.startswith("(") and alone.endswith(")"):
+                alone = alone[1:-1].strip()
+            if alone in self._held:
+                # One variable and nothing else: the value itself.
+                self.looked = Looked(self._held[alone])
+                return
+        source = self._quoted(_LEN.sub(_length, _SPACE.sub(self._spaces, text)))
+        self.text = self._written(source)
         try:
             # Blanks in front are not Python's business, as for v1's eval.
-            self.code = compile(self.text.lstrip(" \t"), "<expression>", "eval")
+            self.code = compile(source.lstrip(" \t"), "<expression>", "eval")
         except SyntaxError:
             pass
 
@@ -77,14 +123,77 @@ class _Expression:
         if self.code is None:
             return _as_itself(self.text)
         try:
-            return eval(self.code, reach)  # noqa: S307 -- only `random` is in reach, as in v1
+            return eval(self.code, {**reach, **self.names} if self.names else reach)  # noqa: S307 -- only `random` is in reach, as in v1
         except NameError:
             return _as_itself(self.text)
+
+    def _named(self, text: str, context: Dict[str, Any]) -> str:
+        """The expression with a name of its own where each context variable stood."""
+
+        def name(match: "re.Match[str]") -> str:
+            variable = match.group(1) or match.group(2)
+            if variable not in context:
+                # Written bare, and no variable: left as it is, as in v1. (Written with ${}, it has failed the
+                # component before this.)
+                return match.group(0)
+            made = f"{_NAME}{len(self._held)}__"
+            self._held[made] = context[variable]
+            self.names[made] = _as_python(context[variable])
+            self.names[made + _TEXT] = _as_text(context[variable])
+            return made
+
+        return _REFERENCE.sub(name, text)
+
+    def _written(self, text: str) -> str:
+        """The expression as text, with what each variable holds where its name stands."""
+        for name, held in self._held.items():
+            text = text.replace(name, _as_text(held))
+        return text
+
+    def _spaces(self, match: "re.Match[str]") -> str:
+        try:
+            # Nothing is in reach but the numbers the context holds.
+            return repr(" " * int(eval(match.group(1).strip(), {"__builtins__": {}, **self.names})))  # noqa: S307
+        except Exception:  # noqa: BLE001 -- as v1: a count that cannot be worked out is no blanks
+            return repr("")
+
+    def _quoted(self, source: str) -> str:
+        """The expression with every variable that stands inside quotes made part of that text."""
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+        except (tokenize.TokenError, SyntaxError):
+            # No Python: it is taken as itself.
+            return source
+        starts = [0]
+        for line in source.splitlines(keepends=True):
+            starts.append(starts[-1] + len(line))
+        for token in reversed(tokens):
+            if not any(name in token.string for name in self._held):
+                continue
+            if token.type == tokenize.STRING:
+                held = ast.literal_eval(token.string)
+                if isinstance(held, bytes):
+                    for name, value in self._held.items():
+                        held = held.replace(name.encode(), _as_text(value).encode("utf-8"))
+                    made = repr(held)
+                else:
+                    made = repr(self._written(held))
+            elif token.type == _FSTRING_MIDDLE:
+                # The text of an f-string: the variable is named there, as the text it holds.
+                made = token.string
+                for name in self._held:
+                    made = made.replace(name, "{" + name + _TEXT + "}")
+            else:
+                continue
+            start = starts[token.start[0] - 1] + token.start[1]
+            end = starts[token.end[0] - 1] + token.end[1]
+            source = source[:start] + made + source[end:]
+        return source
 
 
 _VALUE = (
     Key("schema_column", required=True, doc="The column."),
-    Key("array", type=object, default="", nullable=True, takes_looked=True,
+    Key("array", type=object, default="", nullable=True, reads_references=True,
         doc="The expression every row's value comes from."),
 )
 
@@ -102,9 +211,15 @@ class RowGenerator(Source):
     quotes around it. `StringHandling.SPACE(3)` is three blanks and
     `StringHandling.LEN("ab")` is 2. A column with no expression is missing.
 
-    A value that is looked up while the job runs (`globalMap.get("KEY")`,
-    alone or joined to text) is the value itself and never an expression:
-    the name of a file or a value of a row is data, whatever it looks like.
+    A value that is looked up while the job runs is the value itself and
+    never an expression: the name of a file or what another job handed
+    over is data, whatever it looks like. That holds for an entry of
+    globalMap (`globalMap.get("KEY")`, alone or joined to text) and for a
+    context variable. A context variable that stands alone (`context.x`,
+    `${context.x}`) is what it holds, as it is. Inside an expression it
+    is that value too: text is text, and text that is a plain number is
+    the number (`${context.n} + 1`). Inside quotes it is part of that
+    text. What a variable holds is never run as Python.
 
     A row with an expression that fails (`1/0`) leaves by the reject output
     with that column missing (false, in a true/false column) and nothing
@@ -171,7 +286,7 @@ class RowGenerator(Source):
     def _made(self) -> pl.DataFrame:
         """Every row, numbered, with what failed in it where something did."""
         expressions: List[Tuple[str, _Expression]] = [
-            (entry["schema_column"], _Expression(entry["array"])) for entry in self.config["values"]
+            (entry["schema_column"], _Expression(entry["array"], self.run_context)) for entry in self.config["values"]
         ]
         reach = {"__builtins__": {}, "random": random}
         # True or false with no expression at all is false, as in v1, also where it may not be missing.

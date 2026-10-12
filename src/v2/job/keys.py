@@ -30,10 +30,12 @@ _CONTEXT_REF = re.compile(r"\$\{context\.\w+\}|(?<![\w.])context\.\w+|(?<![\w.])
 class Looked:
     """A value that was looked up while the job runs: an entry of globalMap, or an item under the converter's mark.
 
-    It is data, and no text of the job config. A key whose component reads
-    the text of a value its own way (as an expression, as a number written
-    as text) says `takes_looked`, is handed this, and takes the value as
-    it is. Every other key is handed the value itself.
+    It is data, and no text of the job config. Every key is handed the
+    value itself, but for one whose component reads the text of its value
+    its own way (as an expression, as a number written as text): that key
+    says `reads_references`, is left as written, and its component looks
+    the references up itself, so that it can tell what was looked up from
+    what was written.
     """
 
     __slots__ = ("value",)
@@ -77,10 +79,11 @@ class Key:
         secret: Whether the value is one nobody is to see (a password). It is
             then written as ``***`` wherever a config is shown, and a
             refusal of it does not quote it.
-        takes_looked: Whether a value that was looked up while the job runs
-            is handed to the component as ``Looked``, and not as the value
-            itself. For a key whose text the component reads its own way:
-            what was looked up is then not read as such text.
+        reads_references: Whether the value is left as written, context
+            references and all, for the component to look up itself
+            (``RunContext.resolved``). For a key whose text the component
+            reads its own way: it then knows what was looked up, and does
+            not read that as such text.
     """
 
     name: str
@@ -99,7 +102,7 @@ class Key:
     fields: Optional[Tuple["Key", ...]] = None
     item_convert: Optional[Callable[[Any], Any]] = None
     secret: bool = False
-    takes_looked: bool = False
+    reads_references: bool = False
 
     @property
     def spellings(self) -> Tuple[str, ...]:
@@ -233,13 +236,11 @@ def _check_value(
 ) -> Any:
     """Return the value a component sees for one supported key."""
     written = value
-    if key.type not in (EXPRESSION, CODE) and has_context_reference(value):
+    if key.type not in (EXPRESSION, CODE) and not key.reads_references and has_context_reference(value):
         if resolve is None:
             return value
         value = resolve(value)
         if isinstance(value, Looked):
-            if key.takes_looked:
-                return value
             value = value.value
 
     if value is None:

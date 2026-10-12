@@ -248,21 +248,21 @@ def test_bad_value_after_resolving_is_refused():
 # A value that was looked up while the job runs
 # ------------------------------------------------------------------
 
-def test_value_that_was_looked_up_is_handed_as_such_to_a_key_that_takes_it_and_as_itself_to_any_other():
-    keys = (Key("takes", type=object, takes_looked=True), Key("plain", type=object), Key("count", type=int),
-            Key("rows", type=list, items=(Key("value", type=object, takes_looked=True), Key("other", type=object))))
+def test_value_with_a_reference_is_left_as_written_for_a_key_that_reads_its_own_and_looked_up_for_any_other():
+    keys = (Key("own", type=object, reads_references=True), Key("plain", type=object), Key("count", type=int),
+            Key("rows", type=list, items=(Key("value", type=object, reads_references=True), Key("other", type=object))))
 
     def resolve(text):
         return Looked("00123") if text == "context.looked" else "from the context"
 
-    config, refusals = _norm({"takes": "context.looked", "plain": "context.looked", "count": "context.looked",
-                              "rows": [{"value": "context.looked", "other": "context.looked"}, {"value": "context.x"}]},
+    config, refusals = _norm({"own": "context.looked", "plain": "context.looked", "count": "context.looked",
+                              "rows": [{"value": "${context.x} + 1", "other": "context.looked"}, {"other": "context.x"}]},
                              keys, resolve=resolve)
     assert refusals == []
-    assert isinstance(config["takes"], Looked) and config["takes"].value == "00123"
+    # The component looks these up itself, and so knows what was looked up from what was written.
+    assert config["own"] == "context.looked" and config["rows"][0]["value"] == "${context.x} + 1"
     assert config["plain"] == "00123" and config["count"] == 123
-    assert isinstance(config["rows"][0]["value"], Looked) and config["rows"][0]["other"] == "00123"
-    assert config["rows"][1]["value"] == "from the context"
+    assert config["rows"][0]["other"] == "00123" and config["rows"][1]["other"] == "from the context"
 
 
 def test_item_of_a_plain_list_that_was_looked_up_is_the_value_itself():

@@ -414,6 +414,10 @@ documentation.
   -- eight findings, all real; a value looked up while the job runs was
   read as text of the job config, and a file's name could be run as
   Python. Fixed: what is looked up is data.
+  [Review of the XML group](issues/120-review-of-the-xml-group.md) --
+  seven findings, all real; a context variable's value was still run as
+  Python, a column path with an operator gave wrong values without a
+  word, and a document whose bulk is no record was held whole. Fixed.
   [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md)
   -- a direct path load always commits, a JDBC close commits what is
   pending, and a reader inside the plan runs its query again for every
@@ -491,9 +495,10 @@ list are of the first destination, which is reached):
   files by a reader, `run.only` for a reader that a loop runs, and a
   clean-up when the job is stopped from outside.
 - XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md)).
-  Built: all six, on one reader and one writer. An independent review
-  of them is to come. Left for later there: a check against an XSD, a
-  predicate in the record path, `split`.
+  Built: all six, on one reader and one writer, and reviewed
+  ([Review of the XML group](issues/120-review-of-the-xml-group.md)).
+  Left for later there: a check against an XSD, a predicate in the
+  record path, `split`.
 - Database is decided
   ([Databases: the decisions](issues/118-databases-the-decisions.md)),
   on what current tools do

@@ -193,6 +193,15 @@ def test_entry_is_handed_on_as_it_is_in_a_table_and_as_the_whole_inline_content_
     assert result.status == "success" and got == b"a;b\n2.50;\n"
 
 
+def test_entry_named_in_the_middle_of_a_value_is_the_whole_value_as_in_v1(tmp_path):
+    # v1 looks for an entry anywhere in a value, and hands on what the entry holds in place of all of it.
+    made = after_entries(fixed(schema="a:str, b:str", values_config=values(a='see globalMap.get("k") here', b="007")),
+                         k="00123")
+    run = assert_matches_v1(made, {}, tmp_path)
+    assert run.succeeded, run.error
+    assert run.files["out.csv"] == b"a;b\n00123;7\n"
+
+
 def test_entry_named_in_a_field_of_the_inline_content_is_handed_on_as_it_is_as_in_v1(tmp_path):
     # A line of several fields is no one value the engine looks up: the component reads each field, as v1 does.
     made = after_entries(fixed(schema="a:str, b:str", **inline('globalMap.get("k");007\n((String)globalMap.get("k"));x')),
@@ -275,3 +284,69 @@ def test_whole_number_too_long_for_64_bits_goes_missing_in_a_whole_number_column
 def test_true_or_false_that_may_not_be_missing_is_false_when_nothing_is_given(tmp_path):
     # Ticket 71: as v1 has it, for a column that may be missing and for one that may not.
     assert same(tmp_path, schema="id:int, ok:bool!", **inline("1;true\n2;\n3;0\n")) == ["1;true", "2;false", "3;false"]
+
+
+# ------------------------------------------------------------------
+# What a context variable holds is data too
+# ------------------------------------------------------------------
+
+FROM_CONTEXT = ["context.v", "${context.v}", "{{java}}context.v", " context.v "]
+
+
+@pytest.mark.parametrize("written", FROM_CONTEXT)
+def test_what_a_context_variable_holds_is_handed_on_as_it_is_and_is_not_read_as_a_number(tmp_path, written):
+    # An account number keeps its zeros. What is written in the config itself is still read as v1 reads it.
+    made = fixed(schema="acct:str, amt:str", values_config=values(acct=written, amt="007"), context={"v": "00123"})
+    result, got = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert got == b"acct;amt\n00123;7\n"
+
+
+@pytest.mark.parametrize("written", FROM_CONTEXT)
+def test_a_context_value_is_handed_on_as_it_is_in_a_table_and_as_the_whole_inline_content(tmp_path, written):
+    in_table = fixed(schema="a:str, b:str", use_singlemode=False, use_intable=True,
+                     intable=table((written, "007"), names=("a", "b")), context={"v": "00123"})
+    result, got = v2(tmp_path / "table", in_table)
+    assert result.status == "success" and got == b"a;b\n00123;7\n"
+    result, got = v2(tmp_path / "inline", fixed(schema="a:str, b:str", **inline(written), context={"v": "2.50"}))
+    assert result.status == "success" and got == b"a;b\n2.50;\n"
+
+
+@pytest.mark.parametrize("written", ["context.v", "${context.v}"])
+def test_a_context_value_in_a_field_of_the_inline_content_is_handed_on_as_it_is(tmp_path, written):
+    made = fixed(schema="a:str, b:str", **inline(f"{written};007\nx;{written}"), context={"v": "00123"})
+    result, got = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert got == b"a;b\n00123;7\nx;00123\n"
+
+
+def test_content_that_is_one_reference_is_not_taken_apart_at_a_separator_in_the_reference_itself(tmp_path):
+    made = after_entries(fixed(schema="a:str, b:str", **inline('globalMap.get("k")', field_separator=".")), k="1.5")
+    result, got = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert got == b"a;b\n1.5;\n"
+    one = fixed(schema="a:str, b:str", **inline("context.v", field_separator="."), context={"v": "2.50"})
+    result, got = v2(tmp_path / "context", one)
+    assert result.status == "success" and got == b"a;b\n2.50;\n"
+
+
+def test_a_value_with_a_context_value_in_it_is_text(tmp_path):
+    made = fixed(schema="a:str, b:str", values_config=values(a="${context.v}${context.v}", b="0${context.v}"),
+                 context={"v": "07"})
+    result, got = v2(tmp_path, made)
+    assert result.status == "success" and got == b"a;b\n0707;007\n"
+
+
+def test_a_context_value_makes_no_field_and_no_row_of_the_inline_content(tmp_path):
+    """The content is taken apart as it is written. What a variable holds is one value, whatever is in it."""
+    made = fixed(schema="a:str, b:str", **inline("1;${context.v}\n2;x"), context={"v": "p;q\nr"})
+    result, got = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    # Two rows, the first with the value whole in its second column. (The file is written without quotes.)
+    assert result.rows == {"out": 2}
+    assert got == b"a;b\n1;p;q\nr\n2;x\n"
+
+
+def test_a_typed_column_reads_a_context_value_as_its_type(tmp_path):
+    assert same(tmp_path, schema="n:int, f:float, s:str", context={"n": "42", "f": "1.5", "s": "x"},
+                values_config=values(n="${context.n}", f="context.f", s="context.s")) == ["42;1.5;x"]
