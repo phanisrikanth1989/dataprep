@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 from .errors import ConfigurationError, DatabaseError
+from .job.keys import Key
 
 if TYPE_CHECKING:
     from .job.model import Column
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 # The place a shared session is marked at when a subjob first changes something through it.
 _MARK = "v2_subjob"
+
+# On every component that works in a database, beside its connection block: whose session it works on.
+WORKING_KEYS: Tuple[Key, ...] = (
+    Key("use_existing_connection", type=bool, default=False,
+        doc="Whether it works on the session of the connection component `connection` names. Without it, it "
+            "opens a session of its own with its connection block."),
+    Key("connection", default="", doc="The id of that connection component. It has to be one of the job."),
+)
 
 
 # The kinds of column a query hands back, as far as a job's declared types care.
@@ -47,11 +56,15 @@ class Field:
         name: Its name there.
         family: ``NUMBER``, ``TEXT``, ``DATE``, ``ZONED`` or ``OTHER``.
         said: The database's own name for its type, for a message.
+        advice: For a column of a kind that cannot be taken: what to write
+            in the query for this kind, when that is more than the
+            session says of every such kind.
     """
 
     name: str
     family: str
     said: str
+    advice: str = ""
 
 
 def taken(columns: List["Column"], fields: List[Field], advice: Mapping[str, str]) -> List[bool]:
@@ -92,12 +105,44 @@ def taken(columns: List["Column"], fields: List[Field], advice: Mapping[str, str
         elif family == ZONED and declared != "str":
             why = f"a date with a time zone ({field.said}), and {_A[declared]} has none: {advice[ZONED]}"
         elif family == OTHER:
-            why = f"{field.said}, which v2 does not read: {advice[OTHER]}"
+            why = f"{field.said}, which v2 does not read: {field.advice or advice[OTHER]}"
         if why:
             wrong.append(f"column '{column.name}': the query hands back {why}")
     if wrong:
         raise ConfigurationError("; ".join(wrong))
     return from_text
+
+
+# ------------------------------------------------------------------
+# What is said of every database's connection block the same way
+# ------------------------------------------------------------------
+
+# How Talend writes a password it has encrypted with a key of its own.
+_ENCRYPTED = "enc:system.encryption.key.v1:"
+
+
+def password_problems(password: Any) -> List[str]:
+    """What is wrong with a password that no database can be given: text Talend encrypted. It is not shown."""
+    if isinstance(password, str) and password.startswith(_ENCRYPTED):
+        return ["password: is text Talend encrypted with a key of its own, which v2 cannot read; give the "
+                "password itself, from a context variable (`${context.db_password}`)"]
+    return []
+
+
+def filled(value: Any) -> bool:
+    """Whether a key of a connection block holds anything: text that is more than blanks."""
+    return isinstance(value, str) and bool(value.strip())
+
+
+def listed(names: List[str]) -> str:
+    """Names as a message lists them, each between backticks: ``a``, ``a and b``, ``a, b and c``."""
+    quoted = [f"`{name}`" for name in names]
+    return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
+
+
+def in_ascii(text: str) -> str:
+    """A text as plain ASCII, for a log line or a failure: what is beyond ASCII is written as an escape."""
+    return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
 class CallFailed(DatabaseError):
@@ -168,7 +213,12 @@ class Session:
         raise NotImplementedError
 
     def fields(self, statement: str, binds: Any = None) -> List[Field]:
-        """What a query hands back, column by column, found out without running it."""
+        """What a query hands back, column by column, before any of its rows is taken.
+
+        Where the database can say so, the query is not run for it. Where
+        it cannot (SQL Server says what a statement hands back only when it
+        runs it), the query is run, and its rows wait for ``batches``.
+        """
         raise NotImplementedError
 
     def typed(self, statement: str, columns: List["Column"], fields: List[Field]) -> Tuple[str, List[Any]]:

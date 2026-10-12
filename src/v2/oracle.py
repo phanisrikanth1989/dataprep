@@ -19,7 +19,10 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, 
 from .column_types import DEFAULT_DECIMAL_SCALE
 from .errors import DatabaseError
 from .job.keys import Key, Kind
-from .sessions import DATE, NUMBER, OTHER, TEXT, ZONED, CallFailed, Field, Session
+from .sessions import (  # noqa: F401
+    DATE, NUMBER, OTHER, TEXT, WORKING_KEYS, ZONED, CallFailed, Field, Session, filled, in_ascii, listed,
+    password_problems,
+)
 
 if TYPE_CHECKING:
     from .components.base import Component
@@ -34,8 +37,6 @@ MODULE = "dataprep-v2"
 _ACTION_BYTES = 64
 # Earlier drivers hand on wrong decimals across batches and lose dates read as dates.
 _OLDEST = (26, 0, 1)
-# How Talend writes a password it has encrypted with a key of its own.
-_ENCRYPTED = "enc:system.encryption.key.v1:"
 _JDBC = re.compile(r"\s*jdbc:oracle:\w+:", re.IGNORECASE)
 # Oracle's old way of writing a SID in a JDBC URL: host, port, SID.
 _OLD_SID = re.compile(r"([^:/@()\s]+):(\d+):([\w$#.]+)")
@@ -93,14 +94,6 @@ CONNECTION_KEYS: Tuple[Key, ...] = (
     Key("disable_cbc_protection", kind=Kind.IGNORED, type=object, doc="See `use_ssl`."),
 )
 
-
-# Beside the connection block, on every component that works in the database: whose session it works on.
-WORKING_KEYS: Tuple[Key, ...] = (
-    Key("use_existing_connection", type=bool, default=False,
-        doc="Whether it works on the session of the connection component `connection` names. Without it, it "
-            "opens a session of its own with its connection block."),
-    Key("connection", default="", doc="The id of that connection component. It has to be one of the job."),
-)
 
 # How Oracle's driver names the types of a result, by the kind each is to a job's declared types.
 _FAMILIES = {
@@ -208,24 +201,22 @@ def problems(config: Mapping[str, Any]) -> List[str]:
     if kind in (SID, SERVICE):
         named = "a SID" if kind == SID else "a service name"
         found += [f"{key}: is empty; a session is opened with a host and {named}" for key in ("host", "dbname")
-                  if not _given(config[key])]
+                  if not filled(config[key])]
     else:
         key = "rac_url" if kind == CUSTOM else "local_service_name"
-        if not _given(config[key]):
+        if not filled(config[key]):
             found.append(f"{key}: is empty; `connection_type` {kind} opens a session with it")
         elif kind == CUSTOM and _address(config[key])[0]:
             found.append("rac_url: carries a user and a password; give them in `user` and `password`, and the URL "
                          "from the `@` on")
-    if not _given(config["user"]):
+    if not filled(config["user"]):
         found.append("user: is empty")
-    if isinstance(config["password"], str) and config["password"].startswith(_ENCRYPTED):
-        found.append("password: is text Talend encrypted with a key of its own, which v2 cannot read; give the "
-                     "password itself, from a context variable (`${context.db_password}`)")
+    found += password_problems(config["password"])
     named = [part.split("=", 1)[0].strip() for part in str(config["properties"] or "").split("&&") if part.strip()]
     if named:
         are = "is a parameter" if len(named) == 1 else "are parameters"
         it = "it" if len(named) == 1 else "them"
-        found.append(f"properties: {_listed(named)} {are} of Oracle's JDBC driver, which v2 does not use; take {it} out")
+        found.append(f"properties: {listed(named)} {are} of Oracle's JDBC driver, which v2 does not use; take {it} out")
     return found
 
 
@@ -281,14 +272,14 @@ def opened(
     except driver.Error as fault:
         raise DatabaseError(f"no session was opened as {what}: {said(fault)}") from None
     client = "" if held.thin else ", with Oracle's own client"
-    logger.info(_ascii(f"[{opened_by}] session opened: {what} (Oracle {held.version}{client})"))
+    logger.info(in_ascii(f"[{opened_by}] session opened: {what} (Oracle {held.version}{client})"))
     return OracleSession(held, driver, opened_by, what, schema=config["schema_db"], **more)
 
 
 def said(fault: Any) -> str:
     """What the driver said, on one line of plain ASCII, without the link to Oracle's help that follows it."""
     text = _BLANKS.sub(" ", str(fault).split("\nHelp:")[0]).strip()
-    return _ascii(text) or type(fault).__name__
+    return in_ascii(text) or type(fault).__name__
 
 
 class OracleSession(Session):
@@ -437,16 +428,3 @@ def _place(given: Mapping[str, Any]) -> str:
     if "sid" in given:
         return f"{given['host']}:{given['port']}:{given['sid']}"
     return f"{given['host']}:{given['port']}/{given['service_name']}"
-
-
-def _given(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
-
-
-def _listed(names: List[str]) -> str:
-    quoted = [f"`{name}`" for name in names]
-    return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
-
-
-def _ascii(text: str) -> str:
-    return text.encode("ascii", "backslashreplace").decode("ascii")

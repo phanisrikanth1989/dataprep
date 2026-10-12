@@ -366,3 +366,135 @@ def test_as_many_values_as_marks(written, given, said):
 
 def test_without_values_given_a_mark_is_left_to_the_database():
     assert oracle("select * from t where a = ?") == ("select * from t where a = ?", {})
+
+
+# ------------------------------------------------------------------
+# A text of the national set (N'...')
+# ------------------------------------------------------------------
+
+def test_a_value_that_is_all_of_a_national_text_takes_the_place_of_its_n_too():
+    assert oracle("select * from emp where name = N'${context.s}'") == (
+        "select * from emp where name = :context_s", {"context_s": "bri"})
+
+
+def test_a_national_text_keeps_its_n_on_both_sides_of_a_value():
+    # Without it the part after the value is a plain text, and a database keeps of that only what its own set of
+    # characters has.
+    binds = {"context_s": "bri"}
+    assert oracle("select N'a${context.s}b' from dual") == ("select N'a' || :context_s || N'b' from dual", binds)
+    assert oracle("select n'a${context.s}' from dual") == ("select n'a' || :context_s from dual", binds)
+    assert oracle("select n'a${context.s}b' from dual") == ("select n'a' || :context_s || n'b' from dual", binds)
+    assert oracle("select N'${context.s}b' from dual") == ("select :context_s || N'b' from dual", binds)
+    assert oracle("select N'${context.s}-${context.d}!' from dual") == (
+        "select :context_s || N'-' || :context_d || N'!' from dual", {"context_s": "bri", "context_d": "2024-01-31"})
+
+
+def test_the_last_letter_of_a_word_before_a_quote_is_no_n_of_a_text():
+    assert oracle("select case when a = 1 then'${context.s}' end from t") == (
+        "select case when a = 1 then:context_s end from t", {"context_s": "bri"})
+    assert oracle("select case when a = 1 then'a${context.s}b' end from t") == (
+        "select case when a = 1 then'a' || :context_s || 'b' end from t", {"context_s": "bri"})
+
+
+def test_in_a_statement_that_defines_a_national_text_keeps_its_n():
+    made = read("create table t2 as select N'${context.who}' x, N'a${context.s}' y from dual")
+    assert made.named() == ("create table t2 as select N'o''brien' x, N'abri' y from dual", {})
+
+
+# ------------------------------------------------------------------
+# As SQL Server reads a statement
+# ------------------------------------------------------------------
+
+def tsql(written, context=None, **more):
+    """The text SQL Server is given, and the values it is given beside it, in the order of their marks."""
+    return statements.read(written, CONTEXT if context is None else context, HELD, dialect=statements.TSQL,
+                           **more).placed()
+
+
+def test_for_sql_server_a_value_in_quotes_is_bound_at_a_mark_and_texts_are_joined_with_a_plus():
+    assert tsql("select * from emp where d = '${context.d}' and name like N'%${context.s}%' and c = N'${context.s}'") == (
+        "select * from emp where d = ? and name like N'%' + ? + N'%' and c = ?", ["2024-01-31", "bri", "bri"])
+
+
+def test_a_quote_between_square_brackets_opens_no_text():
+    written = "select [it's] from emp where d = '${context.d}'"
+    assert tsql(written) == ("select [it's] from emp where d = ?", ["2024-01-31"])
+    # Oracle knows no such name: there the quote opens a text, and the value stands outside it.
+    assert refused(written).startswith("what context.d holds is written into the statement")
+
+
+def test_a_doubled_bracket_ends_no_name():
+    assert tsql("select [a]]'b] from emp where d = '${context.d}'") == (
+        "select [a]]'b] from emp where d = ?", ["2024-01-31"])
+
+
+def test_a_value_between_square_brackets_is_written_in_and_cannot_end_them():
+    assert tsql("select * from [${context.schema}].[${context.t}] where d = '${context.d}'") == (
+        "select * from [HR].[EMP] where d = ?", ["2024-01-31"])
+    with pytest.raises(ConfigurationError) as failed:
+        tsql("select * from [${context.v}]", {"v": "a] union select"})
+    assert "between the quotes of a name" in str(failed.value) and "union" not in str(failed.value)
+
+
+def test_a_remark_inside_a_remark_ends_only_itself():
+    written = "select 1 /* a /* b */ it's still a remark */ from emp where d = '${context.d}'"
+    assert tsql(written) == ("select 1 /* a /* b */ it's still a remark */ from emp where d = ?", ["2024-01-31"])
+    # For Oracle the remark ends where the first one does, and the quote after it opens a text.
+    assert refused(written).startswith("what context.d holds is written into the statement")
+
+
+def test_a_value_in_a_remark_inside_a_remark_is_held_to_what_stands_outside_quotes():
+    assert tsql("select 1 /* a /* b */ ${context.t} */ from emp") == ("select 1 /* a /* b */ EMP */ from emp", [])
+    with pytest.raises(ConfigurationError):
+        tsql("select 1 /* a /* b */ ${context.evil} */ from emp")
+
+
+def test_sql_server_knows_no_text_written_oracles_other_way():
+    written = "select 1 q'${context.s}'"
+    assert tsql(written) == ("select 1 q?", ["bri"])
+    assert "q'...'" in refused(written)
+
+
+@pytest.mark.parametrize("held", ["#stage", "_work", "tempdb.dbo.#stage", "a@b"])
+def test_a_name_of_sql_servers_may_start_with_an_underline_or_a_hash(held):
+    assert tsql("select * from ${context.v}", {"v": held}) == (f"select * from {held}", [])
+    with pytest.raises(ConfigurationError):
+        statements.read("select * from ${context.v}", {"v": held}, {})
+
+
+@pytest.mark.parametrize("held", ["@x", "@@version", "dbo.@x", "1; drop table emp", "a b"])
+def test_what_is_no_name_of_sql_servers_outside_quotes(held):
+    with pytest.raises(ConfigurationError) as failed:
+        tsql("select * from ${context.v}", {"v": held})
+    assert held not in str(failed.value)
+
+
+def test_for_sql_server_no_statement_takes_its_values_as_text():
+    made = statements.read("create table #t (d date); select * from emp where d = '${context.d}'", CONTEXT, HELD,
+                           dialect=statements.TSQL)
+    assert (made.defines, made.pasted) == (False, None)
+    assert made.placed() == ("create table #t (d date); select * from emp where d = ?", ["2024-01-31"])
+
+
+def test_a_statement_for_sql_server_that_is_one_reference_is_what_that_holds():
+    made = statements.read("context.sql", {"sql": "create table t (n int)"}, {}, dialect=statements.TSQL)
+    assert (made.placed(), made.defines, made.dialect) == (("create table t (n int)", []), False, statements.TSQL)
+
+
+def test_what_a_log_shows_of_a_statement_for_sql_server_has_marks_and_no_values():
+    made = statements.read("select * from emp where name = '${context.who}' and note like 'a${context.s}'", CONTEXT,
+                           HELD, dialect=statements.TSQL)
+    assert made.shown() == "select * from emp where name = ? and note like 'a' + ?"
+    assert made.shown() == made.placed()[0]
+
+
+def test_by_name_a_statement_is_handed_over_one_way_whatever_database_it_was_read_for():
+    made = statements.read("select * from [emp] where note like 'a${context.s}'", CONTEXT, HELD, dialect=statements.TSQL)
+    assert made.named() == ("select * from [emp] where note like 'a' || :context_s", {"context_s": "bri"})
+
+
+def test_a_bound_value_between_an_n_and_a_quote_stays_where_it_is():
+    # No statement a database takes, but nothing bound may go missing from one, whatever it is.
+    made = statements.read("select N?'a', ?N'b${context.s}' from dual", CONTEXT, HELD,
+                           parameters=[statements.Given(value=1), statements.Given(value=2)])
+    assert made.named() == ("select N:p1'a', :p2N'b' || :context_s from dual", {"p1": 1, "p2": 2, "context_s": "bri"})

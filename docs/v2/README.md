@@ -101,6 +101,8 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Sleep (tSleep) | `sleep` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#sleep) |
 | Sort row (tSortRow) | `sort_row` | [Differences from v1: Rows](differences-from-v1/rows.md#sort-row) |
 | Split row (tSplitRow) | `split_row` | [Differences from v1: Rows](differences-from-v1/rows.md#split-row) |
+| SQL Server connection (tMSSqlConnection) | `mssql_connection` | [Own rule: Databases](own-rule/databases.md#sql-server-connection) |
+| SQL Server input (tMSSqlInput) | `mssql_input` | [Own rule: Databases](own-rule/databases.md#sql-server-input) |
 | Unique row (tUniqRow) | `unique_row` | [Differences from v1: Rows](differences-from-v1/rows.md#unique-row) |
 | Unite (tUnite) | `unite` | [Differences from v1: Rows](differences-from-v1/rows.md#unite) |
 | Unpivot row (tUnpivotRow) | `unpivot_row` | [Differences from v1: Rows](differences-from-v1/rows.md#unpivot-row) |

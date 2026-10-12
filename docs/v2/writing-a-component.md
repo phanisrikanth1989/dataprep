@@ -152,8 +152,12 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   may stand with no flow to it (a bulk load that names its file) sets
   `min_inputs = 0` and says in `rows()` where its rows come from then. A connection
   component sets `opens_session` to the kind
-  of database (`"Oracle"`), and a component whose `connection` names one
-  sets `uses_session`; the loader then checks the name.
+  of database (`"Oracle"`, `"SQL Server"`), and a component whose
+  `connection` names one sets `uses_session`; the loader then checks
+  the name. A statement of a job is read with `statements.read`, as its
+  database reads one (`dialect`): where a text begins and ends is not
+  the same in every database, and a value must never stand where the
+  reader and the database disagree.
 - **A component that starts a loop** sets `loops = True`, declares
   `MAX_ITEMS` among its keys, and hands its items to the engine while it
   runs: `self.loop_over(items)`, each item being how the log names it and

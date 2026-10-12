@@ -23,12 +23,16 @@ where it is joined (`"... where id = " + row1.id`). A value of a row is
 always bound, in quotes or out of them: the statement is one, and the rows
 are its values. A prepared statement has a mark (`?`) for each value it
 is given.
+
+Where a text begins and ends is each database's own to say (``Dialect``):
+`[a name]` and a remark inside a remark are SQL Server's, `q'[a text]'`
+is Oracle's. A statement is read as the database it is for reads it.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from .engine.references import parsed
 from .errors import ConfigurationError
@@ -39,11 +43,17 @@ _JAVA_JOIN = re.compile(r'(?<!\\)"\s*\+|\+\s*"')
 _JAVA = ("the statement is joined as Java joins text, and holds more than text, context variables and entries of "
          "globalMap: v2 runs no Java. Write it as one text, with ${context.name} where a value goes")
 _NUMBER = r"[+-]?(?:\d+\.?\d*|\.\d+)"
-_NAME = r"[A-Za-z][\w$#]*(?:\.[A-Za-z][\w$#]*)*"
 _TEXT = r"'(?:[^']|'')*'"
-_ITEM = rf"(?:{_NUMBER}|{_NAME}|{_TEXT})"
-# What a value may be where no quotes stand round it.
-_OUTSIDE = re.compile(rf"\s*{_ITEM}(?:\s*,\s*{_ITEM})*\s*")
+
+
+def _outside(first: str, rest: str) -> "re.Pattern[str]":
+    """What a value may be where no quotes stand round it: a name, a number, or a list of those and of texts in
+    quotes. A name starts with one of `first` and goes on with any of `rest`; its parts are joined by dots."""
+    part = rf"[{first}][{rest}]*"
+    item = rf"(?:{_NUMBER}|{part}(?:\.{part})*|{_TEXT})"
+    return re.compile(rf"\s*{item}(?:\s*,\s*{item})*\s*")
+
+
 # What a value may be between the quotes of a name.
 _IN_A_NAME = re.compile(r"[\w$# .\-]+")
 # The first word of a statement, past blanks and remarks.
@@ -53,6 +63,39 @@ DEFINES = frozenset((
     "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "COMMENT", "ANALYZE", "AUDIT", "NOAUDIT",
     "PURGE", "FLASHBACK", "ASSOCIATE", "DISASSOCIATE",
 ))
+
+
+@dataclass(frozen=True)
+class Dialect:
+    """How a database reads the text of a statement, and how a log shows one that is for it.
+
+    Attributes:
+        brackets: Whether a name may stand between square brackets, with
+            `]]` for a `]` in it.
+        nested: Whether a remark may stand inside a remark, and ends only
+            itself.
+        other_quotes: Whether a text may be written `q'[...]'`.
+        defines: The first words of the statements that take no bound
+            value: there a value in quotes is written as text.
+        outside: What a value may be where no quotes stand round it.
+        by_name: Whether a bound value is shown under its name (`:name`,
+            texts joined with `||`) or as a mark (`?`, joined with `+`).
+    """
+
+    brackets: bool
+    nested: bool
+    other_quotes: bool
+    defines: FrozenSet[str]
+    outside: "re.Pattern[str]"
+    by_name: bool
+
+
+ORACLE = Dialect(brackets=False, nested=False, other_quotes=True, defines=DEFINES,
+                 outside=_outside("A-Za-z", r"\w$#"), by_name=True)
+# Every statement of SQL Server's takes bound values, and none stores what waited before it. A name of its own may
+# start with `_` or `#`; one that starts with `@` is a variable, and no name.
+TSQL = Dialect(brackets=True, nested=True, other_quotes=False, defines=frozenset(),
+               outside=_outside("A-Za-z_#", r"\w$#@"), by_name=False)
 # The longest name a value is bound under: what every Oracle still in use takes.
 _LONGEST = 30
 _PAIRS = {"[": "]", "{": "}", "(": ")", "<": ">"}
@@ -111,17 +154,19 @@ class Statement:
             joined, in order.
         defines: Whether it is a statement that defines.
         pasted: For one that defines: its text with every value written in.
+        dialect: The database it was read for.
     """
 
     parts: List[Any]
     defines: bool = False
     pasted: Optional[str] = None
+    dialect: Dialect = ORACLE
 
     def named(self) -> Tuple[str, Dict[str, str]]:
         """The statement with each value under its name (`:name`), and the values by name. Oracle's way."""
         if self.pasted is not None:
             return self.pasted, {}
-        return self.shown(), {part.name: part.value for part in self.parts if isinstance(part, Bound)}
+        return self._by_name(), {part.name: part.value for part in self.parts if isinstance(part, Bound)}
 
     def by_place(self) -> Tuple[str, List[Bound]]:
         """The statement with a place of its own for each value (`:1`, `:2`...), and what stands at each: for a
@@ -133,12 +178,17 @@ class Statement:
         return text, bound
 
     def placed(self) -> Tuple[str, List[str]]:
-        """The statement with a `?` for each value, and the values in order; texts are joined with `+`."""
+        """The statement with a `?` for each value, and the values in order; texts are joined with `+`. SQL
+        Server's way."""
         text = "".join("?" if isinstance(part, Bound) else " + " if part is _JOIN else part for part in self.parts)
         return text, [part.value for part in self.parts if isinstance(part, Bound)]
 
     def shown(self) -> str:
-        """The statement as a log may show it: the names of its values, and never a value."""
+        """The statement as a log may show it, in the words of its database: the names of its values or their
+        marks, and never a value."""
+        return self._by_name() if self.dialect.by_name else self.placed()[0]
+
+    def _by_name(self) -> str:
         return "".join(f":{part.name}" if isinstance(part, Bound) else " || " if part is _JOIN else part
                        for part in self.parts)
 
@@ -149,6 +199,7 @@ def read(
     global_map: Mapping[str, Any],
     row: Optional[Tuple[str, List[str]]] = None,
     parameters: Optional[List[Given]] = None,
+    dialect: Dialect = ORACLE,
 ) -> Statement:
     """Read a statement as a job config has it.
 
@@ -160,6 +211,7 @@ def read(
             and the columns of its rows.
         parameters: For a prepared statement: what each of its marks
             (`?`) stands for, in their order.
+        dialect: The database the statement is for.
 
     Raises:
         ConfigurationError: When it names what is not there, holds Java
@@ -170,11 +222,11 @@ def read(
     if len(pieces) == 1 and isinstance(pieces[0], _Value) and pieces[0].column is None:
         if not isinstance(pieces[0].held, str):
             raise ConfigurationError(f"what {pieces[0].label} holds is no statement: it is no text")
-        return Statement([pieces[0].held], defines=_defines(pieces[0].held))
-    defines = _defines("".join(piece for piece in pieces if isinstance(piece, str)))
-    bound = _Writer(False, parameters).written(pieces)
-    pasted = "".join(_Writer(True, parameters).written(pieces)) if defines else None
-    return Statement(bound, defines, pasted)
+        return Statement([pieces[0].held], defines=_defines(pieces[0].held, dialect), dialect=dialect)
+    defines = _defines("".join(piece for piece in pieces if isinstance(piece, str)), dialect)
+    bound = _Writer(False, parameters, dialect).written(pieces)
+    pasted = "".join(_Writer(True, parameters, dialect).written(pieces)) if defines else None
+    return Statement(bound, defines, pasted, dialect)
 
 
 def unreadable(written: str, row: Optional[Tuple[str, List[str]]] = None) -> Optional[str]:
@@ -255,9 +307,9 @@ def _pieces(written: str, context: Mapping[str, Any], global_map: Mapping[str, A
     return merged
 
 
-def _defines(text: str) -> bool:
+def _defines(text: str, dialect: Dialect) -> bool:
     first = _FIRST.match(text)
-    return first is not None and first.group(1).upper() in DEFINES
+    return first is not None and first.group(1).upper() in dialect.defines
 
 
 def _as_text(value: Any) -> str:
@@ -272,19 +324,26 @@ class _Writer:
             doubled, and not bound: for a statement that defines.
         parameters: What each mark (`?`) stands for; None when the
             statement is not a prepared one, and a mark is left as it is.
+        dialect: The database whose reading of a statement it follows.
     """
 
-    def __init__(self, paste: bool, parameters: Optional[List[Given]] = None) -> None:
+    def __init__(self, paste: bool, parameters: Optional[List[Given]] = None, dialect: Dialect = ORACLE) -> None:
         self.paste = paste
         self.parameters = parameters
+        self.dialect = dialect
         self.marks = 0
         self.out: List[Any] = []
-        # Where it stands: in the statement itself (code), in a text in quotes, in the quotes of a name, in a
-        # remark to the end of the line or between its marks, or in a text written q'...'.
+        # Where it stands: in the statement itself (code), in a text in quotes, in the quotes of a name or
+        # between its square brackets, in a remark to the end of the line or between its marks, or in a text
+        # written q'...'.
         self.state = "code"
         # In a text in quotes: whether nothing stands in it yet, and whether a value stands before where it is at.
         self.fresh = False
         self.joined = False
+        # What opened the text it stands in: a quote, with the N before it when the text is of the national set.
+        self.opener = "'"
+        # How many remarks it stands in, one inside the other.
+        self.depth = 0
         # The two characters that end a text written q'...'.
         self.ends = ""
         self.names: Dict[str, Tuple[str, str]] = {}
@@ -310,17 +369,22 @@ class _Writer:
             step = 1
             if self.state == "code":
                 if char == "'":
-                    if self._opens_other_quotes(piece, at):
+                    if self.dialect.other_quotes and self._opens_other_quotes(piece, at):
                         opener = piece[at + 1:at + 2]
                         self.state, self.ends = "other", _PAIRS.get(opener, opener) + "'"
                     else:
                         self.state, self.fresh, self.joined = "text", True, False
+                        self._open_text()
+                        at += 1
+                        continue
                 elif char == '"':
                     self.state = "name"
+                elif char == "[" and self.dialect.brackets:
+                    self.state = "bracket"
                 elif pair == "--":
                     self.state, step = "line", 2
                 elif pair == "/*":
-                    self.state, step = "block", 2
+                    self.state, step, self.depth = "block", 2, 1
                 elif char == "?" and self.parameters is not None:
                     self._mark()
                     at += 1
@@ -340,16 +404,36 @@ class _Writer:
             elif self.state == "name":
                 if char == '"':
                     self.state = "code"
+            elif self.state == "bracket":
+                if pair == "]]":
+                    step = 2
+                elif char == "]":
+                    self.state = "code"
             elif self.state == "line":
                 if char == "\n":
                     self.state = "code"
             elif self.state == "block":
                 if pair == "*/":
-                    self.state, step = "code", 2
+                    step, self.depth = 2, self.depth - 1
+                    if not self.depth:
+                        self.state = "code"
+                elif pair == "/*" and self.dialect.nested:
+                    step, self.depth = 2, self.depth + 1
             elif pair == self.ends:
                 self.state, step = "code", 2
             self.out.append(piece[at:at + step])
             at += step
+
+    def _open_text(self) -> None:
+        """Write the quote that opens a text, as one with the N before it when the text is of the national set
+        (N'...'): where a value takes the text's place the N goes with the quote, and where the text goes on after
+        a value it is opened again as it was."""
+        last, before = self.out[-1:], self.out[-2:-1]
+        # An N that ends a word (THEN'...') is no N of a text.
+        national = last in (["N"], ["n"]) and not (
+            before and isinstance(before[0], str) and re.search(r"[\w$#@]$", before[0]))
+        self.opener = (self.out.pop() if national else "") + "'"
+        self.out.append(self.opener)
 
     def _opens_other_quotes(self, piece: str, at: int) -> bool:
         """Whether a quote opens a text written q'[...]': a q stands before it, and is no end of a name."""
@@ -391,7 +475,7 @@ class _Writer:
             del self.out[-1]
         else:
             self.out += ["'", _JOIN]
-        self.out += [bound, _JOIN, "'"]
+        self.out += [bound, _JOIN, self.opener]
         self.fresh, self.joined = True, True
 
     def _value(self, value: _Value) -> None:
@@ -403,14 +487,14 @@ class _Writer:
             raise ConfigurationError(
                 f"{label} stands inside a text written q'...': write that text with plain quotes, so that the value "
                 "can be bound")
-        if self.state == "name":
+        if self.state in ("name", "bracket"):
             if not _IN_A_NAME.fullmatch(text):
                 raise ConfigurationError(
                     f"what {label} holds is written between the quotes of a name, and there it has to be a name: "
                     "letters, digits, blanks, and `_`, `$`, `#`, `.`, `-`; it is not")
             self.out.append(text)
         elif self.state != "text":
-            if not _OUTSIDE.fullmatch(text):
+            if not self.dialect.outside.fullmatch(text):
                 raise ConfigurationError(
                     f"what {label} holds is written into the statement, since no quotes stand round it, and there it "
                     "has to be a name, a number, or a list of names, numbers and texts in quotes; it is none of "

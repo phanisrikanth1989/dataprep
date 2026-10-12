@@ -454,6 +454,10 @@ documentation.
   the file is read by the engine's own reader and stored as the output
   stores, with the subjob; the first refused row fails the job unless
   the load says how many it allows.
+  [SQL Server connection and input](issues/126-sql-server-connection-and-input.md)
+  -- the query is run as it is written and once; v2 converts on its side
+  as SQL Server's own cast does; a statement is read as its own
+  database reads one; every statement is stored by itself.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -529,7 +533,8 @@ list are of the first destination, which is reached):
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
   connection, commit, rollback, close, input, output, row, stored
-  procedure and bulk exec. To come: the two for SQL Server.
+  procedure and bulk exec, and the SQL Server connection and input.
+  To come: the review of the group.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.
 

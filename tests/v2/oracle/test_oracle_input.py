@@ -172,3 +172,10 @@ def test_a_reading_on_the_session_of_a_connection_leaves_nothing_waiting(oracle_
     with open(out) as held:
         assert held.read().splitlines()[1:] == ["2", "3", "12345678901234567890"]
     assert decimal.Decimal(result.global_map.get("in_NB_LINE", 3)) == 3
+
+
+def test_a_value_in_a_text_of_the_national_set(oracle_db, tmp_path):
+    query = "select N'${context.s}' a, N'<${context.s}>' b, N'<<${context.s}' c from dual"
+    result, lines = reading(oracle_db, tmp_path, "a:str, b:str, c:str", query, context={"s": "bri"})
+    assert result.status == "success", result.error
+    assert lines[1] == "bri;<bri>;<<bri"

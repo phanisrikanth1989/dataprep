@@ -617,3 +617,19 @@ def test_as_many_columns_as_are_declared():
                                  "place, so there have to be as many")
     with pytest.raises(ConfigurationError, match="hands back 2 column"):
         taken(declared("int"), handed(NUMBER, TEXT), ADVICE)
+
+
+def test_a_column_that_cannot_be_taken_says_what_its_own_kind_needs_when_it_has_a_word_of_its_own():
+    fields = [Field("C1", OTHER, "binary data", advice="write its digits in the query"), Field("C2", OTHER, "a BLOB")]
+    with pytest.raises(ConfigurationError) as failed:
+        taken(declared("str", "str"), fields, ADVICE)
+    assert str(failed.value) == (
+        "column 'c1': the query hands back binary data, which v2 does not read: write its digits in the query; "
+        "column 'c2': the query hands back a BLOB, which v2 does not read: turn it into text"
+    )
+
+
+def test_the_keys_that_say_whose_session_a_component_works_on_are_the_same_for_every_database():
+    from src.v2 import oracle, sessions
+    assert [key.name for key in sessions.WORKING_KEYS] == ["use_existing_connection", "connection"]
+    assert oracle.WORKING_KEYS is sessions.WORKING_KEYS

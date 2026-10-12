@@ -290,3 +290,29 @@ class Does(Action):
 WITH_DOES = Registry()
 for _cls in (*REGISTRY.classes(), Does):
     WITH_DOES.register(_cls)
+
+
+# ------------------------------------------------------------------
+# SQL Server components on SQLite
+# ------------------------------------------------------------------
+
+from src.v2 import mssql  # noqa: E402
+
+
+class OpenedMssql(Opened):
+    """What stands in for ``mssql.opened``: it notes what it was asked, and opens a session with a SQLite file."""
+
+    def __call__(self, config, opened_by, **more):
+        self.asked.append((dict(config), opened_by, more))
+        if self.refuses:
+            raise DatabaseError(self.refuses)
+        self.sessions.append(SqliteSession(self.path, opened_by, schema=config["schema_db"], **more))
+        return self.sessions[-1]
+
+
+@pytest.fixture
+def mssql_on_sqlite(monkeypatch, tmp_path):
+    """SQL Server components whose sessions are with a SQLite file holding a table ``t(n)``."""
+    made = OpenedMssql(database(tmp_path, "t(n)"))
+    monkeypatch.setattr(mssql, "opened", made)
+    return made

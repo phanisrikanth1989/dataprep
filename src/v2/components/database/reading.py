@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, ClassVar, Dict, List, Tuple
 
 import polars as pl
 
@@ -68,13 +68,13 @@ class DatabaseInput(Source):
     at a time, the session is done with, and the engine reads the file:
     however often it reads a source again (for a second attempt, to find
     a row at fault, for a run of a few rows), the database is asked once,
-    and what it handed back is one moment's rows.
+    and the rows are the ones it handed back that once.
 
-    Columns are taken by their place. The database converts each to the
-    type the job declares; a column of text that is declared as anything
-    else is read as the text of a file is, and a value that is none of
-    its type fails the job, or leaves by the reject output with
-    `die_on_error` off.
+    Columns are taken by their place. Each is made the type the job
+    declares by the database, or the way the database itself would make
+    it so; a column of text that is declared as anything else is read as
+    the text of a file is, and a value that is none of its type fails the
+    job, or leaves by the reject output with `die_on_error` off.
 
     A failure names a row as `row 3 of the result of <id>`. The rows come
     in the order the database hands them: with an `ORDER BY` in the query,
@@ -82,6 +82,8 @@ class DatabaseInput(Source):
     """
 
     outputs = {"main": ("flow", "main"), "reject": ("reject",)}
+    # How the database the query is for reads a statement.
+    dialect: ClassVar[statements.Dialect] = statements.ORACLE
 
     def problems(self) -> List[str]:
         found = [] if self.schema else ["schema: a database input needs its columns declared"]
@@ -137,7 +139,7 @@ class DatabaseInput(Source):
         import pyarrow
         from pyarrow import parquet
 
-        made = statements.read(self.config["query"], self.context, self.global_map)
+        made = statements.read(self.config["query"], self.context, self.global_map, dialect=self.dialect)
         size = self.config["cursor_size"] if self.config["use_cursor"] else _BATCH
         names = [column.name for column in self.schema]
         session, own = self.session()
@@ -156,7 +158,7 @@ class DatabaseInput(Source):
         finally:
             if own:
                 session.close()
-        # The query as it was sent: the names of its values, and never a value.
+        # The query as it was sent: the names of its values or their marks, and never a value.
         self.global_map[f"{self.id}_QUERY"] = made.shown()
         logger.info(one_line(f"[{self.id}] the query handed back {rows} row(s) from {session.what}"))
         return path, [name for name, text_read in zip(names, from_text) if text_read]
