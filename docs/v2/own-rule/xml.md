@@ -136,6 +136,70 @@ What the writers share:
 - Not built: a condition in the record path; a check of each record
   against an XSD.
 
+## Extract XML field
+
+- The column `xmlfield` holds an XML document (the first column, when
+  none is named). `loop_query` finds the records in it, and each record
+  gives a row. A document it finds none in gives no row.
+
+  ```
+  id | doc
+  1  | <order><line><sku>A</sku></line><line><sku>B</sku></line></order>
+
+  loop_query /order/line, mapping: id (no path), sku (path sku)
+
+  id;sku
+  1;A
+  1;B
+  ```
+
+- The document is held whole, so a path may be any XPath 1.0:
+  - `loop_query` finds elements, from the root: `/order/line`, `//line`,
+    `/order/line[qty > 1]`. One that does not start at the root refuses
+    the job: Talend follows such a path from the document and the
+    library here from the root element, and one of the two would find
+    nothing without a word. One that finds what is no element (an
+    attribute, a text, a number) fails the job.
+  - A column's path is followed from its record (`sku`, `@id`,
+    `../@region`, `count(../line)`) or from the root (`/order/@id`).
+- A value is what the XML file input makes of it: one node gives its
+  text, no node a missing value, an empty element empty text (a missing
+  value where the column is no text), `xsi:nil="true"` a missing value.
+  Of several nodes the first is the value, and a warning says in how
+  many records. `nodecheck` gives the node itself, as XML text. Values
+  are then read as the type their column declares.
+- A column with no path is the input column of its name, and missing
+  where there is none. Entries that name no column are those of the
+  output columns, in their order, which is how an older converted job
+  has them.
+- A row with no document gives no row, as in Talend, and the log says
+  how many such rows there were.
+- What is turned away leaves by the reject output, with the output
+  columns as text and three more:
+
+  | `errorCode` | When | `errorXMLField` |
+  |---|---|---|
+  | `PARSE_ERROR` | the document is not well-formed XML, is empty text, or uses an entity it declares | the text |
+  | `TYPE_CONVERSION` | a value of a record is none of its column's type | the record |
+
+  The other records of a document go on. (Talend puts the whole
+  document beside each record it turns away; the record is the one at
+  fault, and the smaller.) With `die_on_error` the first fault, in the
+  order of the rows, fails the job and names the row. With no flow on
+  the reject output the rows are dropped, and a warning says how many
+  and names the first.
+- `limit` is the most rows that are made, over all the documents, as in
+  Talend (v1 counts the records of each document on its own). The rows
+  after it are not read.
+- Nothing but the document is read, as for a file. Names are matched by
+  their local name unless `namespaces` is given. What a declaration in
+  the text says of an encoding is not read again: the text is text
+  already. `ignore_ns` is taken and has no effect.
+- The rows are held in memory, and a document is held whole while its
+  records are read. Tried here on 600,000 records in 200,000 documents:
+  150,000 records a second, 435 MB at the most. (On a Mac; not yet on
+  the servers.)
+
 ## XML file output
 
 - The rows are written to the file `filename` as one document: its

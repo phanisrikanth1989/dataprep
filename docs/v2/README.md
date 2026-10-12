@@ -52,6 +52,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Extract JSON fields (tExtractJSONFields) | `extract_json_fields` | [Differences from v1: Extracting fields](differences-from-v1/extracting-fields.md#extract-json-fields) |
 | Extract positional fields (tExtractPositionalFields) | `extract_positional_fields` | [Differences from v1: Extracting fields](differences-from-v1/extracting-fields.md#extract-positional-fields) |
 | Extract regex fields (tExtractRegexFields) | `extract_regex_fields` | [Differences from v1: Extracting fields](differences-from-v1/extracting-fields.md#extract-regex-fields) |
+| Extract XML field (tExtractXMLField) | `extract_xml_field` | [Own rule: XML](own-rule/xml.md#extract-xml-field) |
 | File archive (tFileArchive) | `file_archive` | [Own rule: File jobs](own-rule/file-jobs.md#file-archive) |
 | File copy (tFileCopy) | `file_copy` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-copy) |
 | File delete (tFileDelete) | `file_delete` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-delete) |

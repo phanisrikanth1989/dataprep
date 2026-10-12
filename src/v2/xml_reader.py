@@ -156,26 +156,53 @@ def column_path(
             # The start tag of an element is whole before anything in it is read, so its attributes need no
             # waiting for. Anything else up there does.
             climb = max(climb, run.group(1).count(".."))
-    if not namespaces:
-        # Names are matched by their local name: a prefix says nothing, and is left out.
-        path = "".join(piece if at % 2 else _PREFIX.sub("", piece) for at, piece in enumerate(_LITERAL.split(path)))
-    bound = dict(namespaces) if namespaces else None
-    try:
-        find = etree.XPath(path, namespaces=bound)
-        find(etree.Element("r"))
-    except etree.XPathError as fault:
-        raise ValueError(f"is no XPath ({_said(fault)})") from None
+    path, find = _compiled(path, namespaces)
     # Steps up and then a path down that holds no step up: the same value for every record under one element.
     whole = re.fullmatch(r"((?:\.\./)+)(.+)", path)
     if whole is not None and ".." not in _LITERAL.sub("''", whole.group(2)):
         return ColumnPath(name, written, climb, as_node, find, whole.group(1).count(".."),
-                          etree.XPath(whole.group(2), namespaces=bound))
+                          etree.XPath(whole.group(2), namespaces=dict(namespaces) if namespaces else None))
     return ColumnPath(name, written, climb, as_node, find)
+
+
+def path(written: str, namespaces: Optional[Mapping[str, str]] = None) -> Any:
+    """Read any XPath 1.0 path, for a document that is held whole.
+
+    Where a document is gone through a piece at a time a path is held to
+    more (`record_path`, `column_path`): its answer must not depend on how
+    much of the document is in memory. Here all of it is, and nothing is
+    out of a path's reach.
+
+    Raises:
+        ValueError: The path is no XPath; the message says why.
+    """
+    needs_lxml()
+    if not written.strip():
+        raise ValueError("there is no path")
+    return _compiled(written.strip(), namespaces)[1]
+
+
+def _compiled(path: str, namespaces: Optional[Mapping[str, str]]) -> Tuple[str, Any]:
+    """A path as it is asked, and compiled. Without namespaces a prefix says nothing, and is left out."""
+    if not namespaces:
+        # Names are matched by their local name.
+        path = "".join(piece if at % 2 else _PREFIX.sub("", piece) for at, piece in enumerate(_LITERAL.split(path)))
+    try:
+        find = etree.XPath(path, namespaces=dict(namespaces) if namespaces else None)
+        find(etree.Element("r"))
+    except etree.XPathError as fault:
+        raise ValueError(f"is no XPath ({_said(fault)})") from None
+    return path, find
 
 
 def _said(fault: BaseException) -> str:
     text = " ".join(str(fault).split())
     return text or type(fault).__name__
+
+
+def not_well_formed(fault: Any) -> str:
+    """What the parser says is wrong with a document, with the job's key where it names a switch of its own."""
+    return str(fault.msg).replace("use XML_PARSE_HUGE option", "set `large_values` to read it")
 
 
 # ------------------------------------------------------------------
@@ -206,6 +233,68 @@ def _refusing() -> Any:
             raise Fault(f"the document asks for another file ({url}): v2 reads the document and nothing else")
 
     return Refuses()
+
+
+def parser(large_values: bool = False) -> Any:
+    """A parser for documents that are held whole as text, set as every parser of v2 is."""
+    needs_lxml()
+    # The text is text already: what a declaration in it says of an encoding is what it was once written in.
+    made = etree.XMLParser(encoding="utf-8", **settings(large_values))
+    made.resolvers.add(_refusing())
+    return made
+
+
+def document(text: str, with_parser: Any, strict: bool = False) -> Any:
+    """A document held as text, parsed whole: its root element, ready to be asked.
+
+    Args:
+        text: The document.
+        with_parser: A parser made by `parser`; one serves every document of a run.
+        strict: Whether names are read with their namespaces.
+
+    Raises:
+        Fault: The document uses an entity it declares, or asks for another file.
+        lxml.etree.XMLSyntaxError: The document is not well formed.
+    """
+    root = etree.fromstring(text.encode("utf-8"), with_parser)
+    prepared(root, strict)
+    return root
+
+
+def prepared(snapshot: Any, strict: bool, spaced: bool = True) -> None:
+    """Make an element ready to be asked: no entity in it, and its names local unless namespaces are given.
+
+    Args:
+        snapshot: The element, with all that is in it.
+        strict: Whether names are read with their namespaces.
+        spaced: Whether a name in it may be in a namespace at all.
+    """
+    for entity in snapshot.iter(etree.Entity):
+        raise Fault(
+            f"the document uses the entity '{entity.text}' (near line {entity.sourceline}): v2 reads no entity a "
+            "document declares, since one may name another file")
+    if spaced and not strict:
+        for element in snapshot.iter("{*}*"):
+            if element.tag[0] == "{":
+                element.tag = element.tag.rpartition("}")[2]
+            for key in [key for key in element.attrib if key[0] == "{"]:
+                local = key.rpartition("}")[2]
+                if key == _NIL:
+                    # Kept under its own name as well: it says the value is missing.
+                    continue
+                if local not in element.attrib:
+                    element.set(local, element.attrib.pop(key))
+
+
+def value(found: Any, as_node: bool, strict: bool) -> Tuple[Optional[str], bool]:
+    """What a path found, as a column's value, and whether it found more than one node; the first is the value."""
+    several = False
+    if isinstance(found, list):
+        if not found:
+            return None, False
+        several = len(found) > 1
+        found = found[0]
+    return _value(found, as_node, strict), several
 
 
 def _says_its_encoding(head: bytes) -> bool:
@@ -300,7 +389,7 @@ class Records:
                 if climb:
                     waiting.append(node)
                     continue
-                self._prepared(node, spaced)
+                prepared(node, record.strict, spaced)
                 yield self._row(node)
                 # A record inside a record stays until the outer one has been read too.
                 if not record.anywhere or not _inside_a_record(node, steps, record.strict):
@@ -308,31 +397,13 @@ class Records:
                 if self._made == self.limit:
                     return
             elif climb and _is_at(node, above, False, record.strict):
-                self._prepared(node, spaced)
+                prepared(node, record.strict, spaced)
                 for held in waiting:
                     yield self._row(held)
                     if self._made == self.limit:
                         return
                 waiting.clear()
                 _free(node)
-
-    def _prepared(self, snapshot: Any, spaced: bool) -> None:
-        """Make a snapshot ready to be asked: no entity in it, and its names local unless namespaces are given."""
-        for entity in snapshot.iter(etree.Entity):
-            raise Fault(
-                f"the document uses the entity '{entity.text}' (near line {entity.sourceline}): v2 reads no entity a "
-                "document declares, since one may name another file")
-        if spaced and not self.record.strict:
-            for element in snapshot.iter("{*}*"):
-                if element.tag[0] == "{":
-                    element.tag = element.tag.rpartition("}")[2]
-                for key in [key for key in element.attrib if key[0] == "{"]:
-                    local = key.rpartition("}")[2]
-                    if key == _NIL:
-                        # Kept under its own name as well: it says the value is missing.
-                        continue
-                    if local not in element.attrib:
-                        element.set(local, element.attrib.pop(key))
 
     def _row(self, node: Any) -> Tuple[int, List[Optional[str]]]:
         self._made += 1
@@ -345,26 +416,15 @@ class Records:
                 for _ in range(column.up):
                     top = top.getparent()
                 if above[at][0] is not top:
-                    above[at] = (top, self._found(column, column.find_from_above(top), strict))
+                    above[at] = (top, value(column.find_from_above(top), column.as_node, strict))
                 found, several = above[at][1]
             else:
-                found, several = self._found(column, column.find(node), strict)
+                found, several = value(column.find(node), column.as_node, strict)
             if several:
                 records, first = self.many.get(column.name, (0, self._made))
                 self.many[column.name] = (records + 1, first)
             values.append(found)
         return node.sourceline, values
-
-    @staticmethod
-    def _found(column: ColumnPath, found: Any, strict: bool) -> Tuple[Optional[str], bool]:
-        """What a path found, as the column's value, and whether it found more than one node."""
-        several = False
-        if isinstance(found, list):
-            if not found:
-                return None, False
-            several = len(found) > 1
-            found = found[0]
-        return _value(found, column.as_node, strict), several
 
 
 def _tag(step: str, strict: bool) -> str:
@@ -413,7 +473,7 @@ def _value(found: Any, as_node: bool, strict: bool) -> Optional[str]:
     if isinstance(found, str):
         return str(found)
     if as_node:
-        return _as_xml(found, strict)
+        return as_xml(found, strict)
     if len(found) == 0 and isinstance(found.tag, str):
         # An element with nothing in it but text: that text is its value, with no second path asked.
         if found.attrib and found.get(_NIL) == "true":
@@ -433,7 +493,7 @@ def _number(value: float) -> str:
     return str(int(value)) if value == int(value) and abs(value) < 1e15 else repr(value)
 
 
-def _as_xml(node: Any, strict: bool) -> str:
+def as_xml(node: Any, strict: bool) -> str:
     """A node as XML text. Where names are local, it carries no namespace declaration it has no use for."""
     if not strict:
         node = copy.deepcopy(node)

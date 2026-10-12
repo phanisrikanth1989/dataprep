@@ -399,6 +399,9 @@ documentation.
   [Advanced XML output](issues/113-advanced-xml-output.md) -- three
   tables drawn as one tree, groups opened and closed as the rows pass;
   a fixed value is no default, and missing is not empty.
+  [Extract XML field](issues/115-extract-xml-field.md) -- a document in
+  a cell parsed whole by the same guarded parser, any XPath, a record
+  at fault turned away alone; 150,000 records a second.
   [Review of loops and job control](issues/114-review-of-loops-and-job-control.md)
   -- eight findings, all real; a value looked up while the job runs was
   read as text of the job config, and a file's name could be run as
@@ -467,7 +470,7 @@ list are of the first destination, which is reached):
   clean-up when the job is stopped from outside.
 - XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md)).
   Built: the reader with the XML file input, the writer with the two
-  outputs. To build: extract XML field, the multi-schema input and XML
+  outputs, extract XML field. To build: the multi-schema input and XML
   map. Left for later there: a check against an XSD, a predicate in the
   record path, `split`.
 - Database waits on

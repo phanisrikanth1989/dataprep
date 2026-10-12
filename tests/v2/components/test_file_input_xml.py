@@ -307,6 +307,16 @@ def test_document_is_gone_through_once_also_where_the_engine_reads_the_source_tw
     assert len(reads) > 1 and walks == [1]
 
 
+def test_document_deeper_than_the_parser_allows_fails_and_names_the_key_that_lifts_it(tmp_path):
+    deep = ("<orders>" + "<a>" * 300 + "<order><sku>A</sku></order>" + "</a>" * 300 + "</orders>").encode()
+    result, written, _ = ran(tmp_path / "held", read_to_file("sku:str", loop_query="//order"), deep)
+    assert result.status == "failed" and "out.csv" not in written
+    assert result.error.startswith("'in.xml' is not well-formed XML: Excessive depth in document: 256")
+    assert "XML_PARSE_HUGE" not in result.error and "set `large_values` to read it" in result.error
+    result, written, _ = ran(tmp_path / "lifted", read_to_file("sku:str", loop_query="//order", large_values=True), deep)
+    assert result.status == "success" and written["out.csv"] == "sku\nA\n"
+
+
 def test_value_larger_than_the_parser_allows_is_read_where_large_values_are_asked_for(tmp_path):
     big = b"<orders><order><line><sku>" + b"x" * (11 * 1024 * 1024) + b"</sku></line></order></orders>"
     result, _, _ = ran(tmp_path / "refused", read_to_file("sku:str", paths={"sku": "string-length(sku)"}), big)

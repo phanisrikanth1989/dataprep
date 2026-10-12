@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import polars as pl
 
@@ -29,22 +29,25 @@ _LINE, _VALUE, _BAD = "__xml_line", "__v_", "__bad"
 _NOT_READ = "v2 has one way of reading XML, and reads no DTD."
 
 
-def _unquoted(value: str) -> str:
+def unquoted(value: str) -> str:
     """A path as written, less the double quotes Talend may put around it."""
     return value[1:-1] if len(value) > 1 and value.startswith('"') and value.endswith('"') else value
 
 
-def _limit(value: Any) -> Optional[int]:
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.strip().isdigit()):
-        raise ValueError(f"{value!r} is no number of records")
-    if int(value) < 0:
-        raise ValueError(f"{value} is no number of records")
-    return int(value)
+def most(what: str) -> Callable[[Any], Optional[int]]:
+    """A check for a key that says how many of something are made at the most; nothing given is no limit."""
+    def limit(value: Any) -> Optional[int]:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.strip().isdigit()):
+            raise ValueError(f"{value!r} is no number of {what}")
+        if int(value) < 0:
+            raise ValueError(f"{value} is no number of {what}")
+        return int(value)
+    return limit
 
 
-def _namespaces(value: Dict[str, Any]) -> Dict[str, str]:
+def namespaces(value: Dict[str, Any]) -> Dict[str, str]:
     for prefix, uri in value.items():
         if not isinstance(uri, str) or not uri:
             raise ValueError(f"the namespace of the prefix '{prefix}' is no text")
@@ -53,7 +56,7 @@ def _namespaces(value: Dict[str, Any]) -> Dict[str, str]:
 
 _MAPPING = (
     Key("column", required=True, aliases=("schema_column",), doc="The column the value goes to."),
-    Key("xpath", default="", aliases=("query",), convert=_unquoted,
+    Key("xpath", default="", aliases=("query",), convert=unquoted,
         doc="The XPath 1.0 path of the value, from the record; none: the child of the column's own name."),
     Key("nodecheck", type=bool, default=False,
         doc="Talend's \"Get Nodes\": the value is the node as XML text, and not the text in it."),
@@ -91,12 +94,12 @@ class FileInputXML(Source):
     outputs = {"main": ("flow", "main"), "reject": ("reject",)}
     keys = (
         Key("path", required=True, aliases=("filepath", "filename"), doc="The XML file to read."),
-        Key("loop_query", required=True, convert=_unquoted, doc="The path that finds the records, from the root."),
+        Key("loop_query", required=True, convert=unquoted, doc="The path that finds the records, from the root."),
         Key("mapping", type=list, default=[], items=_MAPPING, doc="Which value of a record goes to which column."),
-        Key("limit", type=object, default=None, convert=_limit, doc="The most records to read; none given: all."),
+        Key("limit", type=object, default=None, convert=most("records"), doc="The most records to read; none given: all."),
         Key("encoding", default="ISO-8859-15", convert=encoding,
             doc="The encoding of a document that does not say its own."),
-        Key("namespaces", type=dict, default={}, convert=_namespaces,
+        Key("namespaces", type=dict, default={}, convert=namespaces,
             doc="Prefixes and the namespaces they stand for. With it, paths are read as XPath says: a name without a "
                 "prefix is in no namespace."),
         Key("large_values", type=bool, default=False,
@@ -248,7 +251,7 @@ class FileInputXML(Source):
                         put_away()
                         characters = 0
         except etree.XMLSyntaxError as exc:
-            raise ConfigurationError(f"'{path}' is not well-formed XML: {exc.msg}") from None
+            raise ConfigurationError(f"'{path}' is not well-formed XML: {xml_reader.not_well_formed(exc)}") from None
         except xml_reader.Fault as exc:
             raise ConfigurationError(f"'{path}' cannot be read: {exc}") from None
         except LookupError:
