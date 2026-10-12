@@ -400,3 +400,28 @@ def test_fixed_text_beyond_the_places_a_float_holds_is_the_float_as_it_prints():
 
     frame = pl.DataFrame({"v": [1.5]}, schema={"v": pl.Float64})
     assert frame.select(fixed_text(pl.col("v"), 20)).to_series().to_list() == ["1.5"]
+
+
+def test_a_decimal_that_is_one_already_keeps_every_digit_it_has():
+    """It was read through the wider places text is read at, where more than twenty digits before the point do not
+    fit: a number of 38 digits from a database went missing without a word."""
+    from decimal import Decimal
+
+    from src.v2.column_types import conform
+    from src.v2.job.model import Column
+
+    huge = Decimal("12345678901234567890123456789012345678")
+    whole = pl.DataFrame({"n": [huge, Decimal("5"), None]}, schema={"n": pl.Decimal(38, 0)}).lazy()
+    made, _ = conform(whole, [Column("n", "Decimal", precision=0)])
+    assert made.collect()["n"].to_list() == [huge, Decimal("5"), None]
+    assert made.collect_schema()["n"] == pl.Decimal(38, 0)
+
+    wide = Decimal("123456789012345678901234567890.12345")
+    places = pl.DataFrame({"n": [wide, Decimal("2.34500"), Decimal("-2.34500")]}, schema={"n": pl.Decimal(38, 5)}).lazy()
+    made, _ = conform(places, [Column("n", "Decimal", precision=2)])
+    assert made.collect()["n"].to_list() == [Decimal("123456789012345678901234567890.12"), Decimal("2.35"), Decimal("-2.35")]
+    assert made.collect_schema()["n"] == pl.Decimal(38, 2)
+
+    # More places than the value has room for: it does not fit, and goes missing as any value that does not fit.
+    made, _ = conform(whole, [Column("n", "Decimal", precision=2)])
+    assert made.collect()["n"].to_list() == [None, Decimal("5.00"), None]

@@ -78,6 +78,40 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
   session is opened, and never after. Asking a dead session whether it
   lives, rolling it back and closing it are safe.
 
+## What is written into a statement
+
+A query or a statement is text the job wrote. It may name context
+variables and entries of globalMap, as text with `${context.name}` in
+it, or as Talend joins it (`"... where d = '" + context.d + "'"`). What
+such a reference holds is a value, and **no value can change what a
+statement does**:
+
+| Where the value stands | What becomes of it |
+|---|---|
+| in quotes: `where d = '${context.d}'` | it is bound: the database is handed the statement with a name in its place (`:context_d`), and the value beside it |
+| in quotes, inside a longer text: `like '%${context.s}%'` | bound, and joined to the rest by the database: `'%' \|\| :context_s \|\| '%'` |
+| outside quotes: `from ${context.table}`, `in (${context.ids})` | written into the statement, and it has to be a name, a number, or a list of names, numbers and texts in quotes. Anything else fails the component |
+| between the quotes of a name: `"${context.t}"` | written in; it has to be a name |
+
+- A value in quotes is bound as text, whatever it holds: a quote in it
+  is a quote.
+- **A statement that is nothing but one reference** (`context.sql`) is
+  what that holds, as it is: the job says "run what this holds".
+  References inside it are not read.
+- **A statement that defines** (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`
+  and the like) takes no bound value in Oracle. There a value in quotes
+  is written as text with its quotes doubled, which Oracle reads as
+  that text and nothing else.
+- What a log shows of a statement, and what is left in `<id>_QUERY`,
+  has the names of its values and never a value. A failure says which
+  reference it is about, and not what it holds.
+- Java that is more than joining (`TalendDate.formatDate(...)`) refuses
+  the job when it loads. So does a name in double quotes next to a
+  `+`, which looks the same: write it another way round.
+- A reference written `${context.name}` has to be there. Written bare
+  in plain text (`context.name`) and not there, it is left as it is:
+  it may be a column of a table called `context`.
+
 ## Oracle connection
 
 - Opens a session and keeps it for the components that name this one.
@@ -123,6 +157,54 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
 - `uncommitted` says otherwise: `commit` stores the work, `rollback`
   takes it back and goes on, `fail` is what happens without it.
 - A session that is not open is no fault.
+
+## Oracle input
+
+- Reads the rows of `query`. **The query is run once.** Its rows are
+  written to a scratch file a batch at a time, and the engine reads the
+  file: however often it reads a source again (a second attempt, the
+  search for a row at fault, a run for a few rows), the database is
+  asked once, and what it handed back is one moment's rows.
+- It reads on the session of the connection `connection` names when
+  `use_existing_connection` is on. Without it, it opens a session with
+  its own connection block and closes it when the rows are in.
+- **Columns are taken by their place**, as in Talend: the first column
+  of the query is the first declared column, whatever either is called.
+  A query that hands back more or fewer columns than are declared fails
+  before it is run.
+- **The database converts each column to its declared type**, and the
+  driver is asked for exactly that. (Left to itself the driver hands on
+  a `NUMBER(20)` as a float.)
+
+  | The query hands back | Declared as | What arrives |
+  |---|---|---|
+  | a number | `Decimal` | every digit, rounded to the declared places as Oracle rounds (2.345 is 2.35); one too wide fails the query |
+  | a number | `int` | cut to a whole number; one too large for 64 bits fails the query |
+  | a number | `float`, `bool` | the float; false for 0 and true for any other |
+  | a number | `str` | its digits, with a point: `0.5`, `-0.25` |
+  | a date | `datetime`, `date` | to the millionth of a second; the day |
+  | a date | `str` | `2024-01-31 13:14:15`, with six places more for a `TIMESTAMP` |
+  | text | `str` | as it is; a `CHAR` comes padded, and a `CLOB` whole |
+  | text | anything else | read as the text of a file is, by the column's pattern; a value that is none of its type fails the job and names the row, or leaves by the reject output with `die_on_error` off |
+  | a date with a time zone | `str` | `2024-01-31 13:14:15.500000 +05:30` |
+  | a date with a time zone | `datetime`, `date` | refused: a `datetime` has no zone. The failure gives the two ways to say which clock is meant: `sys_extract_utc(...)`, or `cast(... as timestamp)` |
+  | a number as a date, a date as a number | | refused |
+  | `RAW`, `BLOB`, `LONG`, `XMLTYPE` and others | | refused: turn it into text, a number or a date in the query |
+
+- An empty text is a missing value: Oracle has it so. `no_null_values`
+  makes a missing text column empty text.
+- `trim_all_column` strips every text column of surrounding blanks, and
+  `trim_column` the columns it names.
+- `use_cursor` with `cursor_size` says how many rows a round trip
+  brings; without it, 50,000.
+- The rows come in the order the database hands them: with an `ORDER BY`
+  in the query, in that order, as Oracle works such a query out today.
+  (The query is given to Oracle inside another that converts its
+  columns, with its own `WITH`, hints and `ORDER BY` as they are.)
+- The query is left in `<id>_QUERY` as it was sent. A failure names a
+  row as `row 3 of the result of <id>`.
+- Scratch space is needed for about the size of the rows (they are kept
+  compressed), in the folder `V2_TEMP_DIR` names.
 
 ## What refuses the job
 

@@ -518,3 +518,72 @@ def test_a_session_of_a_components_own_that_the_job_ends_on_is_rolled_back_and_c
     assert sessions.job_ends() == []
     assert session.did[-2:] == ["rollback", "close"]
     assert stored(path, ROWS) == []
+
+
+# ------------------------------------------------------------------
+# What a query hands back, and what the job declares
+# ------------------------------------------------------------------
+
+from src.v2.errors import ConfigurationError  # noqa: E402
+from src.v2.job.model import Column  # noqa: E402
+from src.v2.sessions import DATE, NUMBER, OTHER, TEXT, ZONED, Field, taken  # noqa: E402
+
+ADVICE = {ZONED: "say which clock is meant", OTHER: "turn it into text"}
+
+
+def declared(*types):
+    return [Column(name=f"c{at}", type=kind) for at, kind in enumerate(types, start=1)]
+
+
+def handed(*families):
+    said = {NUMBER: "NUMBER", TEXT: "VARCHAR", DATE: "DATE", ZONED: "TIMESTAMP_TZ", OTHER: "a BLOB"}
+    return [Field(f"C{at}", family, said[family]) for at, family in enumerate(families, start=1)]
+
+
+@pytest.mark.parametrize("kind", ["int", "float", "Decimal", "bool", "str"])
+def test_a_number_is_any_number_or_text_and_the_database_makes_it_so(kind):
+    assert taken(declared(kind), handed(NUMBER), ADVICE) == [False]
+
+
+@pytest.mark.parametrize("kind", ["datetime", "date", "str"])
+def test_a_date_is_a_date_or_text_and_the_database_makes_it_so(kind):
+    assert taken(declared(kind), handed(DATE), ADVICE) == [False]
+
+
+def test_text_that_is_declared_as_anything_else_is_read_by_the_engine_as_a_files_text_is():
+    kinds = ("str", "int", "float", "Decimal", "bool", "datetime", "date")
+    assert taken(declared(*kinds), handed(*[TEXT] * 7), ADVICE) == [False, True, True, True, True, True, True]
+
+
+def test_a_date_with_a_time_zone_is_text_only():
+    assert taken(declared("str"), handed(ZONED), ADVICE) == [False]
+
+
+def test_what_does_not_go_together_names_every_column_and_says_what_to_do():
+    with pytest.raises(ConfigurationError) as failed:
+        taken(declared("datetime", "int", "datetime", "str", "date", "Decimal", "str"),
+              handed(NUMBER, DATE, ZONED, OTHER, NUMBER, DATE, TEXT), ADVICE)
+    assert str(failed.value) == (
+        "column 'c1': the query hands back a number (NUMBER), and the job declares a datetime; "
+        "column 'c2': the query hands back a date (DATE), and the job declares a whole number; "
+        "column 'c3': the query hands back a date with a time zone (TIMESTAMP_TZ), and a datetime has none: say which "
+        "clock is meant; "
+        "column 'c4': the query hands back a BLOB, which v2 does not read: turn it into text; "
+        "column 'c5': the query hands back a number (NUMBER), and the job declares a date; "
+        "column 'c6': the query hands back a date (DATE), and the job declares a Decimal"
+    )
+
+
+@pytest.mark.parametrize("kind", ["int", "float", "Decimal", "bool", "date"])
+def test_a_date_with_a_time_zone_is_nothing_but_text(kind):
+    with pytest.raises(ConfigurationError, match="a date with a time zone"):
+        taken(declared(kind), handed(ZONED), ADVICE)
+
+
+def test_as_many_columns_as_are_declared():
+    with pytest.raises(ConfigurationError) as failed:
+        taken(declared("int", "str"), handed(NUMBER), ADVICE)
+    assert str(failed.value) == ("the query hands back 1 column(s) and the job declares 2: they are taken by their "
+                                 "place, so there have to be as many")
+    with pytest.raises(ConfigurationError, match="hands back 2 column"):
+        taken(declared("int"), handed(NUMBER, TEXT), ADVICE)

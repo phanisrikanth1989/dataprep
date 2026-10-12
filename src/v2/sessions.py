@@ -16,14 +16,88 @@ asked two things at once.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from .errors import DatabaseError
+from .errors import ConfigurationError, DatabaseError
+
+if TYPE_CHECKING:
+    from .job.model import Column
+    from .statements import Statement
 
 logger = logging.getLogger(__name__)
 
 # The place a shared session is marked at when a subjob first changes something through it.
 _MARK = "v2_subjob"
+
+
+# The kinds of column a query hands back, as far as a job's declared types care.
+NUMBER, TEXT, DATE, ZONED, OTHER = "number", "text", "date", "date with a time zone", "other"
+_NUMBERS = ("int", "float", "Decimal", "bool")
+_DATES = ("datetime", "date")
+_A = {"int": "a whole number", "float": "a float", "Decimal": "a Decimal", "bool": "a true/false", "datetime": "a datetime",
+      "date": "a date", "str": "text"}
+
+
+@dataclass(frozen=True)
+class Field:
+    """One column of what a query hands back, as the database describes it before the query runs.
+
+    Attributes:
+        name: Its name there.
+        family: ``NUMBER``, ``TEXT``, ``DATE``, ``ZONED`` or ``OTHER``.
+        said: The database's own name for its type, for a message.
+    """
+
+    name: str
+    family: str
+    said: str
+
+
+def taken(columns: List["Column"], fields: List[Field], advice: Mapping[str, str]) -> List[bool]:
+    """How each declared column gets its value from what a query hands back, column by place.
+
+    The database converts within a kind: a number to any number or to
+    text, a date to a date or to text, text to text. Text that the job
+    declares as anything else is handed on as text and read by the engine,
+    as the text of a file is. A number is no date, and a date no number.
+
+    Args:
+        columns: The declared columns.
+        fields: What the query hands back.
+        advice: For a kind that cannot be taken (``ZONED``, ``OTHER``):
+            what to write in the query instead, in the database's own words.
+
+    Returns:
+        For each column, whether the engine reads it from text.
+
+    Raises:
+        ConfigurationError: When the query and the declared columns do not
+            go together. Every such column is named.
+    """
+    if len(fields) != len(columns):
+        raise ConfigurationError(
+            f"the query hands back {len(fields)} column(s) and the job declares {len(columns)}: they are taken by "
+            "their place, so there have to be as many")
+    wrong: List[str] = []
+    from_text: List[bool] = []
+    for column, field in zip(columns, fields):
+        declared, family = column.type, field.family
+        from_text.append(family == TEXT and declared != "str")
+        why = ""
+        if family == NUMBER and declared in _DATES:
+            why = f"a number ({field.said}), and the job declares {_A[declared]}"
+        elif family == DATE and declared in _NUMBERS:
+            why = f"a date ({field.said}), and the job declares {_A[declared]}"
+        elif family == ZONED and declared != "str":
+            why = f"a date with a time zone ({field.said}), and {_A[declared]} has none: {advice[ZONED]}"
+        elif family == OTHER:
+            why = f"{field.said}, which v2 does not read: {advice[OTHER]}"
+        if why:
+            wrong.append(f"column '{column.name}': the query hands back {why}")
+    if wrong:
+        raise ConfigurationError("; ".join(wrong))
+    return from_text
 
 
 class Unstored(Exception):
@@ -70,8 +144,31 @@ class Session:
         self.in_subjob: List[str] = []
         self.before_subjob: List[str] = []
 
+    # For a column of a kind that cannot be taken as the job declares it: what to write in the query instead.
+    advice: Mapping[str, str] = {}
+
     def run(self, statement: str, binds: Optional[Mapping[str, Any]] = None) -> int:
         """Run one statement with its bound values. Returns how many rows it changed."""
+        raise NotImplementedError
+
+    def bound(self, statement: "Statement") -> Tuple[str, Any]:
+        """A statement as this database takes it: its text, and its values the way they are handed over."""
+        raise NotImplementedError
+
+    def fields(self, statement: str, binds: Any = None) -> List[Field]:
+        """What a query hands back, column by column, found out without running it."""
+        raise NotImplementedError
+
+    def typed(self, statement: str, columns: List["Column"], fields: List[Field]) -> Tuple[str, List[Any]]:
+        """The query that hands each column on as the job declares it, and the Arrow type each is asked for in.
+
+        The database does the converting: a driver's own may lose digits.
+        A column of text is handed on as text, whatever the job declares.
+        """
+        raise NotImplementedError
+
+    def batches(self, statement: str, binds: Any, types: List[Any], size: int) -> Iterator[Any]:
+        """Run a query and hand its rows back a batch at a time, as Arrow tables of the types asked for."""
         raise NotImplementedError
 
     def commit(self) -> None:

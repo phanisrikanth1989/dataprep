@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any, List, Mapping, Optional, Tuple
 
 from src.v2.errors import DatabaseError
-from src.v2.sessions import Session
+from src.v2.sessions import NUMBER, OTHER, TEXT, ZONED, Field, Session
 
 # What SQLite runs without a transaction of its own being opened for it first.
 _NO_TRANSACTION = ("select", "begin", "commit", "rollback", "pragma")
@@ -63,6 +63,71 @@ class SqliteSession(Session):
         self.did.append("close")
         self._held.close()
         self.closed = True
+
+    # ------------------------------------------------------------------
+    # Reading. SQLite has no types of its own for a column of a result: what a column is, is seen in its
+    # first row, and the converting is done here, where a real database does it itself.
+    # ------------------------------------------------------------------
+
+    advice = {ZONED: "say which clock is meant", OTHER: "turn it into text"}
+
+    def bound(self, statement):
+        return statement.named()
+
+    def fields(self, statement, binds=None):
+        self.did.append(("fields", statement))
+        try:
+            found = self._held.execute(f"select * from ({statement.rstrip().rstrip(';')}) limit 1", dict(binds or {}))
+        except sqlite3.Error as fault:
+            raise DatabaseError(str(fault)) from None
+        first = found.fetchone()
+        kinds = {int: (NUMBER, "INTEGER"), float: (NUMBER, "REAL"), str: (TEXT, "TEXT"), bytes: (OTHER, "a BLOB")}
+        return [Field(described[0], *kinds.get(type(None if first is None else first[at]), (TEXT, "TEXT")))
+                for at, described in enumerate(found.description)]
+
+    def typed(self, statement, columns, fields):
+        import pyarrow
+        kinds = {"int": pyarrow.int64(), "float": pyarrow.float64(), "bool": pyarrow.int8(), "str": pyarrow.large_string()}
+        types = []
+        for column, field in zip(columns, fields):
+            if field.family == TEXT:
+                types.append(pyarrow.large_string())
+            elif column.type == "Decimal":
+                types.append(pyarrow.decimal128(38, 10 if column.precision is None else column.precision))
+            else:
+                types.append(kinds[column.type])
+        return statement.rstrip().rstrip(";"), types
+
+    def batches(self, statement, binds, types, size):
+        import decimal
+        import pyarrow
+        self.did.append(("query", statement, dict(binds or {})))
+        try:
+            found = self._held.execute(statement, dict(binds or {}))
+        except sqlite3.Error as fault:
+            raise DatabaseError(str(fault)) from None
+
+        def as_asked(value, kind):
+            if value is None:
+                return None
+            if pyarrow.types.is_decimal(kind):
+                return decimal.Decimal(str(value)).quantize(decimal.Decimal(1).scaleb(-kind.scale))
+            if pyarrow.types.is_large_string(kind):
+                return str(value)
+            if pyarrow.types.is_int8(kind):
+                return int(value != 0)
+            return int(value) if pyarrow.types.is_integer(kind) else float(value)
+
+        names = [f"C{at}" for at in range(1, len(types) + 1)]
+        while True:
+            rows = found.fetchmany(size)
+            if not rows and self.did[-1] != "batch":
+                yield pyarrow.table({name: pyarrow.array([], kind) for name, kind in zip(names, types)})
+            if not rows:
+                return
+            self.did.append("batch")
+            yield pyarrow.table({name: pyarrow.array([as_asked(row[at], kind) for row in rows], kind)
+                                 for at, (name, kind) in enumerate(zip(names, types))})
 
 
 def database(tmp_path, *tables: str) -> str:

@@ -432,6 +432,11 @@ documentation.
   engine commits when the subjob has succeeded, before any file is
   moved, and rolls back when it has not; a close over work that waits
   fails.
+  [Oracle input](issues/121-oracle-input.md) -- the query runs once and
+  its rows rest in a scratch file; the database converts each column to
+  its declared type; a value in quotes is bound and one outside quotes
+  has to be a name or a number; on the way, a Decimal of more than
+  twenty digits was found to go missing in the engine, and was fixed.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -506,7 +511,7 @@ list are of the first destination, which is reached):
   and on what a real Oracle said when tried. Every row rests once in a
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
-  connection, commit, rollback and close. To come: input, output, row,
+  connection, commit, rollback, close and input. To come: output, row,
   stored procedure, bulk exec, and the two for SQL Server.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.

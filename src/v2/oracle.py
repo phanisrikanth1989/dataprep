@@ -14,11 +14,17 @@ import logging
 import os
 import re
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
+from .column_types import DEFAULT_DECIMAL_SCALE
 from .errors import DatabaseError
 from .job.keys import Key, Kind
-from .sessions import Session
+from .sessions import DATE, NUMBER, OTHER, TEXT, ZONED, Field, Session
+
+if TYPE_CHECKING:
+    from .components.base import Component
+    from .job.model import Column
+    from .statements import Statement
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +92,106 @@ CONNECTION_KEYS: Tuple[Key, ...] = (
     Key("ssl_keystore", kind=Kind.IGNORED, type=object, doc="See `use_ssl`."),
     Key("disable_cbc_protection", kind=Kind.IGNORED, type=object, doc="See `use_ssl`."),
 )
+
+
+# Beside the connection block, on every component that works in the database: whose session it works on.
+WORKING_KEYS: Tuple[Key, ...] = (
+    Key("use_existing_connection", type=bool, default=False,
+        doc="Whether it works on the session of the connection component `connection` names. Without it, it "
+            "opens a session of its own with its connection block."),
+    Key("connection", default="", doc="The id of that connection component. It has to be one of the job."),
+)
+
+# How Oracle's driver names the types of a result, by the kind each is to a job's declared types.
+_FAMILIES = {
+    NUMBER: ("DB_TYPE_NUMBER", "DB_TYPE_BINARY_FLOAT", "DB_TYPE_BINARY_DOUBLE", "DB_TYPE_BINARY_INTEGER"),
+    TEXT: ("DB_TYPE_VARCHAR", "DB_TYPE_NVARCHAR", "DB_TYPE_CHAR", "DB_TYPE_NCHAR", "DB_TYPE_CLOB", "DB_TYPE_NCLOB"),
+    DATE: ("DB_TYPE_DATE", "DB_TYPE_TIMESTAMP"),
+    ZONED: ("DB_TYPE_TIMESTAMP_TZ", "DB_TYPE_TIMESTAMP_LTZ"),
+}
+_FAMILY = {said: family for family, names in _FAMILIES.items() for said in names}
+ADVICE = {
+    ZONED: "say in the query which clock is meant, `sys_extract_utc(...)` for UTC or `cast(... as timestamp)` for "
+           "the clock of the value's own zone",
+    OTHER: "turn it into text, a number or a date in the query",
+}
+# The name the query has inside the one that converts its columns.
+_INNER = "v2q"
+# A number as text: the same digits in every session, whatever its language says a decimal point is.
+_NUMBER_AS_TEXT = "'TM9', 'nls_numeric_characters=" + "''.,''" + "'"
+
+
+def session_of(component: "Component") -> Tuple[Session, bool]:
+    """The session a component works on: its connection's, or one it opens with its own connection block.
+
+    Returns:
+        The session, and whether it is the component's own: one it opened,
+        which nothing else knows of yet.
+    """
+    config, run = component.config, component.run_context
+    if config["use_existing_connection"]:
+        return run.sessions.shared(config["connection"]), False
+    return opened(config, component.id, run.job_name, run.oracle), True
+
+
+def working_problems(config: Mapping[str, Any]) -> List[str]:
+    """What is wrong with the connection block of a component that works in the database: nothing, when it works
+    on the session of a connection component and its own block is not read."""
+    return [] if config["use_existing_connection"] else problems(config)
+
+
+def reading(statement: str, columns: List["Column"], fields: List[Field]) -> Tuple[str, List[Any]]:
+    """The query that has Oracle hand each column on as the job declares it, and the Arrow type each is asked for in.
+
+    The job's query is given a name, and its columns names by their place
+    (`"C1"`...), so that two columns of one name, or one of none, are told
+    apart. What it holds stays as it is written: its own `WITH`, its
+    `ORDER BY`, its hints, and the names of its bound values.
+    """
+    import pyarrow
+
+    names = [f'"C{at}"' for at in range(1, len(fields) + 1)]
+    selected: List[str] = []
+    types: List[Any] = []
+    for column, field, name in zip(columns, fields, names):
+        made, kind = name, pyarrow.large_string()
+        if field.family == NUMBER:
+            if column.type == "int":
+                # Cut, as everywhere a whole-number column is filled. One too large for 64 bits fails the query.
+                made, kind = f"trunc({name})", pyarrow.int64()
+            elif column.type == "float":
+                made, kind = f"cast({name} as binary_double)", pyarrow.float64()
+            elif column.type == "Decimal":
+                places = DEFAULT_DECIMAL_SCALE if column.precision is None else column.precision
+                # Rounded as Oracle rounds. One too wide fails the query (ORA-01438), where the driver would
+                # hand on another number.
+                made, kind = f"cast({name} as number(38, {places}))", pyarrow.decimal128(38, places)
+            elif column.type == "bool":
+                made = f"case when {name} is null then null when {name} = 0 then 0 else 1 end"
+                kind = pyarrow.int8()
+            else:
+                # Oracle writes a half as `.5`: the nought it leaves out is put before the point.
+                made = f"regexp_replace(to_char({name}, {_NUMBER_AS_TEXT}), '^(-?)[.]', '\\10.')"
+        elif field.family == DATE:
+            if column.type == "datetime":
+                made, kind = f"cast({name} as timestamp(6))", pyarrow.timestamp("us")
+            elif column.type == "date":
+                made, kind = f"trunc(cast({name} as date))", pyarrow.date32()
+            elif "TIMESTAMP" in field.said:
+                # Rounded to the millionth first, as a datetime of the same column is: written out, Oracle cuts.
+                made = f"to_char(cast({name} as timestamp(6)), 'YYYY-MM-DD HH24:MI:SS.FF6')"
+            else:
+                made = f"to_char({name}, 'YYYY-MM-DD HH24:MI:SS')"
+        elif field.family == ZONED:
+            made = f"to_char({name}, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')"
+        selected.append(f"{made} {name}")
+        types.append(kind)
+    inner = statement.rstrip()
+    if inner.endswith(";"):
+        inner = inner[:-1]
+    # The query ends on a line of its own: a remark at its end must not take the bracket with it.
+    text = f"with {_INNER} ({', '.join(names)}) as (\n{inner}\n) select {', '.join(selected)} from {_INNER}"
+    return text, types
 
 
 def problems(config: Mapping[str, Any]) -> List[str]:
@@ -186,10 +292,34 @@ def said(fault: BaseException) -> str:
 class OracleSession(Session):
     """A session with an Oracle database, over python-oracledb."""
 
+    advice = ADVICE
+
     def __init__(self, held: Any, driver: Any, opened_by: str, what: str, **more: Any) -> None:
         super().__init__(opened_by, what, **more)
         self._held = held
         self._driver = driver
+
+    def bound(self, statement: "Statement") -> Tuple[str, Any]:
+        return statement.named()
+
+    def fields(self, statement: str, binds: Any = None) -> List[Field]:
+        with self._asked(), self._held.cursor() as cursor:
+            # Parsed and not run: the columns are known without a value for anything that is bound.
+            cursor.parse(statement)
+            return [Field(column.name, _FAMILY.get(column.type_code.name, OTHER), _said(column.type_code.name))
+                    for column in cursor.description or []]
+
+    def typed(self, statement: str, columns: List["Column"], fields: List[Field]) -> Tuple[str, List[Any]]:
+        return reading(statement, columns, fields)
+
+    def batches(self, statement: str, binds: Any, types: List[Any], size: int) -> Iterator[Any]:
+        import pyarrow
+
+        asked = pyarrow.schema([pyarrow.field(f"C{at}", kind) for at, kind in enumerate(types, start=1)])
+        with self._asked():
+            for batch in self._held.fetch_df_batches(statement, parameters=dict(binds or {}), size=size,
+                                                     requested_schema=asked):
+                yield pyarrow.table(batch)
 
     def run(self, statement: str, binds: Optional[Mapping[str, Any]] = None) -> int:
         with self._asked(), self._held.cursor() as cursor:
@@ -253,6 +383,11 @@ def _driver(settings: Mapping[str, Any]) -> Any:
             raise DatabaseError("Oracle's own client, which `oracle_config.thick_mode` asks for, could not be "
                                 f"loaded: {said(fault)}") from None
     return oracledb
+
+
+def _said(type_name: str) -> str:
+    """The driver's name of a type as a message says it: `DB_TYPE_TIMESTAMP_TZ` is a `TIMESTAMP_TZ`."""
+    return type_name.removeprefix("DB_TYPE_")
 
 
 def _address(url: str) -> Tuple[str, str]:

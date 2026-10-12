@@ -446,8 +446,13 @@ def _coerced(value: pl.Expr, dtype: pl.DataType, column: Column) -> pl.Expr:
     if kind == "bool":
         return value if dtype == pl.Boolean else (value != 0)
     if kind == "Decimal":
-        if dtype.is_decimal() and column.precision is None:
-            return value
+        if dtype.is_decimal():
+            if column.precision is None:
+                return value
+            # Rounded where it stands. Read through the wider places text is read at, one of more than twenty
+            # digits before its point would not fit, and would go missing.
+            rounded = value.round(column.precision, mode="half_away_from_zero")
+            return rounded.cast(polars_type(column), strict=False)
         if dtype.is_float():
             # A float becomes the Decimal it prints as, which is what v1 makes of it.
             value = value.cast(pl.String)

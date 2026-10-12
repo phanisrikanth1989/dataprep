@@ -443,3 +443,156 @@ def test_an_end_the_database_refuses_is_said_in_its_words(monkeypatch, what):
     with pytest.raises(DatabaseError) as failed:
         getattr(session, what)()
     assert str(failed.value) == "DPY-1001: not connected to database"
+
+
+# ------------------------------------------------------------------
+# Reading: the query that has Oracle convert each column
+# ------------------------------------------------------------------
+
+import pyarrow  # noqa: E402
+
+from src.v2 import statements  # noqa: E402
+from src.v2.job.model import Column  # noqa: E402
+from src.v2.sessions import DATE, NUMBER, OTHER, TEXT, ZONED, Field  # noqa: E402
+
+
+def read_as(kind, family, said="NUMBER", **column):
+    text, types = oracle.reading("select x from t", [Column("c", kind, **column)], [Field("X", family, said)])
+    start, end = 'with v2q ("C1") as (\nselect x from t\n) select ', ' "C1" from v2q'
+    assert text.startswith(start) and text.endswith(end)
+    return text[len(start):-len(end)], types[0]
+
+
+@pytest.mark.parametrize("kind, family, said, made, asked", [
+    ("int", NUMBER, "NUMBER", 'trunc("C1")', pyarrow.int64()),
+    ("float", NUMBER, "NUMBER", 'cast("C1" as binary_double)', pyarrow.float64()),
+    ("bool", NUMBER, "NUMBER", 'case when "C1" is null then null when "C1" = 0 then 0 else 1 end', pyarrow.int8()),
+    ("str", NUMBER, "NUMBER",
+     """regexp_replace(to_char("C1", 'TM9', 'nls_numeric_characters=''.,'''), '^(-?)[.]', '\\10.')""", pyarrow.large_string()),
+    ("datetime", DATE, "DATE", 'cast("C1" as timestamp(6))', pyarrow.timestamp("us")),
+    ("date", DATE, "TIMESTAMP", 'trunc(cast("C1" as date))', pyarrow.date32()),
+    ("str", DATE, "DATE", """to_char("C1", 'YYYY-MM-DD HH24:MI:SS')""", pyarrow.large_string()),
+    ("str", DATE, "TIMESTAMP", """to_char(cast("C1" as timestamp(6)), 'YYYY-MM-DD HH24:MI:SS.FF6')""", pyarrow.large_string()),
+    ("str", ZONED, "TIMESTAMP_TZ", """to_char("C1", 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')""", pyarrow.large_string()),
+    ("str", TEXT, "VARCHAR", '"C1"', pyarrow.large_string()),
+    # Text is handed on as text whatever the job declares: the engine reads it.
+    ("int", TEXT, "VARCHAR", '"C1"', pyarrow.large_string()),
+    ("datetime", TEXT, "CLOB", '"C1"', pyarrow.large_string()),
+])
+def test_each_column_is_converted_by_the_database_to_what_the_job_declares(kind, family, said, made, asked):
+    assert read_as(kind, family, said) == (made, asked)
+
+
+def test_a_decimal_is_rounded_by_the_database_to_its_declared_places():
+    assert read_as("Decimal", NUMBER, precision=2) == ('cast("C1" as number(38, 2))', pyarrow.decimal128(38, 2))
+    assert read_as("Decimal", NUMBER, precision=0) == ('cast("C1" as number(38, 0))', pyarrow.decimal128(38, 0))
+    assert read_as("Decimal", NUMBER) == ('cast("C1" as number(38, 10))', pyarrow.decimal128(38, 10))
+
+
+def test_the_query_stands_as_it_is_written_inside_the_one_that_converts():
+    columns, fields = [Column("a", "int"), Column("b", "str")], [Field("ID", NUMBER, "NUMBER"), Field("ID", TEXT, "VARCHAR")]
+    written = "with a as (select 1 id from dual)\nselect /*+ full(a) */ id, 'x' id from a where id = :context_n order by 1 -- done"
+    text, types = oracle.reading(written + " ;\n ", columns, fields)
+    assert text == ('with v2q ("C1", "C2") as (\n' + written + ' \n) select trunc("C1") "C1", "C2" "C2" from v2q')
+    assert types == [pyarrow.int64(), pyarrow.large_string()]
+
+
+class Described:
+    def __init__(self, name, type_name):
+        self.name, self.type_code = name, types.SimpleNamespace(name=type_name)
+
+
+def reading_driver(monkeypatch, described=(), tables=(), fails=None):
+    """A stand-in whose cursor says what a query's columns are and whose connection hands batches back."""
+    made = stand_in()
+
+    def parse(self, statement):
+        self.held.did.append(("parse", statement))
+        if fails:
+            raise Refused(fails)
+        self.description = list(described) or None
+
+    def fetch_df_batches(self, statement, parameters=None, size=None, requested_schema=None):
+        self.did.append(("fetch", statement, parameters, size, requested_schema))
+        yield from tables
+
+    monkeypatch.setattr(Cursor, "parse", parse, raising=False)
+    monkeypatch.setattr(Held, "fetch_df_batches", fetch_df_batches, raising=False)
+    monkeypatch.setitem(sys.modules, "oracledb", made)
+    return made
+
+
+def test_what_a_query_hands_back_is_asked_without_running_it(monkeypatch):
+    described = [Described("ID", "DB_TYPE_NUMBER"), Described("F", "DB_TYPE_BINARY_DOUBLE"), Described("V", "DB_TYPE_VARCHAR"),
+                 Described("C", "DB_TYPE_CHAR"), Described("N", "DB_TYPE_NVARCHAR"), Described("BIG", "DB_TYPE_CLOB"),
+                 Described("D", "DB_TYPE_DATE"), Described("TS", "DB_TYPE_TIMESTAMP"), Described("TZ", "DB_TYPE_TIMESTAMP_TZ"),
+                 Described("L", "DB_TYPE_TIMESTAMP_LTZ"), Described("R", "DB_TYPE_RAW"), Described("OLD", "DB_TYPE_LONG"),
+                 Described("X", "DB_TYPE_XMLTYPE")]
+    driver = reading_driver(monkeypatch, described)
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    found = session.fields("select * from t where d = :context_d", {"context_d": "2024"})
+    assert [(field.name, field.family, field.said) for field in found] == [
+        ("ID", NUMBER, "NUMBER"), ("F", NUMBER, "BINARY_DOUBLE"), ("V", TEXT, "VARCHAR"), ("C", TEXT, "CHAR"),
+        ("N", TEXT, "NVARCHAR"), ("BIG", TEXT, "CLOB"), ("D", DATE, "DATE"), ("TS", DATE, "TIMESTAMP"),
+        ("TZ", ZONED, "TIMESTAMP_TZ"), ("L", ZONED, "TIMESTAMP_LTZ"), ("R", OTHER, "RAW"), ("OLD", OTHER, "LONG"),
+        ("X", OTHER, "XMLTYPE")]
+    assert driver.opened[0].did == [("parse", "select * from t where d = :context_d"), "cursor closed"]
+
+
+def test_a_statement_that_hands_nothing_back_has_no_columns(monkeypatch):
+    reading_driver(monkeypatch)
+    assert oracle.opened(block(**SERVICE), "c", "j").fields("delete from t") == []
+
+
+def test_a_query_the_database_cannot_read_is_said_in_its_words(monkeypatch):
+    reading_driver(monkeypatch, fails='ORA-00942: table or view "A"."T" does not exist\nHelp: https://x')
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**SERVICE), "c", "j").fields("select * from t")
+    assert str(failed.value) == 'ORA-00942: table or view "A"."T" does not exist'
+
+
+def test_rows_are_fetched_in_batches_of_the_types_asked_for_with_the_values_bound(monkeypatch):
+    first = pyarrow.table({"C1": pyarrow.array([1, 2], pyarrow.int64()), "C2": pyarrow.array(["a", None], pyarrow.large_string())})
+    second = pyarrow.table({"C1": pyarrow.array([3], pyarrow.int64()), "C2": pyarrow.array(["c"], pyarrow.large_string())})
+    driver = reading_driver(monkeypatch, tables=[first, second])
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    asked = [pyarrow.int64(), pyarrow.large_string()]
+    got = list(session.batches("select 1", {"context_d": "x"}, asked, 500))
+    assert [table.to_pylist() for table in got] == [first.to_pylist(), second.to_pylist()]
+    (_, statement, parameters, size, schema), = driver.opened[0].did
+    assert (statement, parameters, size) == ("select 1", {"context_d": "x"}, 500)
+    assert schema == pyarrow.schema([pyarrow.field("C1", pyarrow.int64()), pyarrow.field("C2", pyarrow.large_string())])
+    assert list(session.batches("select 1", None, asked, 5)) and driver.opened[0].did[-1][2] == {}
+
+
+def test_a_fetch_the_database_refuses_is_said_in_its_words(monkeypatch):
+    reading_driver(monkeypatch)
+
+    def refuses(self, statement, **given):
+        raise Refused("ORA-01438: value 1234.57 greater than specified precision (38, 35) for column\nHelp: https://x")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(Held, "fetch_df_batches", refuses)
+    with pytest.raises(DatabaseError) as failed:
+        list(oracle.opened(block(**SERVICE), "c", "j").batches("select 1", {}, [pyarrow.int64()], 5))
+    assert str(failed.value) == "ORA-01438: value 1234.57 greater than specified precision (38, 35) for column"
+
+
+def test_oracle_is_handed_a_statement_with_its_values_by_name(driver):
+    made = statements.read("select * from t where d = '${context.d}'", {"d": "2024"}, {})
+    assert oracle.opened(block(**SERVICE), "c", "j").bound(made) == ("select * from t where d = :context_d", {"context_d": "2024"})
+
+
+def test_a_session_converts_as_the_function_of_that_name_does(driver):
+    columns, fields = [Column("a", "int")], [Field("A", NUMBER, "NUMBER")]
+    assert oracle.opened(block(**SERVICE), "c", "j").typed("select a from t", columns, fields) == oracle.reading(
+        "select a from t", columns, fields)
+    assert oracle.OracleSession.advice[ZONED].startswith("say in the query which clock is meant, `sys_extract_utc(...)`")
+
+
+def test_what_is_wrong_with_the_block_of_a_component_that_works_on_a_connections_session_is_nothing():
+    keys = oracle.CONNECTION_KEYS + oracle.WORKING_KEYS
+    own, _ = normalize_config({"use_existing_connection": False}, keys, "c")
+    shared, _ = normalize_config({"use_existing_connection": True, "connection": "tDBConnection_1"}, keys, "c")
+    assert oracle.working_problems(own) == oracle.problems(own) != []
+    assert oracle.working_problems(shared) == []
