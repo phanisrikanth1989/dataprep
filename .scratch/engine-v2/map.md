@@ -390,6 +390,9 @@ documentation.
   whose memory follows the largest record, with a parser no key weakens;
   one writer with no Python in the pass, read back before it is put in
   place.
+  [The XML reader and the XML file input](issues/111-the-xml-reader-and-xml-file-input.md)
+  -- records by a path, columns by XPath, rows made when what a column
+  looks into is whole; 26 MB a second with 1 MB of memory.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

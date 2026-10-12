@@ -92,3 +92,4 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Unite (tUnite) | `unite` | [Differences from v1: Rows](differences-from-v1/rows.md#unite) |
 | Unpivot row (tUnpivotRow) | `unpivot_row` | [Differences from v1: Rows](differences-from-v1/rows.md#unpivot-row) |
 | Warn (tWarn) | `warn` | [Differences from v1: Job control](differences-from-v1/job-control.md#warn) |
+| XML file input (tFileInputXML) | `file_input_xml` | [Own rule: XML](own-rule/xml.md#xml-file-input) |
