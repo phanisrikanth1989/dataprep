@@ -352,6 +352,9 @@ documentation.
   [Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md)
   -- an iterate link is no flow; one pass at a time, a failed pass stops
   the loop; postjob always runs; a child job is loaded with its parent.
+  [An item in a config string](issues/101-an-item-in-a-config-string.md)
+  -- a globalMap entry or a context variable, alone or joined to text,
+  is read as Talend writes it, under the `{{java}}` mark too.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

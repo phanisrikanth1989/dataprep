@@ -96,7 +96,10 @@ def check_job(
             except Exception as exc:  # noqa: BLE001 -- whatever stops a build is worth reporting
                 outputs = {}
                 reason = _reason(exc)
-                if late_context and reason.startswith("context has no variable"):
+                if "globalMap has no entry" in reason:
+                    # A config value that reads a globalMap entry: set while the job runs, judged then.
+                    reason = ""
+                elif late_context and reason.startswith("context has no variable"):
                     reason = ""
                 elif late_context:
                     judged = _judged_now(spec, runner)

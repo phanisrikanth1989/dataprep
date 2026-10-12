@@ -94,8 +94,9 @@ def without_secrets(config: Dict[str, Any], keys: Sequence[Key]) -> Dict[str, An
 
 
 def has_context_reference(value: Any) -> bool:
-    """Whether a config value names a context or globalMap entry."""
-    return isinstance(value, str) and bool(_CONTEXT_REF.search(value))
+    """Whether a config value names a context or globalMap entry, or carries the converter's mark on a value
+    that may be an item reference (``engine/references.py``)."""
+    return isinstance(value, str) and (value.startswith("{{java}}") or bool(_CONTEXT_REF.search(value)))
 
 
 def normalize_config(

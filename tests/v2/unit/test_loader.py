@@ -231,8 +231,15 @@ def test_java_expression_left_in_a_config_is_refused_where_it_sits():
 
 def test_java_expression_nested_in_a_config_is_found():
     job = copy.deepcopy(V1_JOB)
-    job["components"][0]["config"]["filepath"] = "{{java}}context.dir + \"/a.csv\""
+    job["components"][0]["config"]["filepath"] = "{{java}}context.dir.toUpperCase() + \"/a.csv\""
     assert [key for _, key, _ in refusals(job)] == ["filepath"]
+
+
+def test_lookup_and_join_under_the_java_mark_is_no_java():
+    # A context variable or a globalMap entry, alone or joined to text: read by the engine (engine/references.py).
+    job = copy.deepcopy(V1_JOB)
+    job["components"][0]["config"]["filepath"] = "{{java}}context.in_dir + \"/a.csv\""
+    assert load(job).components["in_1"].raw_config["filepath"].startswith("{{java}}")
 
 
 @pytest.mark.parametrize(

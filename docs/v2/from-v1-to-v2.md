@@ -11,7 +11,9 @@
    value the job sets while it runs (a context variable a context load
    sets, a row count).
 2. Rewrite every Java expression (`{{java}}...`) in Python. See
-   "Expressions" below.
+   "Expressions" below. One kind needs no rewriting: a value that is only
+   a lookup and a join, such as the path of the file a loop is at. See
+   "A value looked up while the job runs" below.
 3. Replace or remove components v2 does not have: the ones it has are
    listed in [the README](README.md#the-components).
 4. Deal with refused config keys: each refusal says why.
@@ -53,6 +55,39 @@ Var.total > globalMap.get("limit", 0)
   `&&`, `||`, `!`, `null`, `true`, `false` and
   `((Integer)globalMap.get("key"))` casts rewritten first), so the
   conditions v1 job configs carry keep working.
+
+## A value looked up while the job runs
+
+A config value may be a globalMap entry or a context variable, alone or
+joined to text, as Talend writes it:
+
+```
+((String)globalMap.get("tFileList_1_CURRENT_FILEPATH"))
+context.out_dir + "/" + ((String)globalMap.get("tFileList_1_CURRENT_FILE"))
+```
+
+- The terms: `globalMap.get("key")`, with or without a cast
+  (`(String)`) and the brackets Talend puts round it; `context.name`;
+  and text in double quotes. They are joined by `+`. Nothing else is
+  read: a method call (`.substring(1)`), arithmetic or any other name
+  is Java, and a job that holds one under the `{{java}}` mark is
+  refused as before.
+- One term alone is the value itself, with its type. Terms joined are
+  text; an entry that holds nothing joins as nothing.
+- The value is looked up when its component is built, which is when its
+  subjob starts, or its pass in a loop. So an entry an earlier subjob
+  left (`<id>_CURRENT_FILEPATH` of an unarchive, `<id>_ARCHIVE_FILEPATH`
+  of an archive, `<id>_NB_LINE`) is seen, and one the same subjob sets
+  is not there yet.
+- Under the converter's `{{java}}` mark every such value is read, and an
+  entry or a variable that is not there fails the component and names
+  it. Without the mark only a value that names a globalMap entry is
+  read this way, so that nothing that loaded before means something
+  else now; and when its entry is not there the value is left as
+  written.
+- This is for plain config values (a path, a name). An expression (a
+  filter's condition, a map's column) is Python and reads
+  `globalMap.get("key")` and `context.name` itself.
 
 ### Routines
 

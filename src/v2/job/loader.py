@@ -17,9 +17,10 @@ from ..components.registry import REGISTRY, Registry
 from .graph import loop, subjobs
 from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
 from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Only, RunSettings, Trigger
+from ..engine.references import JAVA_MARK, parsed
 from .refusal import Refusal, RefusalReport
 
-JAVA_PREFIX = "{{java}}"
+JAVA_PREFIX = JAVA_MARK
 JAVA_REASON = "Java expressions are not run by v2; rewrite it in Python"
 
 _TRIGGER_KINDS = {
@@ -618,7 +619,8 @@ def _typed(value: Any, type_name: str) -> Any:
 def _java_paths(value: Any, path: str = "") -> List[str]:
     """Paths of every string in a config that is still a Java expression."""
     if isinstance(value, str):
-        return [path] if value.startswith(JAVA_PREFIX) else []
+        # A lookup and a join under the mark are not Java: the engine reads them when the component is built.
+        return [path] if value.startswith(JAVA_PREFIX) and parsed(value[len(JAVA_PREFIX):]) is None else []
     found: List[str] = []
     if isinstance(value, dict):
         for name, item in value.items():

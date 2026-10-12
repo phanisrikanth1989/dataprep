@@ -21,7 +21,10 @@
   subjob is not there yet), and once more when the subjob is done.
 - Context values in config strings (`${context.x}` and v1's bare
   `context.x`) are resolved when each component is built, so a value loaded
-  by a context load in an earlier subjob is seen.
+  by a context load in an earlier subjob is seen. So is a globalMap entry
+  an earlier subjob left, written as Talend writes it
+  (`((String)globalMap.get("key"))`): see
+  [A value looked up while the job runs](from-v1-to-v2.md#a-value-looked-up-while-the-job-runs).
 - Row counts: every file output sets `<id>_NB_LINE` in the globalMap. The
   counts of other components (`_NB_LINE`, `_NB_LINE_OK`, `_NB_LINE_REJECT`)
   are taken only when something in the job reads them, or when the run asks

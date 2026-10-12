@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 import polars as pl
 
 from ..errors import ConfigurationError
+from .references import JAVA_MARK, parsed, value_of
 
 _TEMPLATE = re.compile(r"\$\{context\.(\w+)\}")
 _BARE = re.compile(r"\bcontext\.(\w+)\b")
@@ -109,10 +110,28 @@ class RunContext:
         file name). A value that is nothing but one reference becomes the
         variable's own value, type kept.
 
+        An item reference is read first (``references.parsed``): a
+        globalMap entry or a context variable, alone or joined to text by
+        ``+``, as Talend writes it. Under the converter's ``{{java}}`` mark
+        every such value is read; without the mark, one that names a
+        globalMap entry.
+
         Raises:
             ConfigurationError: When ``${context.x}`` names a variable that
-                does not exist.
+                does not exist, or a marked item reference an entry or a
+                variable that does not.
         """
+        marked = text.startswith(JAVA_MARK)
+        terms = parsed(text[len(JAVA_MARK):] if marked else text)
+        if terms is not None and (marked or any(kind == "entry" for kind, _ in terms)):
+            # An item: a globalMap entry or a context variable, alone or joined to text.
+            try:
+                return value_of(terms, self.context, self.global_map)
+            except ConfigurationError:
+                if marked:
+                    raise
+                # Not marked, and an entry is not there: left as written, as before such values were read
+                # at all. A component that reads them its own way (a die's message) still does.
         whole = _TEMPLATE.fullmatch(text) or _BARE.fullmatch(text)
         if whole and whole.group(1) in self.context:
             return self.context[whole.group(1)]
