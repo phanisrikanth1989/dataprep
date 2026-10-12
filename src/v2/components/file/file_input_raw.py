@@ -8,7 +8,7 @@ import polars as pl
 
 from ...column_types import held_frame, polars_schema
 from ...errors import ConfigurationError
-from ...files import codec_name
+from ...files import codec_name, not_a_file
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...rows import hidden, visible
@@ -119,6 +119,8 @@ class FileInputRaw(Source):
         path, limit = config["filename"], config["size_limit_mb"]
         if not os.path.exists(path):
             raise ConfigurationError(f"File not found: '{path}'")
+        if not_a_file(path):
+            raise ConfigurationError(f"'{path}' cannot be read: {not_a_file(path)}")
         try:
             with open(path, "rb") as handle:
                 size = os.fstat(handle.fileno()).st_size

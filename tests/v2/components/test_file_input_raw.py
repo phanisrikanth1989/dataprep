@@ -101,6 +101,15 @@ def test_folder_fails_the_job(tmp_path):
     assert (result.status, result.error) == ("failed", "'dir' cannot be read: it is a folder")
 
 
+def test_pipe_or_device_fails_the_job_and_is_never_opened(tmp_path):
+    folder = filled(tmp_path, {})
+    os.mkfifo(folder / "pipe")
+    result = on_v2(raw(filename="pipe"), folder)
+    assert (result.status, result.error) == ("failed", "'pipe' cannot be read: it is no file, but a pipe or a device")
+    result = on_v2(raw(filename="/dev/zero"), folder)
+    assert (result.status, result.error) == ("failed", "'/dev/zero' cannot be read: it is no file, but a pipe or a device")
+
+
 def test_job_that_is_not_to_die_goes_on_with_no_row_and_says_why(tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="src.v2")
     made = dict(raw(filename="nope.txt", die_on_error=False), run={"row_counts": True})

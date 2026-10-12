@@ -160,6 +160,14 @@ def test_file_that_is_not_there_and_a_folder_fail_the_job(tmp_path):
     assert tree(folder) == {"dir/": None}
 
 
+def test_pipe_or_device_fails_the_job_and_is_never_opened(tmp_path):
+    folder = filled(tmp_path, {})
+    os.mkfifo(folder / "pipe")
+    result = on_v2(job([change(infile_name="pipe", outfile_name="out.csv")], []), folder)
+    assert (result.status, result.error) == ("failed", "'pipe' cannot be read: it is no file, but a pipe or a device")
+    assert sorted(path.name for path in folder.iterdir()) == ["pipe"]
+
+
 def test_output_that_cannot_be_written_fails_the_job_in_plain_words(tmp_path):
     result, folder = ran(tmp_path, {"in.csv": b"x", "dir/": None}, infile_name="in.csv", outfile_name="dir")
     assert (result.status, result.error) == ("failed", "'dir' cannot be written: it is a folder")

@@ -12,7 +12,7 @@ import codecs
 import errno
 import os
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .errors import ConfigurationError
 
@@ -148,6 +148,19 @@ def transcode(source: str, target: str, read_as: str, write_as: str) -> int:
             lines += text.count("\n")
             if not chunk:
                 return written
+
+
+def not_a_file(path: str) -> Optional[str]:
+    """Why a path that is there cannot be read from start to end as a file, or None when it can.
+
+    Asked before a path is opened: opening a pipe waits for whoever writes
+    to it, and a device may never end.
+    """
+    if os.path.isdir(path):
+        return "it is a folder"
+    if not os.path.isfile(path):
+        return "it is no file, but a pipe or a device"
+    return None
 
 
 def temp_beside(path: str, component_id: str) -> str:

@@ -5,7 +5,7 @@ import logging
 import os
 
 from ...errors import ConfigurationError
-from ...files import put_in_place, temp_beside, transcode
+from ...files import not_a_file, put_in_place, temp_beside, transcode
 from ...job.keys import Key, Kind
 from ..base import DIE_ON_ERROR, Action, one_line
 from ..registry import REGISTRY
@@ -69,6 +69,8 @@ class ChangeFileEncoding(Action):
         read_as = config["inencoding"] if config["use_inencoding"] else "UTF-8"
         if not os.path.exists(source):
             raise ConfigurationError(f"File not found: '{source}'")
+        if not_a_file(source):
+            raise ConfigurationError(f"'{source}' cannot be read: {not_a_file(source)}")
         folder = os.path.dirname(target)
         if folder and not os.path.isdir(folder):
             if not config["create"]:

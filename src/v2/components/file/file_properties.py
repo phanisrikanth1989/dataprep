@@ -36,16 +36,18 @@ class FileProperties(Source):
     permissions as `ls -l` shows them, `-rw-r--r--`), `size` (bytes),
     `mtime` (when it was last changed, in milliseconds since 1970),
     `mtime_string` (the same in local time, `2026-10-12 14:03:05`), `md5`
-    and `sha256` (check sums of what it holds), `type` (`file` or
-    `folder`) and `exists`. A job that declares no columns gets the seven
-    Talend's component has, and `md5` as an eighth when `md5` is on.
+    and `sha256` (check sums of what it holds), `type` (`file`, `folder`,
+    or `other` for a pipe or a device) and `exists`. A job that declares
+    no columns gets the seven Talend's component has, and `md5` as an
+    eighth when `md5` is on.
 
     A file that is not there fails the job, unless `exists` is among the
     columns: the row then says false there and holds nothing but the
     names. (Or unless the job config says `die_on_error` is off: the job
-    then goes on with no row.) A link has the properties of what it leads to, and a folder has
-    no check sum. A check sum is worked out only when its column is asked
-    for, piece by piece: the file is never held in memory.
+    then goes on with no row.) A link has the properties of what it leads
+    to. A check sum is worked out only when its column is asked for,
+    piece by piece: the file is never held in memory. Only a file has
+    one: a folder holds no bytes, and a pipe or a device is never opened.
     """
 
     names = ("file_properties", "FileProperties", "tFileProperties")
@@ -128,15 +130,16 @@ class FileProperties(Source):
             return row
         except OSError as exc:
             raise ConfigurationError(f"'{path}' cannot be looked at: {_said(exc)}") from None
-        folder = stat.S_ISDIR(found.st_mode)
+        kind = "folder" if stat.S_ISDIR(found.st_mode) else "file" if stat.S_ISREG(found.st_mode) else "other"
         row.update({
             "mode_string": stat.filemode(found.st_mode), "size": found.st_size,
             "mtime": found.st_mtime_ns // 1_000_000,
             "mtime_string": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(found.st_mtime)),
-            "type": "folder" if folder else "file",
+            "type": kind,
         })
         wanted = [name for name in _CHECK_SUMS if name in asked]
-        if wanted and not folder:
+        # Only a file is read for a check sum: a folder holds no bytes, and a pipe or a device is never opened.
+        if wanted and kind == "file":
             row.update(self._check_sums(path, wanted))
         return row
 

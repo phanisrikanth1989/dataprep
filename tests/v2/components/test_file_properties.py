@@ -97,6 +97,14 @@ def test_folder_has_a_type_and_no_check_sum(tmp_path):
     assert lines[1] == "dir;folder;drwxr-x---;"
 
 
+def test_pipe_is_neither_a_file_nor_a_folder_and_is_never_opened_for_a_check_sum(tmp_path):
+    folder = filled(tmp_path, {})
+    os.mkfifo(folder / "pipe")
+    result = on_v2(properties("basename:str, type:str, md5:str", filename="pipe"), folder)
+    assert result.status == "success", result.error
+    assert (folder / "out.csv").read_text().splitlines()[1] == "pipe;other;"
+
+
 def test_a_column_can_be_declared_another_type(tmp_path):
     made = properties("size:str, mtime_string:datetime@%d/%m/%Y %H:%M", filename="a.txt")
     result, lines, _ = ran(tmp_path, made)
