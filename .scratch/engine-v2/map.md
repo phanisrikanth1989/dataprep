@@ -343,6 +343,9 @@ documentation.
   [File archive](issues/97-file-archive.md) -- Talend's layout and three
   kinds, and tar and Zstandard; the same files give the same bytes; a
   folder that cannot be read fails the job; a pipe is never opened.
+  [File unarchive](issues/98-file-unarchive.md) -- every kind Python
+  reads, told from the content; all of it or none; names checked, links
+  left out, a zip held against the free space; the password a secret.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -395,8 +398,8 @@ documentation.
 For the thirty more components of 2026-10-12 (the paragraphs after this
 list are of the first destination, which is reached):
 
-- File jobs: file unarchive is still to be built, to
-  [File jobs: what current practice says](issues/93-file-jobs-what-current-practice-says.md).
+- File jobs: the six are built. An independent review of them is still
+  to be done.
 - Loops and job control wait on
   [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).
   The engine has no way yet to run a subjob once for each item. In

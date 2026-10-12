@@ -57,6 +57,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | File properties (tFileProperties) | `file_properties` | [Own rule: File jobs](own-rule/file-jobs.md#file-properties) |
 | File row count (tFileRowCount) | `file_row_count` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-row-count) |
 | File touch (tFileTouch) | `file_touch` | [Own rule: File jobs](own-rule/file-jobs.md#file-touch) |
+| File unarchive (tFileUnarchive) | `file_unarchive` | [Own rule: File jobs](own-rule/file-jobs.md#file-unarchive) |
 | Filter columns (tFilterColumns) | `filter_columns` | [Differences from v1: Rows](differences-from-v1/rows.md#filter-columns) |
 | Filter rows (tFilterRow) | `filter_rows` | [Differences from v1: Rows](differences-from-v1/rows.md#filter-rows) |
 | Fixed flow input: rows written in the job config (tFixedFlowInput) | `fixed_flow_input` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#fixed-flow-input) |

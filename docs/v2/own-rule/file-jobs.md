@@ -193,3 +193,65 @@ not v1. ([What that means](README.md).)
 - Not as in v1: v1 writes zip only, and reads `include_subdirectories`
   and `compression_level` where the converter writes `sub_directroy`
   and `level`.
+
+## File unarchive
+
+- The archive `zipfile` is unpacked into the folder `directory`, which
+  is made, with the folders above it, when it is not there.
+- The archive is a zip, a tar (plain, or compressed with gzip, bzip2, xz
+  or, where Python has it, Zstandard), or one file compressed by itself
+  in one of those ways. Which it is is told from what it holds, not from
+  its name: a zip named `in.dat` is unpacked as a zip. (Talend goes by
+  the name, and takes whatever is not named `.tar`, `.tar.gz`, `.tgz` or
+  `.gz` for a zip.)
+- The files land by the paths the archive gives them, with the times it
+  gives them, and a folder the archive names is made also when it holds
+  nothing. A file that is there is written over. With `extractpath` off
+  every file lands in the folder itself, without the folders of its
+  path; two files that would then have one name fail the job.
+- `rootname` unpacks into a folder of the archive's name inside
+  `directory`: `data` for `data.zip` and for `data.tar.gz`.
+- One file compressed by itself loses the ending of its name (`a.csv`
+  from `a.csv.gz`) and has the time of the archive, as gunzip has it. A
+  name without that ending fails the job: there is no name to unpack it
+  under.
+- All of it or none. The archive is unpacked into a folder of its own
+  inside `directory`, and the files are moved to their places when
+  every one of them is whole. An archive that is cut short, or damaged,
+  or locked, fails the job and leaves `directory` as it was; a folder
+  that was made for it is taken away again. (Python, like most tools,
+  leaves half an archive behind.) A zip says how large its entries are:
+  one that would not fit where `directory` is fails before a byte is
+  written.
+- What an archive may not do:
+  - A name that climbs out of the folder (`../x`) fails the job.
+    Python's own zip reader puts such a file in the folder under another
+    name and says nothing.
+  - A name that starts at the root (`/etc/x`) lands in the folder, as
+    tar and unzip have it. A zip made on Windows may name its entries
+    with backslashes; they are taken as the separators they are.
+  - A link, a pipe or a device in the archive is left out and named in
+    a warning. A second name for a file of a tar archive (a hard link)
+    is a file and is unpacked.
+  - Nothing is written through a link that is already in `directory`
+    and leads out of it: that fails the job before anything is moved.
+  - A tar entry's owner is not carried over, nor a permission that
+    would let a file run as its owner.
+- A zip locked with a password is opened with `password` when
+  `checkpassword` is on. The password is shown in no log. Python opens
+  the old zip locking only, and slowly; an entry locked with AES fails
+  the job and says so. Talend's `JAVA_DECRYPT`, a cipher of its own
+  around the whole file, refuses the job when it loads.
+- The names in a zip that does not say how they are written are read as
+  UTF-8, as in Talend, and in `encording` when `use_encoding` is on
+  (the spelling is Talend's). Names that are not UTF-8 fail the job and
+  say which keys to give.
+- It leaves `<id>_NB_FILE`, the number of files unpacked, and the name
+  and the full path of the last of them in `<id>_CURRENT_FILE` and
+  `<id>_CURRENT_FILEPATH`. `printout` says every file in the log.
+- `die_on_error` is off in a converted job unless the box was ticked in
+  Talend: such a job goes on after an archive that cannot be unpacked,
+  with a warning, as it does in Talend. `integrity` is taken and has no
+  effect: nothing lands unless the whole archive unpacks.
+- Not done yet: in Talend the component is also the start of a loop over
+  the files it unpacked. The loop components will bring that.
