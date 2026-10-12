@@ -111,6 +111,29 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   it, and without one it acts.) What it finds
   out it leaves in globalMap (`self.global_map[f"{self.id}_COUNT"]`); it
   raises to fail the job. It is not run when a job is only checked.
+- **What cannot be done, and `die_on_error`.** A component that the job
+  config may tell to go on declares `DIE_ON_ERROR` among its keys, does
+  its work in one method, and catches `FAULTS` around it:
+  `except FAULTS as exc: self.fail_or_go_on(exc)`. `FAULTS` are a fault
+  it worded itself (`ConfigurationError`), what the file system refused
+  (`OSError`) and a name or a text that is not in the encoding it has to
+  be in (`UnicodeError`). The helper fails the job in plain words, or
+  leaves why in `<id>_ERROR_MESSAGE`, warns and comes back; the
+  component then counts its row as turned away.
+- **A file of its own, written first under another name.** The name is
+  `files.temp_beside(target, self.id)`, and whatever stands there is
+  taken away with `files.cleared(...)` before anything is written: a
+  link someone put there is removed, not followed. The engine does this
+  for every `Write`; a component that writes a file itself (an action)
+  does it itself.
+- **The marks of a job's parts** set `part` to `BEFORE` or `AFTER` (a
+  prejob, a postjob): the subjobs such a component sets off run before
+  everything else, or after it whatever became of the job. **A
+  component that runs another job** sets `runs_job = True` and has a
+  `process` key: the loader finds and loads that job with this one, and
+  the component runs it with `self.run_context.run_child(self.id,
+  values)`. See "Set-up and clean-up" in
+  [How a job runs](how-a-job-runs.md#set-up-and-clean-up).
 - **A component that starts a loop** sets `loops = True`, declares
   `MAX_ITEMS` among its keys, and hands its items to the engine while it
   runs: `self.loop_over(items)`, each item being how the log names it and
@@ -189,7 +212,11 @@ Key("uncompress", kind=Kind.REFUSED, type=bool, reason="compressed files are not
   applied to `default`: write the default as the value the component sees.
 - `secret=True` for a value nobody is to see (a password): the engine writes
   it as `***` where it shows a config (the debug log), and a refusal of the
-  value does not quote it. A component never logs such a value itself.
+  value does not quote it, whatever refuses it and also where the key is
+  inside a list or an object. A component never logs such a value itself.
+- `required=True` refuses a key that is left out, and one that is given
+  nothing: a null, or a context variable that holds none. A component
+  never sees nothing in a required key.
 - `label`, `tstatcatcher_stats`, `execution_mode`, `chunk_size` are accepted
   on every component already.
 - Context references (`${context.x}`, `context.x`) in `str`/`int`/`bool`
