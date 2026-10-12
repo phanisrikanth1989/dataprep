@@ -90,3 +90,36 @@ not v1. ([What that means](README.md).)
 - Only text: `as_bytearray` and `as_inputstream` refuse the job, since
   v2 has no column type that holds bytes or an open file. A column the
   job declares as `object`, as a converted job does, is held as text.
+
+## Change file encoding
+
+- The text of the file `infile_name` is written to `outfile_name` in
+  `encoding` (ISO-8859-15 when none is given).
+- The input is read in `inencoding` when `use_inencoding` is on, and as
+  UTF-8 when it is off. (Talend then reads it in whatever encoding the
+  machine it runs on has, which is not the same on two servers.)
+- The text is written as it is: line ends are not touched. A byte order
+  mark at the start of the input is not carried over, and the output
+  starts with one where its encoding writes one (UTF-16, UTF-32).
+- Nothing is put in a character's place. A byte that is no character in
+  the input's encoding, and a character the output's encoding cannot
+  write, fail the job and say on which line:
+
+  ```
+  'in.csv' is not written in UTF-8: byte 12 of it, on line 3, is no character there
+  'in.csv' holds '\u20ac' on line 2, which ISO-8859-1 cannot write
+  ```
+
+  (Talend writes a replacement character or a question mark there and
+  goes on.)
+- The file is gone through piece by piece and never held in memory. It
+  is written beside `outfile_name` and put there when it is whole: the
+  two may be the same file, and a job that fails leaves the output as it
+  was.
+- The folder of the output is made when it is not there, unless `create`
+  is off. An output that is there is written over and keeps its
+  permissions.
+- The output's path is left in `<id>_FILENAME`, and the log says what
+  was written as what, and how many bytes.
+- `buffersize` is taken and has no effect: v2 reads in pieces of its own
+  size.

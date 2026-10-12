@@ -26,7 +26,7 @@ import polars as pl
 from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only,
                                one_line)
 from ..errors import ConfigurationError, JobFailedError
-from ..files import put_in_place
+from ..files import put_in_place, temp_beside
 from ..job.graph import subjobs
 from ..job.keys import normalize_config
 from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
@@ -800,7 +800,7 @@ class Runner:
         state.writes, state.taps = [], []
         if not wanted and not writes and not taps:
             return []
-        temps = [_temp_path(write.path, component_id) for component_id, write, _ in writes]
+        temps = [temp_beside(write.path, component_id) for component_id, write, _ in writes]
         state.temps += temps
         started = time.perf_counter()
         try:
@@ -975,17 +975,6 @@ def _null_problem(found: pl.DataFrame, component: Component) -> Optional[str]:
     named = _NULL_COLUMN.fullmatch(found["why"].item() or "")
     column = named.group(1) if named else "?"
     return f"Column '{column}' has NULL values but is not nullable{component.where(found)}"
-
-
-def _temp_path(path: str, component_id: str) -> str:
-    """Where a component's file is written before it is put in place: beside its target.
-
-    The component's id is part of the name, so two components writing to one
-    file in the same subjob do not write over each other.
-    """
-    folder, name = os.path.split(path)
-    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in component_id)
-    return os.path.join(folder, f".{name}.{safe}.v2tmp{os.getpid()}")
 
 
 def _remove(path: str) -> None:

@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from .engine.context import RunContext
 
 _CHUNK = 1 << 24
+# The character a file may start with to say how it is written; no part of its text.
+_BYTE_ORDER_MARK = chr(0xFEFF)
 _UTF8 = ("utf-8", "utf_8", "utf-8-sig", "utf_8_sig")
 
 
@@ -93,6 +95,70 @@ def to_encoding(written: str, encoding: str) -> bytes:
         _remove(converted)
         raise
     return codecs.getincrementalencoder(name)().encode("")
+
+
+def transcode(source: str, target: str, read_as: str, write_as: str) -> int:
+    """Write a file's text to another file in another encoding, piece by piece.
+
+    The text is written as it is: line ends are not touched. A byte order
+    mark at the start of the source is not carried over; the target starts
+    with one where its encoding writes one (UTF-16, UTF-32, utf-8-sig).
+
+    Args:
+        source: The file to read, as the job names it.
+        target: The file to write.
+        read_as: The source's encoding.
+        write_as: The target's encoding.
+
+    Returns:
+        How many bytes were written.
+
+    Raises:
+        ConfigurationError: When a byte of the source is no character in
+            its encoding, or one of its characters cannot be written in the
+            target's. The message names the place by its line.
+    """
+    decoder = codecs.getincrementaldecoder(codec_name(read_as))()
+    encoder = codecs.getincrementalencoder(codec_name(write_as))()
+    fed = lines = written = 0
+    at_start = True
+    with open(source, "rb") as reading, open(target, "wb") as writing:
+        while True:
+            chunk = reading.read(_CHUNK)
+            # What the decoder still holds of the piece before: the start of a character that goes on in this one.
+            held = len(decoder.getstate()[0])
+            try:
+                text = decoder.decode(chunk, final=not chunk)
+            except UnicodeDecodeError as fault:
+                line = lines + chunk[:max(fault.start - held, 0)].count(b"\n") + 1
+                raise ConfigurationError(
+                    f"'{source}' is not written in {read_as}: byte {fed - held + fault.start + 1} of it, on line {line}, "
+                    "is no character there"
+                ) from None
+            if at_start and text:
+                text, at_start = text.removeprefix(_BYTE_ORDER_MARK), False
+            try:
+                written += writing.write(encoder.encode(text, final=not chunk))
+            except UnicodeEncodeError as fault:
+                line = lines + text.count("\n", 0, fault.start) + 1
+                raise ConfigurationError(
+                    f"'{source}' holds {ascii(text[fault.start])} on line {line}, which {write_as} cannot write"
+                ) from None
+            fed += len(chunk)
+            lines += text.count("\n")
+            if not chunk:
+                return written
+
+
+def temp_beside(path: str, component_id: str) -> str:
+    """Where a component's file is written before it is put in place: beside its target.
+
+    The component's id is part of the name, so two components writing to one
+    file in the same subjob do not write over each other.
+    """
+    folder, name = os.path.split(path)
+    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in component_id)
+    return os.path.join(folder, f".{name}.{safe}.v2tmp{os.getpid()}")
 
 
 def encoded(text: str, encoding: str) -> bytes:

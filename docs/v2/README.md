@@ -37,6 +37,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 |---|---|---|
 | Aggregate row (tAggregateRow) | `aggregate_row` | [Differences from v1: Rows](differences-from-v1/rows.md#aggregate-row) |
 | Aggregate sorted row (tAggregateSortedRow) | `aggregate_sorted_row` | [Differences from v1: Rows](differences-from-v1/rows.md#aggregate-sorted-row) |
+| Change file encoding (tChangeFileEncoding) | `change_file_encoding` | [Own rule: File jobs](own-rule/file-jobs.md#change-file-encoding) |
 | Context load (tContextLoad) | `context_load` | [Differences from v1: Job control](differences-from-v1/job-control.md#context-load) |
 | Convert type (tConvertType) | `convert_type` | [Differences from v1: Rows](differences-from-v1/rows.md#convert-type) |
 | Delimited input (tFileInputDelimited) | `file_input_delimited` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#delimited-files) |

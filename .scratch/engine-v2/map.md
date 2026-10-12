@@ -337,6 +337,9 @@ documentation.
   [Raw file input](issues/95-raw-file-input.md) -- a whole file as one
   value of text, read strictly, held to a size the job can raise; a
   column declared `object` is text in the loader now.
+  [Change file encoding](issues/96-change-file-encoding.md) -- strict
+  both ways, piece by piece, the fault named by its line; UTF-8 when no
+  input encoding is given.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -389,8 +392,7 @@ documentation.
 For the thirty more components of 2026-10-12 (the paragraphs after this
 list are of the first destination, which is reached):
 
-- File jobs: change file encoding, file archive and file unarchive are
-  still to be built, to
+- File jobs: file archive and file unarchive are still to be built, to
   [File jobs: what current practice says](issues/93-file-jobs-what-current-practice-says.md).
 - Loops and job control wait on
   [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).
