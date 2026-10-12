@@ -276,6 +276,62 @@ What the writers share:
   150,000 records a second, 435 MB at the most. (On a Mac; not yet on
   the servers.)
 
+## XML map
+
+- Takes the XML document a column holds apart into rows, as the two
+  trees of a Talend XML map say.
+
+  ```
+  input_trees:  row1: id, doc (order > @id, line [the loop element] > sku), note
+  output_trees: row2: row    = row1.id
+                      order  = [row1.doc:/order/@id]
+                      sku    = [row1.doc:/order/line/sku]
+                      note   = row1.note
+
+  1 | <order id="7"><line><sku>A</sku></line><line><sku>B</sku></line></order> | n1
+
+  row;order;sku;note
+  1;7;A;n1
+  1;7;B;n1
+  ```
+
+- `input_trees` is the tree of the rows that arrive: their columns, one
+  of which may hold a document, drawn with its elements and attributes.
+  One element is marked as the loop element, and each of them in a
+  row's document gives a row. With none marked, the root element is the
+  one, and a document gives one row.
+- `output_trees` is the tree of the rows handed on. A column's
+  expression is a place in the document (`[row1.doc:/order/line/sku]`),
+  a column of the row (`row1.note`), or nothing, which is a missing
+  value.
+- A place is written from the root and read from where the loop element
+  stands. One outside it (`/order/@id`) is the same for every row of
+  its document.
+- A value, a document that cannot be read and a row with no document
+  are as for extract XML field, which does the reading. There is no
+  reject output: with `die_on_error` off (it is on when not given) a
+  row that cannot be read is dropped, and a warning says how many were
+  and names the first.
+- With no document in the tree, the columns of a row are handed on
+  under the names of the output, and no row is held in memory.
+- A converted job cannot say more than this rightly, and what it has
+  more refuses the job with its reason:
+
+  | What | Why |
+  |---|---|
+  | a lookup | whether a row with no match is kept is not in a converted job: join with a map before this step |
+  | a second output, a filter | a step after this one |
+  | a document to build | the XML outputs build documents |
+  | an expression that is more than a place or a column, a variable | Java is not run, and the converted job does not hold the variables: a map after this step |
+  | a second document, a second loop element | a step of its own for each |
+
+- The converter also writes its own reading of the trees (`expressions`,
+  `looping_element`). v2 does not go by it and reads the trees
+  themselves: for a map with no document that reading says nothing
+  right.
+- A converted job: the sample in the repo joins a lookup, and is
+  refused for it.
+
 ## XML file output
 
 - The rows are written to the file `filename` as one document: its

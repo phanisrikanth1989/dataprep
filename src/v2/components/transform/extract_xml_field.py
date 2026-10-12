@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
@@ -163,18 +164,75 @@ class ExtractXMLField(Transform):
     def run(self, inputs: Dict[str, pl.DataFrame]) -> Dict[str, pl.DataFrame]:
         (frame,) = inputs.values()
         config = self.config
-        names, carried = visible(frame.columns), hidden(frame.columns)
+        names = visible(frame.columns)
         field = config["xmlfield"] or (names[0] if names else "")
         if field not in names:
             raise ConfigurationError(f"xmlfield: there is no column '{field}'; the columns are: {', '.join(names)}")
         entries, _ = self._entries()
         columns = self._columns(entries)
         by_column = {entry["schema_column"]: entry for entry in entries}
-        given = config["namespaces"] or None
-        # The columns a path fills, each with its path; every other column is handed on from the row, or missing.
-        paths = [(column.name, xml_reader.path(by_column[column.name]["query"], given), by_column[column.name]["nodecheck"])
-                 for column in columns if by_column.get(column.name, {}).get("query")]
-        found, turned = self._read(frame[field], field, paths)
+        paths = {column.name: (by_column[column.name]["query"], by_column[column.name]["nodecheck"])
+                 for column in columns if by_column.get(column.name, {}).get("query")}
+        # Every column no path fills is handed on from the row, where the row has one of its name.
+        handed = {column.name: column.name for column in columns if column.name not in paths}
+        plan = Plan(field, config["loop_query"], columns, paths, handed, config["limit"], config["namespaces"] or None,
+                    config["large_values"], config["die_on_error"])
+        return Extraction(self, plan).of(frame)
+
+
+@dataclass
+class Plan:
+    """What is taken out of the documents of a column, and how.
+
+    Attributes:
+        field: The column that holds the document.
+        loop_query: The XPath that finds the records of a document.
+        columns: The columns handed on.
+        paths: For each column a path fills: its XPath, and whether the
+            node itself is the value.
+        handed: For each other column: the column of the row it is handed
+            on from. One the row does not have is missing.
+        limit: The most rows to make, over all the documents; None for all.
+        namespaces: Prefixes and their namespaces, when names are read with them.
+        large_values: Whether the parser's own limits are lifted.
+        die_on_error: Whether the first fault fails the job.
+        with_rejects: Whether the rows that are turned away are wanted.
+    """
+
+    field: str
+    loop_query: str
+    columns: List[Column]
+    paths: Dict[str, Tuple[str, bool]]
+    handed: Dict[str, str]
+    limit: Optional[int]
+    namespaces: Optional[Dict[str, str]]
+    large_values: bool
+    die_on_error: bool
+    with_rejects: bool = True
+
+
+class Extraction:
+    """The records of the documents a column holds, as rows: the work of extract XML field, which XML map does too.
+
+    Args:
+        component: The component the work is done for: its id is in the
+            log, and what it is told of the rows that arrive names a row.
+        plan: What is taken out, and how.
+    """
+
+    def __init__(self, component: Transform, plan: Plan) -> None:
+        self.component, self.plan = component, plan
+        self.strict = bool(plan.namespaces)
+
+    def of(self, frame: pl.DataFrame) -> Dict[str, pl.DataFrame]:
+        """The rows of the main output and of the reject output, for the rows that arrive."""
+        plan, component = self.plan, self.component
+        carried = hidden(frame.columns)
+        columns = plan.columns
+        # The columns a path fills, each with its path compiled.
+        paths = [(column.name, xml_reader.path(plan.paths[column.name][0], plan.namespaces), plan.paths[column.name][1])
+                 for column in columns if column.name in plan.paths]
+        found, turned = self._read(frame[plan.field], paths)
 
         filled = {name for name, _, _ in paths}
         typed = [column for column in columns if column.name in filled and column.type != "str"]
@@ -189,22 +247,23 @@ class ExtractXMLField(Transform):
         faults = sorted(
             [(at, -1, code, said) for at, _, code, said in turned]
             + [(at, place, "TYPE_CONVERSION", said) for at, place, said in bad.select(_ROW, _PLACE, _WHY).iter_rows()])
-        if faults and config["die_on_error"]:
+        if faults and plan.die_on_error:
             at, _, _, said = faults[0]
-            raise ConfigurationError(f"{shown(said)}{self.where(frame[[at]].select(carried))}")
+            raise ConfigurationError(f"{shown(said)}{component.where(frame[[at]].select(carried))}")
         if faults:
-            self.tell_rows_dropped(len(faults), faults[0][3], frame[[faults[0][0]]].select(carried))
+            component.tell_rows_dropped(len(faults), faults[0][3], frame[[faults[0][0]]].select(carried))
 
         held = {column.name: column for column in typed}
-        declared = polars_schema(columns)
-        main = self._beside(good, frame, columns, [
+        main = self._beside(good, frame, [
             finish_value(pl.col(_VALUE + column.name), pl.col(column.name), held[column.name]).alias(column.name)
             if column.name in held else pl.col(column.name) if column.name in filled
-            else None for column in columns], declared).hstack(_taken(frame.select(carried), good[_ROW].to_list()))
-        return {"main": main, "reject": self._turned_away(frame, field, columns, filled, turned, bad, carried, paths)}
+            else None for column in columns]).hstack(_taken(frame.select(carried), good[_ROW].to_list()))
+        if not plan.with_rejects:
+            return {"main": main}
+        return {"main": main, "reject": self._turned_away(frame, filled, turned, bad, carried)}
 
     def _read(
-        self, documents: pl.Series, field: str, paths: List[Tuple[str, Any, bool]]
+        self, documents: pl.Series, paths: List[Tuple[str, Any, bool]]
     ) -> Tuple[pl.DataFrame, List[Tuple[int, str, str, str]]]:
         """Go through the documents: the values of every record, as text, and the documents that cannot be read.
 
@@ -214,10 +273,9 @@ class ExtractXMLField(Transform):
             records of its document. And for each document that cannot be
             read: the place of its row, its text, a code and what is wrong.
         """
-        config = self.config
-        strict, limit = bool(config["namespaces"]), config["limit"]
-        loop = xml_reader.path(config["loop_query"], config["namespaces"] or None)
-        parser = xml_reader.parser(config["large_values"])
+        plan, strict, limit = self.plan, self.strict, self.plan.limit
+        loop = xml_reader.path(plan.loop_query, plan.namespaces)
+        parser = xml_reader.parser(plan.large_values)
         etree = xml_reader.etree
         texts: Dict[str, List[Optional[str]]] = {name: [] for name, _, _ in paths}
         origin: List[int] = []
@@ -266,13 +324,14 @@ class ExtractXMLField(Transform):
                     texts[name].append(value)
             if len(origin) >= _BATCH:
                 put_away()
+        where = self.component.id
         if none:
             one = none == 1
-            logger.info(one_line(f"[{self.id}] {none} row{'' if one else 's'} hold{'s' if one else ''} no document in "
-                                 f"'{field}' and give{'s' if one else ''} no row"))
+            logger.info(one_line(f"[{where}] {none} row{'' if one else 's'} hold{'s' if one else ''} no document in "
+                                 f"'{plan.field}' and give{'s' if one else ''} no row"))
         for name, (records, first) in many.items():
             logger.warning(one_line(
-                f"[{self.id}] the path of column '{name}' found more than one node in {records} "
+                f"[{where}] the path of column '{name}' found more than one node in {records} "
                 f"record{'s' if records > 1 else ''} (the first: record {first}); the first node is the value"))
         put_away()
         return pl.concat(batches), turned
@@ -282,42 +341,39 @@ class ExtractXMLField(Transform):
         found = loop(root.getroottree())
         if not isinstance(found, list) or not all(isinstance(getattr(node, "tag", None), str) for node in found):
             raise ConfigurationError(
-                f"loop_query: '{self.config['loop_query']}' finds what is no element (an attribute, a text, a number): "
+                f"loop_query: '{self.plan.loop_query}' finds what is no element (an attribute, a text, a number): "
                 "a record is an element")
         return found
 
-    @staticmethod
-    def _beside(
-        records: pl.DataFrame, frame: pl.DataFrame, columns: List[Column], values: List[Optional[pl.Expr]],
-        declared: Dict[str, pl.DataType],
-    ) -> pl.DataFrame:
+    def _beside(self, records: pl.DataFrame, frame: pl.DataFrame, values: List[Optional[pl.Expr]]) -> pl.DataFrame:
         """The records with the columns of the rows they came from beside them, as the output has them.
 
         Args:
             records: The records, with the place of the row each came from.
             frame: The rows that arrived.
-            columns: The output columns.
             values: For each output column, its value from the record; None
                 for one that is handed on from the row, or is missing.
-            declared: The type of each output column, for one that is missing.
         """
+        plan = self.plan
+        declared = polars_schema(plan.columns)
         # Only the columns that are handed on: the document itself, taken once for each of its records, would
         # be the largest thing in memory.
-        handed = [column.name for column, value in zip(columns, values) if value is None and column.name in frame.columns]
+        handed = sorted({plan.handed[column.name] for column, value in zip(plan.columns, values)
+                         if value is None and plan.handed.get(column.name) in frame.columns})
         rows = _taken(frame.select(handed), records[_ROW].to_list())
         made = []
-        for column, value in zip(columns, values):
+        for column, value in zip(plan.columns, values):
             if value is not None:
                 made.append(records.select(value).to_series())
-            elif column.name in rows.columns:
-                made.append(rows[column.name])
+            elif plan.handed.get(column.name) in rows.columns:
+                made.append(rows[plan.handed[column.name]].alias(column.name))
             else:
                 made.append(pl.Series(column.name, [None] * records.height, dtype=declared[column.name]))
         return pl.DataFrame(made) if made else records.select([])
 
     def _turned_away(
-        self, frame: pl.DataFrame, field: str, columns: List[Column], filled: set, turned: List[Tuple[int, str, str, str]],
-        bad: pl.DataFrame, carried: List[str], paths: List[Tuple[str, Any, bool]],
+        self, frame: pl.DataFrame, filled: set, turned: List[Tuple[int, str, str, str]], bad: pl.DataFrame,
+        carried: List[str],
     ) -> pl.DataFrame:
         """The rows of the reject output: the output columns as text, and what is wrong.
 
@@ -326,13 +382,22 @@ class ExtractXMLField(Transform):
         is none of its column's type has the record there, and the values
         as they were read.
         """
-        texts = {column.name: pl.String for column in columns if column.name not in _REASON}
+        plan = self.plan
+        texts = [column.name for column in plan.columns if column.name not in _REASON]
+        # For each column that is handed on: the column of the row it comes from.
+        sources = {name: plan.handed[name] for name in texts
+                   if name not in filled and plan.handed.get(name) in frame.columns}
+        taken = frame.select(sorted(set(sources.values())) + carried)
+
+        def as_text(rows: pl.DataFrame, name: str, height: int) -> pl.Series:
+            if name in sources:
+                return rows[sources[name]].cast(pl.String).alias(name)
+            return pl.Series(name, [None] * height, dtype=pl.String)
+
         # The documents that cannot be read.
-        whole = _taken(frame.select([name for name in frame.columns if name in texts or name in carried]),
-                       [at for at, _, _, _ in turned])
+        whole = _taken(taken, [at for at, _, _, _ in turned])
         parts = [pl.DataFrame(
-            [whole[name].cast(pl.String) if name in whole.columns and name not in filled
-             else pl.Series(name, [None] * len(turned), dtype=pl.String) for name in texts]
+            [as_text(whole, name, len(turned)) for name in texts]
             + [pl.Series("errorXMLField", [text for _, text, _, _ in turned], dtype=pl.String),
                pl.Series("errorCode", [code for _, _, code, _ in turned], dtype=pl.String),
                pl.Series("errorMessage", [said for _, _, _, said in turned], dtype=pl.String),
@@ -341,12 +406,10 @@ class ExtractXMLField(Transform):
         ).hstack(whole.select(carried))]
         # The records with a value that is none of its column's type: found again in their documents, which are
         # few, to be written down as they are.
-        rows = _taken(frame.select([name for name in frame.columns if name in texts or name in carried]),
-                      bad[_ROW].to_list())
+        rows = _taken(taken, bad[_ROW].to_list())
         parts.append(pl.DataFrame(
-            [bad[name] if name in filled else rows[name].cast(pl.String) if name in rows.columns
-             else pl.Series(name, [None] * bad.height, dtype=pl.String) for name in texts]
-            + [pl.Series("errorXMLField", self._as_written(frame[field], bad), dtype=pl.String),
+            [bad[name] if name in filled else as_text(rows, name, bad.height) for name in texts]
+            + [pl.Series("errorXMLField", self._as_written(frame[plan.field], bad), dtype=pl.String),
                pl.Series("errorCode", ["TYPE_CONVERSION"] * bad.height, dtype=pl.String),
                bad[_WHY].alias("errorMessage"), bad[_ROW], bad[_PLACE]]
         ).hstack(rows.select(carried)))
@@ -354,19 +417,19 @@ class ExtractXMLField(Transform):
 
     def _as_written(self, documents: pl.Series, bad: pl.DataFrame) -> List[str]:
         """Each record that is turned away, as XML text."""
-        config = self.config
-        strict = bool(config["namespaces"])
-        loop = xml_reader.path(config["loop_query"], config["namespaces"] or None)
-        parser = xml_reader.parser(config["large_values"])
+        plan = self.plan
+        loop = xml_reader.path(plan.loop_query, plan.namespaces)
+        parser = xml_reader.parser(plan.large_values)
         written: List[str] = []
         records: List[Any] = []
         last = None
         for at, place in bad.select(_ROW, _PLACE).iter_rows():
             if at != last:
                 held = documents[at]
-                records = self._records(loop, xml_reader.document(held if isinstance(held, str) else str(held), parser, strict))
+                records = self._records(loop, xml_reader.document(held if isinstance(held, str) else str(held), parser,
+                                                                  self.strict))
                 last = at
-            written.append(xml_reader.as_xml(records[place], strict))
+            written.append(xml_reader.as_xml(records[place], self.strict))
         return written
 
 

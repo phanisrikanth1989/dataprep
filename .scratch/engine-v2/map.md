@@ -406,6 +406,10 @@ documentation.
   walk of the document for records of several kinds, each to a flow
   with columns of its own; on the way, the XML file input was found to
   lose a row whose number was not there, and was fixed.
+  [XML map](issues/117-xml-map.md) -- the trees themselves are read,
+  not the converter's reading of them; a document is taken apart by the
+  engine of extract XML field; a lookup refuses the job, since a
+  converted job does not say what it does with a row with no match.
   [Review of loops and job control](issues/114-review-of-loops-and-job-control.md)
   -- eight findings, all real; a value looked up while the job runs was
   read as text of the job config, and a file's name could be run as
@@ -473,10 +477,9 @@ list are of the first destination, which is reached):
   files by a reader, `run.only` for a reader that a loop runs, and a
   clean-up when the job is stopped from outside.
 - XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md)).
-  Built: the reader with the XML file input, the writer with the two
-  outputs, extract XML field, the multi-schema input. To build: XML
-  map. Left for later there: a check against an XSD, a predicate in the
-  record path, `split`.
+  Built: all six, on one reader and one writer. An independent review
+  of them is to come. Left for later there: a check against an XSD, a
+  predicate in the record path, `split`.
 - Database waits on
   [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md):
   which drivers, how rows go in and out without being held in memory,

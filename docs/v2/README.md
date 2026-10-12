@@ -98,3 +98,4 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Warn (tWarn) | `warn` | [Differences from v1: Job control](differences-from-v1/job-control.md#warn) |
 | XML file input (tFileInputXML) | `file_input_xml` | [Own rule: XML](own-rule/xml.md#xml-file-input) |
 | XML file output (tFileOutputXML) | `file_output_xml` | [Own rule: XML](own-rule/xml.md#xml-file-output) |
+| XML map (tXMLMap) | `xml_map` | [Own rule: XML](own-rule/xml.md#xml-map) |
