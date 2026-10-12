@@ -346,6 +346,12 @@ documentation.
   [File unarchive](issues/98-file-unarchive.md) -- every kind Python
   reads, told from the content; all of it or none; names checked, links
   left out, a zip held against the free space; the password a secret.
+  [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md)
+  -- a pass is a unit of its own everywhere; clean-up runs after a
+  failure everywhere but in v1; a converted loop job cannot load today.
+  [Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md)
+  -- an iterate link is no flow; one pass at a time, a failed pass stops
+  the loop; postjob always runs; a child job is loaded with its parent.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -400,13 +406,12 @@ list are of the first destination, which is reached):
 
 - File jobs: the six are built. An independent review of them is still
   to be done.
-- Loops and job control wait on
-  [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).
-  The engine has no way yet to run a subjob once for each item. In
-  Talend nearly every file job can be the target of an iterate link, so
-  whatever the engine learns has to reach an action and a source alike.
-  Whether a reader should take many files in one read, in place of a
-  loop, is part of it.
+- Loops and job control are decided
+  ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md))
+  and not built: reading an item in a config string, the iterate link,
+  the three phases, then the seven components. Left for later there:
+  passes side by side, going on after a failed item, one read of many
+  files by a reader, and `run.only` for a reader that a loop runs.
 - XML waits on
   [How current tools read and write XML](issues/91-how-current-tools-read-and-write-xml.md).
 - Database waits on
