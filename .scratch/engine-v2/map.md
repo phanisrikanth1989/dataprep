@@ -374,6 +374,8 @@ documentation.
   [Unarchive as the start of a loop](issues/106-unarchive-as-the-start-of-a-loop.md)
   -- a pass for each file it unpacked, when the whole archive is
   unpacked.
+  [Sleep](issues/107-sleep.md) -- waits a checked number of seconds,
+  alone or once for each pass of a loop.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

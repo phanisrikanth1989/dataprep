@@ -82,6 +82,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Sample row (tSampleRow) | `sample_row` | [Differences from v1: Rows](differences-from-v1/rows.md#sample-row) |
 | Schema compliance check (tSchemaComplianceCheck) | `schema_compliance_check` | [Differences from v1: Rows](differences-from-v1/rows.md#schema-compliance-check) |
 | Set global var (tSetGlobalVar) | `set_global_var` | [Differences from v1: Job control](differences-from-v1/job-control.md#set-global-var) |
+| Sleep (tSleep) | `sleep` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#sleep) |
 | Sort row (tSortRow) | `sort_row` | [Differences from v1: Rows](differences-from-v1/rows.md#sort-row) |
 | Split row (tSplitRow) | `split_row` | [Differences from v1: Rows](differences-from-v1/rows.md#split-row) |
 | Unique row (tUniqRow) | `unique_row` | [Differences from v1: Rows](differences-from-v1/rows.md#unique-row) |

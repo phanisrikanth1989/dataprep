@@ -120,3 +120,21 @@ unpacked.
   entry; Talend has none).
 - `max_items` is the most values the loop may have (100,000 when not
   given).
+
+## Sleep
+
+- The job waits `pause_duration` seconds and then goes on. A part of a
+  second may be given (`0.5`); one second when nothing is given, as in
+  Talend.
+- It stands alone: a trigger or an iterate link leads to it, where it
+  waits once for each pass. A flow to it refuses the job. (Talend lets
+  rows flow through it and waits once for each row.)
+- The value may come from the context. What is no number of zero or
+  more refuses the job when it loads, or fails it when its turn comes
+  if the value is known only then. (v1 warns and does not wait, which
+  lets a mistyped value pass for a pause.)
+- The log says how long it waits, before and after. Whoever stops the
+  job ends the wait at once.
+- It waits a length of time, not for anything. For a file that is still
+  being written, a file list's `min_age_seconds` leaves the file out
+  until it has been still that long.
