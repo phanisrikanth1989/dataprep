@@ -383,6 +383,13 @@ documentation.
   checked with its parent and run in its process; it is given what it
   declares, typed as it declares it; a job that would run itself is
   refused.
+  [How current tools read and write XML](issues/91-how-current-tools-read-and-write-xml.md)
+  -- records by a path and columns from them everywhere; the parser's
+  guard against reading other files changed three times in three years.
+  [XML: the decisions](issues/110-xml-the-decisions.md) -- one reader
+  whose memory follows the largest record, with a parser no key weakens;
+  one writer with no Python in the pass, read back before it is put in
+  place.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -437,14 +444,17 @@ list are of the first destination, which is reached):
 
 - File jobs: the six are built and reviewed
   ([Review of the six file jobs](issues/99-review-of-the-six-file-jobs.md)).
-- Loops and job control are decided
-  ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md))
-  and not built: reading an item in a config string, the iterate link,
-  the three phases, then the seven components. Left for later there:
+- Loops and job control: the seven are built
+  ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md)).
+  An independent review of them is under way. Left for later there:
   passes side by side, going on after a failed item, one read of many
-  files by a reader, and `run.only` for a reader that a loop runs.
-- XML waits on
-  [How current tools read and write XML](issues/91-how-current-tools-read-and-write-xml.md).
+  files by a reader, `run.only` for a reader that a loop runs, and a
+  clean-up when the job is stopped from outside.
+- XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md))
+  and not built: the reader with the XML file input first, then the
+  writer with the two outputs, then extract XML field, the multi-schema
+  input and XML map. Left for later there: a check against an XSD, a
+  predicate in the record path, `split`.
 - Database waits on
   [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md):
   which drivers, how rows go in and out without being held in memory,
