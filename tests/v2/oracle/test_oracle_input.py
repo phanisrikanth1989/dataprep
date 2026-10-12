@@ -179,3 +179,17 @@ def test_a_value_in_a_text_of_the_national_set(oracle_db, tmp_path):
     result, lines = reading(oracle_db, tmp_path, "a:str, b:str, c:str", query, context={"s": "bri"})
     assert result.status == "success", result.error
     assert lines[1] == "bri;<bri>;<<bri"
+
+
+def test_a_value_in_a_remark_of_the_query_cannot_end_the_remark(oracle_db, wide, tmp_path):
+    # Found by the review of the group: sent as it was, this read the rows of a table the query never named.
+    query = f"select id, v from {wide} /* run for ${{context.who}} */ where id = 2"
+    evil = f"'*/ where 1=0 union all select 99, to_char(sysdate) from dual union all select id, v from {wide} /*'"
+    result, lines = reading(oracle_db, tmp_path, "id:Decimal#0, v:str", query, context={"who": evil})
+    assert (result.status, result.failed_component, lines) == ("failed", "in", None)
+    assert result.error.startswith("what context.who holds is written into the statement, since no quotes stand round "
+                                   "it, and there it may hold no line break")
+    assert "sysdate" not in result.error
+    result, lines = reading(oracle_db, tmp_path, "id:Decimal#0, v:str", query, context={"who": "nightly_load"})
+    assert result.status == "success", result.error
+    assert lines[1:] == ["2; pad "]

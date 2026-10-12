@@ -176,7 +176,13 @@ class OracleRow(Action, Transform):
         if not made.defines:
             sessions.working(session, self.id)
         text, binds = session.bound(made)
-        changed = session.run(text, binds)
+        try:
+            changed = session.run(text, binds)
+        except FAULTS:
+            if not made.defines and session.alive():
+                # A statement the database refused has changed nothing: nothing of it waits to be stored.
+                sessions.changed_nothing(session, self.id)
+            raise
         if not changed and not made.defines and not _BLOCK.match(text):
             # A query, or a statement that found no row: nothing of it waits to be stored. What a block of
             # PL/SQL changed cannot be seen, and counts.
@@ -219,11 +225,9 @@ class OracleRow(Action, Transform):
         changed, refused, first = 0, 0, ""
         try:
             for start in range(0, frame.height, _BATCH):
-                if values is None:
-                    # Nothing of the row is in the statement: it is run as it is, once for each row.
-                    changed += sum(session.run(text) for _ in range(min(_BATCH, frame.height - start)))
-                    continue
-                turned_away, counts = session.many(text, values.slice(start, _BATCH).to_arrow(), counts=True)
+                # With nothing of the row in the statement, it is sent as it is, for as many times as there are rows.
+                batch = values.slice(start, _BATCH).to_arrow() if values is not None else min(_BATCH, frame.height - start)
+                turned_away, counts = session.many(text, batch, counts=True)
                 changed += sum(counts)
                 if turned_away:
                     at, why = turned_away[0]
@@ -234,8 +238,14 @@ class OracleRow(Action, Transform):
                     first = first or told
         except FAULTS:
             if session.alive():
+                # What it did is taken back, and with it the word that it waits to be stored.
                 session.rollback_to(_MARK)
+                sessions.changed_nothing(session, self.id)
             raise
+        if not changed and not _BLOCK.match(text):
+            # As when it is run once: a query, or a statement that found no row for any of them, leaves nothing
+            # waiting.
+            sessions.changed_nothing(session, self.id)
         if refused:
             said = (f"the database refused the statement for {refused} of the {frame.height} rows; the first: {first}")
             self.global_map[f"{self.id}_ERROR_MESSAGE"] = said

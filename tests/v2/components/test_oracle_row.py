@@ -45,13 +45,14 @@ def once(query, with_commit=True, **config):
     return job(components, [], triggers=after(*(component["id"] for component in components)))
 
 
-def for_rows(tmp_path, rows, query, **config):
+def for_rows(tmp_path, rows, query, with_commit=True, **config):
     """connection -> a file -> the statement for each row -> a file, then a commit."""
     (tmp_path / "in.csv").write_text(rows)
     components = [connection(schema_db=""), reader(ROWS, path=str(tmp_path / "in.csv")),
-                  row(query, inputs=("row1",), outputs=("row2",), **config), writer(ROWS, path=str(tmp_path / "out.csv")),
-                  commit()]
-    return job(components, [flow("row1", "in", "r"), flow("row2", "r", "out")], triggers=after(CONN, "in", "c"))
+                  row(query, inputs=("row1",), outputs=("row2",), **config), writer(ROWS, path=str(tmp_path / "out.csv"))]
+    components += [commit()] if with_commit else []
+    return job(components, [flow("row1", "in", "r"), flow("row2", "r", "out")],
+               triggers=after(CONN, "in", *(["c"] if with_commit else [])))
 
 
 def run(made, **more):
@@ -131,6 +132,42 @@ def test_with_die_on_error_off_the_job_goes_on(emp, caplog):
     assert result.status == "success", result.error
     assert result.global_map["r_ERROR_MESSAGE"] == "no such table: no_such_table"
     assert "[r] no such table: no_such_table; the job goes on with its statement not run" in caplog.text
+
+
+def test_with_die_on_error_off_a_statement_the_database_refuses_leaves_nothing_waiting(emp):
+    """Found by the review of the group: the job went on, and failed when it ended for work that was never done."""
+    result = run(once("delete from no_such_table", with_commit=False, die_on_error=False))
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+    close = {"id": "x", "type": "tOracleClose", "config": {"connection": CONN}, "inputs": [], "outputs": []}
+    components = [connection(schema_db=""), row("delete from no_such_table", die_on_error=False), close]
+    result = run(job(components, [], triggers=after(CONN, "r", "x")))
+    assert result.status == "success", result.error
+
+
+def test_a_statement_the_database_refuses_takes_nothing_of_an_earlier_statements_work_with_it(emp):
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("delete from no_such_table", die_on_error=False)]
+    result = run(job(components, [], triggers=after(CONN, "first", "r")))
+    assert (result.status, result.failed_component) == ("failed", CONN)
+    assert "what first did on the session" in result.error
+
+
+def test_a_session_the_database_closed_under_a_statement_is_said_to_be_lost(emp, monkeypatch, caplog):
+    from src.v2.errors import DatabaseError
+
+    def dies(self, statement, binds=None):
+        if statement.startswith("delete"):
+            self.closed = True
+            raise DatabaseError("DPY-4011: the database or network closed the connection")
+        return plain(self, statement, binds)
+
+    plain = SqliteSession.run
+    monkeypatch.setattr(SqliteSession, "run", dies)
+    with caplog.at_level(logging.ERROR, logger="src.v2"):
+        result = run(once("delete from emp", with_commit=False))
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert "the database has closed its session: what r did on it is lost" in caplog.text
 
 
 def test_a_statement_after_another_on_one_session_is_not_said_to_have_stored_anything(emp, caplog):
@@ -335,6 +372,70 @@ def test_a_fault_of_the_whole_statement_with_die_on_error_off_takes_back_what_it
     assert result.status == "success", result.error
     assert result.global_map["r_ERROR_MESSAGE"] == "no such table: nope"
     assert "rollback to savepoint v2_row" in emp.sessions[0].asked
+
+
+def test_for_each_row_a_fault_of_the_whole_statement_with_die_on_error_off_leaves_nothing_waiting(emp, tmp_path):
+    made = for_rows(tmp_path, "5;ed\n", '"insert into nope (id) values (" + row1.id + ")"', with_commit=False,
+                    die_on_error=False)
+    result = run(made)
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+
+
+@pytest.mark.parametrize("query", [
+    '"update emp set name = \'x\' where id = 90 + " + row1.id', '"select name from emp where id = " + row1.id',
+    "select count(*) from emp", "delete from emp where 1 = 0",
+])
+def test_for_each_row_a_statement_that_changed_no_row_leaves_nothing_waiting(emp, tmp_path, query):
+    """As when it is run once: a query needs no commit, and a job that has none is no job that lost its work."""
+    result = run(for_rows(tmp_path, "5;ed\n6;flo\n", query, with_commit=False))
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+    assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
+
+
+def test_for_each_row_with_no_row_at_all_nothing_waits(emp, tmp_path):
+    result = run(for_rows(tmp_path, "", "delete from emp", with_commit=False))
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+
+
+def test_for_each_row_what_a_block_changed_cannot_be_seen_and_counts_as_work_that_waits(emp, tmp_path, monkeypatch):
+    plain = SqliteSession.many
+    # The stand-in has no PL/SQL: in place of a block it runs a statement that changes no row.
+    monkeypatch.setattr(SqliteSession, "many", lambda self, statement, rows, counts=False: plain(
+        self, "delete from emp where 1 = :1", rows, counts))
+    result = run(for_rows(tmp_path, "5;ed\n", '"begin do_it(" + row1.id + "); end;"', with_commit=False))
+    assert (result.status, result.failed_component) == ("failed", CONN)
+    assert "what r did on the session" in result.error
+
+
+def test_a_statement_with_nothing_of_the_row_in_it_goes_a_batch_at_a_time_too(emp, tmp_path, monkeypatch):
+    from src.v2.components.database import oracle_row
+    monkeypatch.setattr(oracle_row, "_BATCH", 2)
+    made = for_rows(tmp_path, "5;ed\n6;flo\n7;gil\n", "update emp set name = name || '!' where id = 1")
+    assert run(made).status == "success"
+    assert [did[2] for did in emp.sessions[0].did if isinstance(did, tuple) and did[0] == "many"] == [2, 1]
+    assert emp.stored(EMP) == [(1, "ann!!!"), (2, "bob")]
+
+
+def test_a_statement_with_nothing_of_the_row_in_it_that_is_refused_for_a_row_names_the_row(emp, tmp_path):
+    made = for_rows(tmp_path, "5;ed\n6;flo\n", "insert into emp (id, name) values (9, 'nine')")
+    result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.failures["r"] == ("the database refused the statement for a row: UNIQUE constraint failed: emp.id; "
+                                    f"the row is line 2 of {tmp_path / 'in.csv'}")
+    assert emp.stored(EMP) == [(1, "ann"), (2, "bob")]
+
+
+def test_for_each_row_what_it_changed_waits_for_a_commit(emp, tmp_path):
+    query = '"insert into emp (id, name) values (" + row1.id + ", \'" + row1.name + "\')"'
+    result = run(for_rows(tmp_path, "5;ed\n", query, with_commit=False))
+    assert (result.status, result.failed_component) == ("failed", CONN)
+    assert "what r did on the session" in result.error
+    # Also where some of its rows were refused: the others are work that waits.
+    result = run(for_rows(tmp_path, "5;ed\n1;again\n", query, with_commit=False, die_on_error=False))
+    assert (result.status, result.failed_component) == ("failed", CONN)
 
 
 def test_a_statement_that_defines_is_not_run_for_each_row(emp, tmp_path):

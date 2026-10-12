@@ -306,6 +306,23 @@ def test_with_die_on_error_off_what_it_did_before_it_could_not_go_on_is_taken_ba
     assert "rollback to savepoint v2_output" in emp.sessions[0].asked
 
 
+def test_with_die_on_error_off_what_was_taken_back_does_not_wait_for_a_commit(emp, tmp_path):
+    """Found by the review of the group, in the row: the job went on, and failed when it ended for work it had
+    itself taken back."""
+    made = loading(tmp_path, "3;cy;3.5\n", schema="id:int, name:str, nope:float", table_action="CLEAR",
+                   die_on_error=False, commit=False)
+    result = run(made)
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+    assert emp.stored(EMP) == [(1, "ann", 1.5), (2, "bob", 2.5)]
+
+
+def test_rows_that_were_stored_before_some_were_refused_still_wait_for_a_commit(emp, tmp_path):
+    result = run(loading(tmp_path, "3;cy;3.5\n1;again;1\n", die_on_error=False, commit=False))
+    assert (result.status, result.failed_component) == ("failed", "tDBConnection_1")
+    assert "what db did on the session" in result.error
+
+
 def test_without_use_batch_size_a_round_trip_takes_ten_thousand_rows(emp, tmp_path):
     run(loading(tmp_path, "3;cy;3.5\n4;di;4.5\n5;ed;5.5\n", use_batch_size=False, batch_size=1))
     assert [did[2] for did in emp.sessions[0].did if isinstance(did, tuple) and did[0] == "many"] == [3]

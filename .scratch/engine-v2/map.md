@@ -458,6 +458,11 @@ documentation.
   -- the query is run as it is written and once; v2 converts on its side
   as SQL Server's own cast does; a statement is read as its own
   database reads one; every statement is stored by itself.
+  [Review of the database group](issues/127-review-of-the-database-group.md)
+  -- six findings and seven more of their kinds; a value in a remark
+  could end the remark and change the statement, on both databases,
+  fixed: every value that is written in is held to one rule wherever it
+  stands. The row for each row now runs blocks and queries too.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -533,8 +538,9 @@ list are of the first destination, which is reached):
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
   connection, commit, rollback, close, input, output, row, stored
-  procedure and bulk exec, and the SQL Server connection and input.
-  To come: the review of the group.
+  procedure and bulk exec, and the SQL Server connection and input;
+  and reviewed
+  ([Review of the database group](issues/127-review-of-the-database-group.md)).
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.
 

@@ -236,12 +236,16 @@ class Session:
     def many(self, statement: str, rows: Any, counts: bool = False) -> Tuple[List[Tuple[int, str]], List[int]]:
         """Run a statement once for each row of an Arrow batch, in one round trip; its values go by place.
 
-        A row the database refuses does not stop the others.
+        A row the database refuses does not stop the others. A statement
+        that changes no rows by itself (a block, a call, a query) may take
+        more round trips: one more for each row that is refused, or one
+        for each row.
 
         Args:
             statement: The statement, with `:1`, `:2`... where the columns
                 of a row go, in their order.
-            rows: The batch.
+            rows: The batch; or, for a statement that takes no value, how
+                many times it is run.
             counts: Whether to say how many rows each row changed.
 
         Returns:

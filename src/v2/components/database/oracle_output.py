@@ -250,7 +250,10 @@ class OracleOutput(Sink):
                 before += frame.height
         except FAULTS:
             if session.alive():
+                # What it did is taken back, and with it the word that it waits to be stored: with `die_on_error`
+                # off the job goes on, and has no work of this component's to commit.
                 session.rollback_to(_MARK)
+                sessions.changed_nothing(session, self.id)
             raise
 
     def _batch(self, session: Session, table: str, frame: pl.DataFrame, names: List[str], sets: List[str],

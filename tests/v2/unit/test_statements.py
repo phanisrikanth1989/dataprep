@@ -498,3 +498,88 @@ def test_a_bound_value_between_an_n_and_a_quote_stays_where_it_is():
     made = statements.read("select N?'a', ?N'b${context.s}' from dual", CONTEXT, HELD,
                            parameters=[statements.Given(value=1), statements.Given(value=2)])
     assert made.named() == ("select N:p1'a', :p2N'b' || :context_s from dual", {"p1": 1, "p2": 2, "context_s": "bri"})
+
+
+# ------------------------------------------------------------------
+# A value written into a statement cannot end a remark, start one, or make one with what stands before it
+# ------------------------------------------------------------------
+
+BOTH = [statements.ORACLE, statements.TSQL]
+NO_REMARK_MARKS = (
+    "what context.v holds is written into the statement, since no quotes stand round it, and there it may hold no "
+    "line break or other control character, and no /* or */: any of these could end a remark it stands in, or start "
+    "one. A value in quotes is bound, whatever it holds")
+
+
+@pytest.mark.parametrize("dialect", BOTH)
+@pytest.mark.parametrize("written, held", [
+    # Each of these was sent to a real database as a statement the job had not written.
+    ("select n, v from t /* run for ${context.v} */ where n = 1", "'*/ where 1=0 union all select n, v from secret /*'"),
+    ("delete from t where n = 2 -- asked by ${context.v}\n", "'\n or 1=1 --'"),
+    ("select n, v from t -- ${context.v}\n order by n", "'\n; drop table victim; select n, v from t --'"),
+    ("create table q (n number /* asked by ${context.v} */)", "'*/, injected number /*'"),
+    # No text in quotes is needed for it: a list on two lines adds a column to what is selected.
+    ("select a -- ${context.v}\nfrom t", "x\n, secret_col"),
+    ("select a -- ${context.v}\nfrom t", "x\r, secret_col"),
+    ("select a -- ${context.v}\nfrom t", "1,\r\n2"),
+    # In SQL Server a remark may stand in a remark: one that is opened there swallows the end of the outer one.
+    ("select n /* ${context.v} */ , secret from t", "'/*'"),
+])
+def test_a_value_in_a_remark_cannot_end_the_remark_or_open_another(written, held, dialect):
+    with pytest.raises(ConfigurationError) as failed:
+        statements.read(written, {"v": held}, {}, dialect=dialect)
+    assert str(failed.value) == NO_REMARK_MARKS
+    assert "secret" not in str(failed.value) and "victim" not in str(failed.value)
+
+
+@pytest.mark.parametrize("dialect", BOTH)
+@pytest.mark.parametrize("held", ["'a\nb', 'c'", "1,\n2", "'a*/b'", "'/*'", "'a\x00b'", "'a\x0bb'", "'a\x85b'"])
+def test_what_is_written_in_outside_a_remark_is_held_to_the_same(held, dialect):
+    # Where a remark ends is each database's own to say. A value that could not end one anywhere is safe wherever
+    # the reader and the database might not agree.
+    with pytest.raises(ConfigurationError) as failed:
+        statements.read("select * from t where c in (${context.v})", {"v": held}, {}, dialect=dialect)
+    assert str(failed.value) == NO_REMARK_MARKS
+
+
+def test_the_separators_of_lines_and_paragraphs_are_line_breaks_too():
+    for code in (0x2028, 0x2029):
+        with pytest.raises(ConfigurationError) as failed:
+            statements.read("select 1 -- ${context.v}\n from t", {"v": "'a" + chr(code) + "b'"}, {})
+        assert str(failed.value) == NO_REMARK_MARKS
+
+
+def test_an_entry_of_globalmap_in_a_remark_is_held_to_the_same():
+    with pytest.raises(ConfigurationError) as failed:
+        statements.read('"select 1 /* for " + ((String)globalMap.get("f")) + " */ from t"', {}, {"f": "'*/ x /*'"})
+    assert str(failed.value) == NO_REMARK_MARKS.replace("context.v", "the entry 'f' of globalMap")
+
+
+@pytest.mark.parametrize("dialect", BOTH)
+@pytest.mark.parametrize("held", ["'a--b', 'c'", "1,\t2", "EMP\n", "\r\n 5 \n", "'a b'", "'it''s'"])
+def test_what_a_value_written_in_may_still_hold(held, dialect):
+    text = statements.read("select 1 /* ${context.v} */ from t where c in (${context.v})", {"v": held}, {},
+                           dialect=dialect).shown()
+    assert text == f"select 1 /* {held.strip()} */ from t where c in ({held.strip()})"
+
+
+@pytest.mark.parametrize("dialect", BOTH)
+def test_a_number_below_nought_after_a_minus_does_not_make_a_remark_of_the_rest_of_the_line(dialect):
+    made = statements.read("select n from t where a = b -${context.n} and kept = 1", {"n": "-1"}, {}, dialect=dialect)
+    assert made.shown() == "select n from t where a = b - -1 and kept = 1"
+    made = statements.read("select d-${context.n}, e - ${context.n}, f-${context.m} from t", {"n": "-7", "m": "7"}, {},
+                           dialect=dialect)
+    assert made.shown() == "select d- -7, e - -7, f-7 from t"
+    made = statements.read("select d-${context.n} from t", {"n": "-1, -2"}, {}, dialect=dialect)
+    assert made.shown() == "select d- -1, -2 from t"
+
+
+def test_a_line_remark_ends_where_its_own_database_ends_it():
+    written = "select 1 -- it's a remark\r from t where a = '${context.who}'"
+    # A carriage return by itself ends such a remark in SQL Server: the quote after it opens a text.
+    assert tsql(written) == ("select 1 -- it's a remark\r from t where a = ?", ["o'brien"])
+    # In Oracle it does not: the rest of the line is remark still, and the value stands in it.
+    assert refused(written).startswith("what context.who holds is written into the statement")
+    both = "select 1 -- it's a remark\r\n from t where a = '${context.who}'"
+    assert tsql(both) == ("select 1 -- it's a remark\r\n from t where a = ?", ["o'brien"])
+    assert oracle(both) == ("select 1 -- it's a remark\r\n from t where a = :context_who", {"context_who": "o'brien"})

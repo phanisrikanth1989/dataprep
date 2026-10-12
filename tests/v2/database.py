@@ -101,15 +101,18 @@ class SqliteSession(Session):
 
     def many(self, statement, rows, counts=False):
         self.asked.append(statement)
-        self.did.append(("many", statement, rows.num_rows))
+        # For a statement that takes no value: how many times it is run.
+        given = [{}] * rows if isinstance(rows, int) else rows.to_pylist()
+        self.did.append(("many", statement, len(given)))
         if not self._held.in_transaction:
             self._held.execute("begin")
         refused, changed = [], []
-        for at, row in enumerate(rows.to_pylist()):
+        for at, row in enumerate(given):
             values = [_for_sqlite(value) for value in row.values()]
             try:
                 done = self._held.execute(_as_sqlite(statement), values)
-                changed.append(done.rowcount)
+                # A query changed no row. (SQLite says -1 of one; Oracle says 0.)
+                changed.append(max(done.rowcount, 0))
             except sqlite3.IntegrityError as fault:
                 # A row the table does not take: the others go on.
                 refused.append((at, str(fault)))

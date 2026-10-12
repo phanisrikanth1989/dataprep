@@ -261,7 +261,7 @@ def stand_in(version="26.0.1", **fails):
     def connect(**given):
         driver.asked.append(given)
         if "connect" in fails:
-            raise Refused(fails["connect"])
+            raise fails["connect"] if isinstance(fails["connect"], Exception) else Refused(fails["connect"])
         driver.opened.append(Held(driver))
         return driver.opened[-1]
 
@@ -322,6 +322,18 @@ def test_a_session_that_is_not_opened_says_where_and_as_whom_and_never_the_passw
         oracle.opened(block(**SERVICE), "c", "j")
     assert str(failed.value) == ("no session was opened as app@db.example:1521/SALES: ORA-01017: invalid credential "
                                  "or not authorized; logon denied")
+
+
+def test_a_host_that_cannot_be_found_is_said_as_any_other_session_that_was_not_opened(monkeypatch):
+    """Found by the review of the group: of a name no one knows, the driver hands on what the system said, and no
+    error of its own."""
+    import socket
+    monkeypatch.setitem(sys.modules, "oracledb", stand_in(
+        connect=socket.gaierror(8, "nodename nor servname provided, or not known")))
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**SERVICE), "c", "j")
+    assert str(failed.value) == ("no session was opened as app@db.example:1521/SALES: [Errno 8] nodename nor servname "
+                                 "provided, or not known")
 
 
 def test_no_driver_is_said_with_how_to_get_one(monkeypatch):
@@ -719,3 +731,221 @@ def test_a_call_that_fails_says_which_one_in_the_databases_words(monkeypatch):
         session.call("begin p(:1); end;", [(1,), (13,)], {})
     assert failed.value.at == 1
     assert str(failed.value) == 'ORA-20001: thirteen is not taken ORA-06512: at "A.P", line 3'
+
+
+# ------------------------------------------------------------------
+# For each row: what is no insert, update, delete or merge, and an insert that reads as it writes
+# ------------------------------------------------------------------
+
+class Told:
+    """What the driver's error holds, as the real one does: its number, a place, and its words when it is printed."""
+
+    def __init__(self, message, offset):
+        self.message, self.offset, self.full_code = message, offset, message.split(":")[0]
+
+    def __str__(self):
+        return self.message
+
+
+def failing(message, offset):
+    fault = Refused(message)
+    fault.args = (Told(message, offset),)
+    return fault
+
+
+# What the driver says, before it sends anything, of a block or a query handed over with the two switches that only a
+# statement which changes rows takes.
+NOT_FOR_MANY = ('DPY-2040: parameters "batcherrors" and "arraydmlrowcounts" may only be true when used with insert, '
+                "update, delete and merge statements")
+# What Oracle says of a block that cannot be compiled. The place the driver gives with it is one in the block's text.
+NOT_COMPILED = "ORA-06550: line 1, column 7: PLS-00201: identifier 'P' must be declared"
+
+
+class Batching:
+    """A cursor of the stand-in driver that takes a statement for many rows as the real one was seen to.
+
+    Args:
+        kind: ``changes`` for an insert, update, delete or merge; ``block`` for PL/SQL; ``query``.
+        fails: The rows the statement fails for, by their place in everything that is sent.
+        whole: What is wrong with the statement itself: it is said when a query is parsed, and when a block is run.
+    """
+
+    def __init__(self, held, kind, fails=(), whole=None):
+        self.held, self.kind, self.fails, self.whole, self.description = held, kind, set(fails), whole, None
+        self.refused, self.counts = [], []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.held.did.append("cursor closed")
+
+    def parse(self, statement):
+        self.held.did.append(("parse", statement))
+        if self.whole and self.kind == "query":
+            raise self.whole
+        self.description = [types.SimpleNamespace(name="C")] if self.kind == "query" else None
+
+    def executemany(self, statement, rows, batcherrors=False, arraydmlrowcounts=False):
+        if (batcherrors or arraydmlrowcounts) and self.kind != "changes":
+            raise failing(NOT_FOR_MANY, 0)
+        if self.kind == "query":
+            raise AssertionError("a query sent for many rows loses the session")
+        size = rows if isinstance(rows, int) else rows.num_rows
+        self.held.did.append(("many", statement, rows if isinstance(rows, int) else rows.column(0).to_pylist(),
+                              batcherrors, arraydmlrowcounts))
+        if self.whole:
+            raise self.whole
+        sent = getattr(self.held, "sent", 0)
+        wrong = [at for at in range(size) if sent + at in self.fails]
+        if wrong and self.kind == "block":
+            # The real one stops at the first that fails, and says which it was.
+            self.held.sent = sent + wrong[0] + 1
+            raise failing('ORA-20001: no\nORA-06512: at "A.P", line 3\nORA-06512: at line 1', wrong[0])
+        self.held.sent = sent + size
+        self.refused = [Refusal(at, "ORA-00001: unique constraint (A.PK) violated") for at in wrong]
+        self.counts = [0 if at in wrong else 1 for at in range(size)]
+
+    def execute(self, statement, binds=None):
+        at = getattr(self.held, "sent", 0)
+        self.held.sent = at + 1
+        self.held.did.append(("execute", statement, binds))
+        if at in self.fails:
+            raise failing("ORA-01722: invalid number", 0)
+
+    def getbatcherrors(self):
+        return self.refused
+
+    def getarraydmlrowcounts(self):
+        return self.counts
+
+
+def batching(monkeypatch, kind, **more):
+    made = stand_in()
+    monkeypatch.setitem(sys.modules, "oracledb", made)
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    held = made.opened[0]
+    monkeypatch.setattr(Held, "cursor", lambda self: Batching(self, kind, **more))
+    return session, held
+
+
+def sendings(held):
+    return [did[2] for did in held.did if did[0] == "many"]
+
+
+def test_a_block_for_each_row_is_sent_without_the_switches_of_a_batch_and_a_row_that_fails_stops_no_other(monkeypatch):
+    session, held = batching(monkeypatch, "block", fails=(1, 3))
+    rows = pyarrow.table({"a": [10, 11, 12, 13, 14]})
+    refused, changed = session.many("begin p(:1); end;", rows, counts=True)
+    said_so = 'ORA-20001: no ORA-06512: at "A.P", line 3 ORA-06512: at line 1'
+    assert refused == [(1, said_so), (3, said_so)]
+    # What a block changed cannot be counted.
+    assert changed == [0, 0, 0, 0, 0]
+    # Sent whole; then from the row after each one that failed.
+    assert sendings(held) == [[10, 11, 12, 13, 14], [12, 13, 14], [14]]
+    assert [did[3:] for did in held.did if did[0] == "many"] == [(False, False)] * 3
+    assert held.did[-1] == "cursor closed"
+
+
+def test_a_block_whose_last_row_fails_is_not_sent_again_for_no_row(monkeypatch):
+    session, held = batching(monkeypatch, "block", fails=(2,))
+    refused, changed = session.many("begin p(:1); end;", pyarrow.table({"a": [10, 11, 12]}))
+    assert [at for at, _ in refused] == [2] and changed == []
+    assert sendings(held) == [[10, 11, 12]]
+
+
+def test_a_block_that_cannot_be_compiled_is_at_fault_as_a_whole_and_for_no_row(monkeypatch):
+    """The place the driver gives for such a fault is one in the text of the block (column 7), and no row."""
+    session, held = batching(monkeypatch, "block", whole=failing(NOT_COMPILED, 6))
+    with pytest.raises(DatabaseError) as failed:
+        session.many("begin p(:1); end;", pyarrow.table({"a": list(range(40))}))
+    assert str(failed.value) == NOT_COMPILED
+    assert len(sendings(held)) == 1
+
+
+def test_what_cannot_be_compiled_inside_a_block_while_it_runs_is_the_fault_of_the_row_it_ran_for(monkeypatch):
+    # Text a block puts together from its row and runs: it has the lines of where it was raised.
+    inside = failing(NOT_COMPILED + "\nORA-06512: at line 1", 1)
+    session, held = batching(monkeypatch, "block", whole=inside)
+    refused, _ = session.many("begin execute immediate :1; end;", pyarrow.table({"a": ["x", "y", "z"]}))
+    assert refused[0] == (1, NOT_COMPILED + " ORA-06512: at line 1")
+
+
+def test_a_query_for_each_row_is_run_row_by_row_since_the_driver_loses_the_session_over_one_sent_for_many(monkeypatch):
+    session, held = batching(monkeypatch, "query", fails=(1,))
+    rows = pyarrow.table({"a": [10, 11, 12], "b": ["x", "y", "z"]})
+    refused, changed = session.many("select f(:1, :2) from dual", rows, counts=True)
+    assert refused == [(1, "ORA-01722: invalid number")] and changed == [0, 0, 0]
+    assert [did[2] for did in held.did if did[0] == "execute"] == [[10, "x"], [11, "y"], [12, "z"]]
+    assert not sendings(held)
+
+
+def test_a_query_that_cannot_be_read_is_at_fault_as_a_whole_and_is_run_for_no_row(monkeypatch):
+    session, held = batching(monkeypatch, "query", whole=failing('ORA-00904: "NOPE": invalid identifier', 7))
+    with pytest.raises(DatabaseError, match='^ORA-00904: "NOPE": invalid identifier$'):
+        session.many("select nope from dual where 1 = :1", pyarrow.table({"a": [1, 2]}))
+    assert not [did for did in held.did if did[0] == "execute"]
+
+
+def test_a_statement_that_takes_no_value_is_sent_for_as_many_times_as_there_are_rows(monkeypatch):
+    session, held = batching(monkeypatch, "changes")
+    refused, changed = session.many("insert into log values (sysdate)", 3, counts=True)
+    assert (refused, changed) == ([], [1, 1, 1])
+    assert held.did[0] == ("many", "insert into log values (sysdate)", 3, True, True)
+    session, held = batching(monkeypatch, "block", fails=(0,))
+    refused, _ = session.many("begin p; end;", 3)
+    assert [at for at, _ in refused] == [0]
+    assert sendings(held) == [3, 2]
+    session, held = batching(monkeypatch, "query")
+    assert session.many("select f from dual", 2) == ([], [])
+    assert [did[1:] for did in held.did if did[0] == "execute"] == [("select f from dual", None)] * 2
+    session, held = batching(monkeypatch, "block")
+    assert session.many("begin p; end;", 2, counts=True) == ([], [0, 0])
+
+
+def test_an_insert_of_values_that_reads_as_it_writes_is_sent_one_row_at_a_time(monkeypatch):
+    """Sent for many rows at once, Oracle works out the query of every row from the table as it was before the first:
+    three rows of `max(n) + 1` get one number."""
+    statement = "insert into t (n, v) values ((select nvl(max(n), 0) + 1 from t), :1)"
+    session, held = batching(monkeypatch, "changes", fails=(1,))
+    refused, changed = session.many(statement, pyarrow.table({"a": ["x", "y", "z"]}), counts=True)
+    assert sendings(held) == [["x"], ["y"], ["z"]]
+    assert refused == [(1, "ORA-00001: unique constraint (A.PK) violated")] and changed == [1, 0, 1]
+    assert [did[3:] for did in held.did if did[0] == "many"] == [(True, True)] * 3
+    # With no value of the row in it, too; and an insert that only writes goes for all its rows at once.
+    session, held = batching(monkeypatch, "changes")
+    assert session.many("INSERT INTO t\nVALUES ((SELECT count(*) FROM t))", 2, counts=True) == ([], [1, 1])
+    assert sendings(held) == [1, 1]
+    session, held = batching(monkeypatch, "changes")
+    session.many("insert into t (n) values (:1)", pyarrow.table({"a": [1, 2, 3]}))
+    assert sendings(held) == [[1, 2, 3]]
+
+
+def test_a_batch_of_no_rows_is_not_sent(monkeypatch):
+    session, held = batching(monkeypatch, "changes")
+    assert session.many("insert into t (n) values (:1)", pyarrow.table({"a": pyarrow.array([], pyarrow.int64())}), counts=True) == ([], [])
+    assert not sendings(held)
+
+
+@pytest.mark.parametrize("said_so", [
+    NOT_COMPILED, "ORA-06576: not a valid function or procedure name",
+    "ORA-06553: PLS-306: wrong number or types of arguments in call to 'P'",
+])
+def test_a_call_that_cannot_be_compiled_is_at_fault_as_a_whole_and_names_no_one_call(monkeypatch, said_so):
+    """The place the driver gives for such a fault is one in the text of the call (column 7), and no row."""
+    from src.v2.sessions import CallFailed
+    calling(monkeypatch, fails=failing(said_so, 6))
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    with pytest.raises(DatabaseError) as failed:
+        session.call("begin p(:1); end;", [(at,) for at in range(40)], {})
+    assert not isinstance(failed.value, CallFailed)
+    assert str(failed.value) == said_so
+
+
+def test_what_cannot_be_compiled_inside_a_procedure_while_it_runs_is_the_fault_of_its_call(monkeypatch):
+    from src.v2.sessions import CallFailed
+    calling(monkeypatch, fails=failing(NOT_COMPILED + '\nORA-06512: at "A.P", line 3', 5))
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    with pytest.raises(CallFailed) as failed:
+        session.call("begin p(:1); end;", [(at,) for at in range(40)], {})
+    assert failed.value.at == 5

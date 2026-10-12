@@ -110,6 +110,18 @@ ADVICE = {
 }
 # The name the query has inside the one that converts its columns.
 _INNER = "v2q"
+# What the driver says, before it sends anything, of a statement that is no insert, update, delete or merge and is
+# handed over for many rows the way those are.
+_NOT_FOR_MANY = "DPY-2040"
+# What Oracle says of a block or a call that cannot be compiled: the statement's own fault, and no row's. The place
+# the driver gives with it is one in the statement's text, and no row. (The same from inside a block while it
+# runs, in text the block put together, has the lines of where it was raised, ORA-06512, and is its row's.)
+_NOT_COMPILED = ("ORA-06550", "ORA-06576", "ORA-06553")
+# An insert of given values with a query among them. Sent for many rows at once, Oracle works out the query of
+# every row from the table as it was before the first, so that a row does not see what the rows before it put
+# there (three rows of `max(n) + 1` get one number). Every other statement is run for a row after the row before
+# it is done. What the word is found in besides (a text, a name) only costs round trips.
+_READS_AS_IT_WRITES = re.compile(r"\binsert\b.*\bvalues\b.*\bselect\b", re.IGNORECASE | re.DOTALL)
 # The most characters a procedure hands out as text: what PL/SQL's own text holds.
 _TEXT_OUT = 32767
 # A number as text: the same digits in every session, whatever its language says a decimal point is.
@@ -269,7 +281,8 @@ def opened(
         held = driver.connect(**given)
         held.module = MODULE
         held.action = job_name.encode("utf-8")[:_ACTION_BYTES].decode("utf-8", "ignore")
-    except driver.Error as fault:
+    except (driver.Error, OSError) as fault:
+        # Of a host no one knows the driver hands on what the system said, and no error of its own.
         raise DatabaseError(f"no session was opened as {what}: {said(fault)}") from None
     client = "" if held.thin else ", with Oracle's own client"
     logger.info(in_ascii(f"[{opened_by}] session opened: {what} (Oracle {held.version}{client})"))
@@ -320,10 +333,59 @@ class OracleSession(Session):
             return cursor.rowcount
 
     def many(self, statement: str, rows: Any, counts: bool = False) -> Tuple[List[Tuple[int, str]], List[int]]:
+        several = not isinstance(rows, int)
+        total = rows.num_rows if several else rows
+        # An insert that reads as it writes goes one row at a time: see ``_READS_AS_IT_WRITES``.
+        step = 1 if _READS_AS_IT_WRITES.search(statement) else max(total, 1)
+        refused: List[Tuple[int, str]] = []
+        changed: List[int] = []
         with self._asked(), self._held.cursor() as cursor:
-            cursor.executemany(statement, rows, batcherrors=True, arraydmlrowcounts=counts)
-            refused = [(error.offset, said(error.message)) for error in cursor.getbatcherrors()]
-            return sorted(refused), list(cursor.getarraydmlrowcounts()) if counts else []
+            for start in range(0, total, step):
+                sent = (rows.slice(start, step) if several else min(step, total - start)) if step < total else rows
+                try:
+                    cursor.executemany(statement, sent, batcherrors=True, arraydmlrowcounts=counts)
+                except self._driver.Error as fault:
+                    if start or _code(fault) != _NOT_FOR_MANY:
+                        raise
+                    return self._in_turn(cursor, statement, rows, counts)
+                refused += [(start + error.offset, said(error.message)) for error in cursor.getbatcherrors()]
+                changed += list(cursor.getarraydmlrowcounts()) if counts else []
+        return sorted(refused), changed
+
+    def _in_turn(self, cursor: Any, statement: str, rows: Any, counts: bool) -> Tuple[List[Tuple[int, str]], List[int]]:
+        """Run for each row a statement that is no insert, update, delete or merge: a block, a call, a query.
+
+        The driver takes a block or a call for many rows at once and stops
+        at the first that fails: it is sent again from the row after that
+        one. A query it takes for one row only (sent for many, the session
+        is lost), so a query is run row by row, and what it hands back is
+        not fetched. What a block changed cannot be counted.
+        """
+        several = not isinstance(rows, int)
+        total = rows.num_rows if several else rows
+        refused: List[Tuple[int, str]] = []
+        # A query is read here without being run: what is wrong with it is told now, and is no row's fault. (Of a
+        # block the driver learns nothing here.)
+        cursor.parse(statement)
+        if cursor.description is not None:
+            for at, given in enumerate([list(row.values()) for row in rows.to_pylist()] if several else [None] * total):
+                try:
+                    cursor.execute(statement, given)
+                except self._driver.Error as fault:
+                    refused.append((at, said(fault)))
+            return refused, [0] * total if counts else []
+        start = 0
+        while start < total:
+            try:
+                cursor.executemany(statement, rows.slice(start) if several else total - start)
+                break
+            except self._driver.Error as fault:
+                if _not_compiled(fault):
+                    raise
+                at = start + (getattr(fault.args[0], "offset", 0) or 0)
+                refused.append((at, said(fault)))
+                start = at + 1
+        return refused, [0] * total if counts else []
 
     def call(self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str]) -> Dict[int, List[Any]]:
         import decimal
@@ -342,6 +404,9 @@ class OracleSession(Session):
                     cursor.executemany(block, len(rows))
                 return {place: [cursor.bindvars[place].getvalue(at) for at in range(len(rows))] for place in outs}
             except driver.Error as fault:
+                if _not_compiled(fault):
+                    # The call itself is at fault, and no one row of it.
+                    raise DatabaseError(said(fault)) from None
                 raise CallFailed(getattr(fault.args[0], "offset", 0) or 0, said(fault)) from None
 
     def is_missing(self, fault: DatabaseError) -> bool:
@@ -407,6 +472,15 @@ def _driver(settings: Mapping[str, Any]) -> Any:
             raise DatabaseError("Oracle's own client, which `oracle_config.thick_mode` asks for, could not be "
                                 f"loaded: {said(fault)}") from None
     return oracledb
+
+
+def _code(fault: Any) -> str:
+    """The number of what the driver or the database said: `ORA-06550`, `DPY-2040`."""
+    return getattr(fault.args[0] if fault.args else None, "full_code", "") or ""
+
+
+def _not_compiled(fault: Any) -> bool:
+    return _code(fault) in _NOT_COMPILED and "ORA-06512" not in str(fault)
 
 
 def _said(type_name: str) -> str:

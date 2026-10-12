@@ -121,3 +121,121 @@ def test_the_converted_sample_runs_as_it_is_but_for_its_password(oracle_db):
     finally:
         with oracle_db.connect() as held, held.cursor() as cursor:
             cursor.execute("begin execute immediate 'drop table TALEND_TEST purge'; exception when others then null; end;")
+
+
+def test_a_value_in_a_remark_of_the_statement_cannot_end_the_remark(oracle_db, table):
+    # Found by the review of the group: sent as it was, this deleted every row of the table.
+    with oracle_db.connect() as held, held.cursor() as cursor:
+        cursor.executemany(f"insert into {table} values (:1, :2)", [(1, "a"), (2, "b"), (3, "c")])
+        held.commit()
+    made = job([row(oracle_db, f"delete from {table} where n = 2 -- asked by ${{context.why}}\n")], [])
+    made["context"] = {"why": "'\n or 1=1 --'"}
+    result = run_job(made)
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error.startswith("what context.why holds is written into the statement")
+    assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (3, "c")]
+    made["context"] = {"why": "the_cleanup"}
+    assert run_job(made).status == "success"
+    assert held_in(oracle_db, table) == [(1, "a"), (3, "c")]
+
+
+# ------------------------------------------------------------------
+# For each row: what is no insert, update, delete or merge. Found while the review's findings were looked into: the
+# driver takes only those four for many rows the way they were all sent, and the stand-in of the other tests
+# takes anything.
+# ------------------------------------------------------------------
+
+CONNECTION = {"id": "conn", "type": "tOracleConnection", "inputs": [], "outputs": []}
+
+
+def for_rows(oracle_db, tmp_path, lines, query, own=True, **config):
+    (tmp_path / "in.csv").write_text(lines)
+    components = [reader("ID:int, V:str", path=str(tmp_path / "in.csv")), row(oracle_db, query, own=own, inputs=("row1",), **config)]
+    if own:
+        return job(components, [flow("row1", "in", "r")])
+    connection = {**CONNECTION, "config": oracle_db.block()}
+    return job([connection] + components, [flow("row1", "in", "r")], triggers=[{"type": "OnSubjobOk", "from": "conn", "to": "in"}])
+
+
+def test_a_block_for_each_row_with_the_rows_values_bound(oracle_db, table, tmp_path, caplog):
+    query = f'"begin insert into {table} (n, v) values (" + row1.ID + ", \'" + row1.V + "\'); end;"'
+    lines = "1;a\n2;b\n3;much too long a text for the column\n4;d\n5;also much too long a text for it\n"
+    result = run_job(for_rows(oracle_db, tmp_path, lines, query))
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error.startswith("the database refused the statement for a row: ORA-12899:")
+    assert result.error.endswith(f"the row is line 3 of {tmp_path / 'in.csv'}")
+    assert held_in(oracle_db, table) == []
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result = run_job(for_rows(oracle_db, tmp_path, lines, query, die_on_error=False))
+    assert result.status == "success", result.error
+    assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (4, "d")]
+    assert "[r] the database refused the statement for 2 of the 5 rows; the first: ORA-12899:" in caplog.text
+
+
+def test_a_block_that_cannot_be_compiled_is_no_rows_fault(oracle_db, tmp_path):
+    """The place the driver gives for such a fault is one in the block's text: column 7 was taken for row 7."""
+    lines = "".join(f"{at};a\n" for at in range(1, 41))
+    result = run_job(for_rows(oracle_db, tmp_path, lines, '"begin v2r_no_such_procedure(" + row1.ID + "); end;"'))
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert "PLS-00201" in result.error and "the row is" not in result.error
+    # With `die_on_error` off the job goes on, and nothing is said to have been refused for a row.
+    result = run_job(for_rows(oracle_db, tmp_path, lines, '"begin v2r_no_such_procedure(" + row1.ID + "); end;"',
+                              die_on_error=False))
+    assert result.status == "success", result.error
+    assert "PLS-00201" in result.global_map["r_ERROR_MESSAGE"] and "rows" not in result.global_map["r_ERROR_MESSAGE"]
+
+
+def test_an_insert_that_reads_the_table_it_writes_sees_for_each_row_what_the_rows_before_it_put_there(oracle_db, table, tmp_path):
+    """Found while the review's findings were looked into. Sent for all its rows at once, Oracle gave every row the
+    same number, and the job said nothing."""
+    query = f'"insert into {table} (n, v) values ((select nvl(max(n), 0) + 1 from {table}), \'" + row1.V + "\')"'
+    result = run_job(for_rows(oracle_db, tmp_path, "7;a\n8;b\n9;c\n", query, use_nb_line="NB_LINE_INSERTED"))
+    assert result.status == "success", result.error
+    assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (3, "c")]
+    assert result.global_map["r_NB_LINE_INSERTED"] == 3
+
+
+def test_a_query_for_each_row_is_run_and_needs_no_commit(oracle_db, table, tmp_path):
+    with oracle_db.connect() as held, held.cursor() as cursor:
+        cursor.execute(f"insert into {table} values (1, 'a')")
+        held.commit()
+    query = f'"select count(*) from {table} where n = " + row1.ID + " and v = \'" + row1.V + "\'"'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n2;b\n3;c\n", query, own=False))
+    assert result.status == "success", result.error
+    # A query that fails for one row is that row's fault, and the session is there for the next.
+    query = f'"select to_number(v) / (2 - " + row1.ID + ") from {table}"'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n2;b\n", query, own=False))
+    assert (result.status, result.failed_component) == ("failed", "r")
+    assert result.error.endswith(f"the row is line 1 of {tmp_path / 'in.csv'}")
+
+
+def test_a_statement_with_nothing_of_the_row_in_it_is_run_once_for_each_row(oracle_db, table, tmp_path):
+    query = f"insert into {table} (n, v) values ((select nvl(max(n), 0) + 1 from {table}), 'x')"
+    result = run_job(for_rows(oracle_db, tmp_path, "7;a\n8;b\n9;c\n", query, use_nb_line="NB_LINE_INSERTED"))
+    assert result.status == "success", result.error
+    assert held_in(oracle_db, table) == [(1, "x"), (2, "x"), (3, "x")]
+    assert result.global_map["r_NB_LINE_INSERTED"] == 3
+    result = run_job(for_rows(oracle_db, tmp_path, "7;a\n8;b\n", "begin null; end;"))
+    assert result.status == "success", result.error
+
+
+def test_what_changed_nothing_or_was_refused_leaves_nothing_waiting_on_a_connection(oracle_db, table, tmp_path):
+    """Found by the review of the group. A job with no commit that ran nothing to commit has not lost any work."""
+    def on_connection(component):
+        connection = {**CONNECTION, "config": oracle_db.block()}
+        return job([connection, component], [], triggers=[{"type": "OnSubjobOk", "from": "conn", "to": "r"}])
+
+    refused = row(oracle_db, "delete from v2r_no_such_table", own=False, die_on_error=False)
+    result = run_job(on_connection(refused))
+    assert result.status == "success", result.error
+    finds_none = f'"update {table} set v = v where n = 1000 + " + row1.ID'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n2;b\n", finds_none, own=False))
+    assert result.status == "success", result.error
+    every_row_refused = '"insert into v2r_no_such_table values (" + row1.ID + ")"'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n2;b\n", every_row_refused, own=False, die_on_error=False))
+    assert result.status == "success", result.error
+    # What did change something still waits, and a job that ends without a commit has failed.
+    changes = f'"insert into {table} (n, v) values (" + row1.ID + ", \'" + row1.V + "\')"'
+    result = run_job(for_rows(oracle_db, tmp_path, "1;a\n", changes, own=False))
+    assert (result.status, result.failed_component) == ("failed", "conn")
+    assert held_in(oracle_db, table) == []

@@ -94,3 +94,12 @@ def test_the_language_of_the_session_is_set(oracle_db, made, tmp_path):
     result, _ = calling(oracle_db, tmp_path, "1;a;;;;;\n", sp_name=made["f"], is_function=True, return_column="TWICE",
                         sp_args=arguments(("ID", "IN", "AUTOMAPPING")), nls_language="NO SUCH LANGUAGE")
     assert result.status == "failed" and "ORA-12705" in result.error
+
+
+def test_a_call_that_cannot_be_compiled_is_the_calls_fault_and_names_no_row(oracle_db, tmp_path):
+    """Found while the review's findings were looked into: it named line 7, the column of the fault in the call's own
+    text."""
+    lines = "".join(f"{at};n;;;;;\n" for at in range(1, 41))
+    result, _ = calling(oracle_db, tmp_path, lines, sp_name="v2r_no_such_procedure", sp_args=arguments(("ID", "IN", "AUTOMAPPING")))
+    assert (result.status, result.failed_component) == ("failed", "p")
+    assert "PLS-00201" in result.error and "the row is" not in result.error

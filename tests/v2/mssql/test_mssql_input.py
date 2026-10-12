@@ -235,3 +235,33 @@ def test_a_clean_run_writes_nothing_to_stderr_and_the_driver_no_line_of_its_own(
     result, lines = reading(mssql_db, tmp_path, "id:int", f"select id from {emp} order by id")
     assert result.status == "success" and len(lines) == 4
     assert capfd.readouterr().err == ""
+
+
+def test_a_value_in_a_remark_of_the_query_cannot_end_the_remark(mssql_db, emp, tmp_path):
+    # Found by the review of the group: sent as it was, this dropped a table.
+    victim = f"dbo.v2v_{secrets.token_hex(5)}"
+    mssql_db.run(f"create table {victim} (n int)")
+    try:
+        query = f"select id from {emp} -- ${{context.note}}\n order by id"
+        evil = f"'\n; drop table {victim}; select id from {emp} --'"
+        result, lines = reading(mssql_db, tmp_path, "id:int", query, context={"note": evil})
+        assert (result.status, result.failed_component, lines) == ("failed", "in", None)
+        assert result.error.startswith("what context.note holds is written into the statement")
+        assert mssql_db.rows(f"select count(*) from sys.tables where object_id = object_id('{victim}')") == [(1,)]
+        # A carriage return by itself ends such a remark in SQL Server, and is refused as a line feed is.
+        result, _ = reading(mssql_db, tmp_path, "id:int", query, context={"note": f"'\r; drop table {victim}; --'"})
+        assert result.status == "failed"
+        assert mssql_db.rows(f"select count(*) from sys.tables where object_id = object_id('{victim}')") == [(1,)]
+        result, lines = reading(mssql_db, tmp_path, "id:int", query, context={"note": "nightly_load"})
+        assert result.status == "success", result.error
+        assert lines[1:] == ["1", "2", "3"]
+    finally:
+        mssql_db.run(f"drop table if exists {victim}")
+
+
+def test_a_number_below_nought_after_a_minus_of_the_query_is_no_remark(mssql_db, emp, tmp_path):
+    query = f"select id from {emp} where id > 2 -${{context.n}} and id < 3 order by id"
+    result, lines = reading(mssql_db, tmp_path, "id:int", query, context={"n": "-1"})
+    assert result.status == "success", result.error
+    # id > 2 - -1 and id < 3: none. As two minuses side by side, the rest of the line was a remark, and row 3 came.
+    assert lines[1:] == []

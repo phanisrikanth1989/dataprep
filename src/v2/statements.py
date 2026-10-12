@@ -10,7 +10,9 @@ value, and no value may change what a statement does:
 - A value that stands outside quotes is written into the statement, and
   has to be a name, a number, or a list of names, numbers and texts in
   quotes. That is what a table, a column to sort by or the list of an
-  `IN` are, and none of them can be bound.
+  `IN` are, and none of them can be bound. It may hold no line break and
+  no mark of a remark: written into a remark, either would end the
+  remark, and what the job wrote after it would be a statement no more.
 - A statement that defines (`CREATE`, `ALTER`...) takes no bound value.
   There a value in quotes is written as text with its quotes doubled,
   which a database reads as that text and nothing else.
@@ -24,9 +26,10 @@ always bound, in quotes or out of them: the statement is one, and the rows
 are its values. A prepared statement has a mark (`?`) for each value it
 is given.
 
-Where a text begins and ends is each database's own to say (``Dialect``):
-`[a name]` and a remark inside a remark are SQL Server's, `q'[a text]'`
-is Oracle's. A statement is read as the database it is for reads it.
+Where a text or a remark begins and ends is each database's own to say
+(``Dialect``): `[a name]`, a remark inside a remark and a remark that
+ends at a carriage return are SQL Server's, `q'[a text]'` is Oracle's. A
+statement is read as the database it is for reads it.
 """
 from __future__ import annotations
 
@@ -44,6 +47,10 @@ _JAVA = ("the statement is joined as Java joins text, and holds more than text, 
          "globalMap: v2 runs no Java. Write it as one text, with ${context.name} where a value goes")
 _NUMBER = r"[+-]?(?:\d+\.?\d*|\.\d+)"
 _TEXT = r"'(?:[^']|'')*'"
+# What no value that is written into a statement may hold: a line break or any other control character but a tab
+# (the separators of lines and paragraphs among them), and the marks of a remark. Such a value may stand in a
+# remark, and there any of these ends the remark, or opens one inside it.
+_ENDS_A_REMARK = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029]|/\*|\*/")
 
 
 def _outside(first: str, rest: str) -> "re.Pattern[str]":
@@ -80,6 +87,8 @@ class Dialect:
         outside: What a value may be where no quotes stand round it.
         by_name: Whether a bound value is shown under its name (`:name`,
             texts joined with `||`) or as a mark (`?`, joined with `+`).
+        line_ends: The characters that end a remark which runs to the end
+            of its line.
     """
 
     brackets: bool
@@ -88,14 +97,17 @@ class Dialect:
     defines: FrozenSet[str]
     outside: "re.Pattern[str]"
     by_name: bool
+    line_ends: str
 
 
+# What each was seen to do, on 2026-10-12 (Oracle 23, SQL Server 2022): a carriage return by itself ends a line
+# remark in SQL Server and not in Oracle; no other character but a line feed ends one in either.
 ORACLE = Dialect(brackets=False, nested=False, other_quotes=True, defines=DEFINES,
-                 outside=_outside("A-Za-z", r"\w$#"), by_name=True)
+                 outside=_outside("A-Za-z", r"\w$#"), by_name=True, line_ends="\n")
 # Every statement of SQL Server's takes bound values, and none stores what waited before it. A name of its own may
 # start with `_` or `#`; one that starts with `@` is a variable, and no name.
 TSQL = Dialect(brackets=True, nested=True, other_quotes=False, defines=frozenset(),
-               outside=_outside("A-Za-z_#", r"\w$#@"), by_name=False)
+               outside=_outside("A-Za-z_#", r"\w$#@"), by_name=False, line_ends="\r\n")
 # The longest name a value is bound under: what every Oracle still in use takes.
 _LONGEST = 30
 _PAIRS = {"[": "]", "{": "}", "(": ")", "<": ">"}
@@ -410,7 +422,7 @@ class _Writer:
                 elif char == "]":
                     self.state = "code"
             elif self.state == "line":
-                if char == "\n":
+                if char in self.dialect.line_ends:
                     self.state = "code"
             elif self.state == "block":
                 if pair == "*/":
@@ -494,17 +506,37 @@ class _Writer:
                     "letters, digits, blanks, and `_`, `$`, `#`, `.`, `-`; it is not")
             self.out.append(text)
         elif self.state != "text":
-            if not self.dialect.outside.fullmatch(text):
-                raise ConfigurationError(
-                    f"what {label} holds is written into the statement, since no quotes stand round it, and there it "
-                    "has to be a name, a number, or a list of names, numbers and texts in quotes; it is none of "
-                    "these. A value in quotes is bound, whatever it holds")
-            self.out.append(text.strip())
+            self._written_in(label, text)
         elif self.paste:
             self.out.append(text.replace("'", "''"))
             self.fresh = False
         else:
             self._joined_in(Bound(self._name(label), text))
+
+    def _written_in(self, label: str, text: str) -> None:
+        """A value where no quotes stand round it, in the statement itself or in a remark: it is written in.
+
+        It is held to one rule wherever it stands. Where a remark ends is
+        each database's own to say, and a value that can end none and
+        start none changes nothing, whatever the database takes the place
+        it stands at for.
+        """
+        if not self.dialect.outside.fullmatch(text):
+            raise ConfigurationError(
+                f"what {label} holds is written into the statement, since no quotes stand round it, and there it "
+                "has to be a name, a number, or a list of names, numbers and texts in quotes; it is none of "
+                "these. A value in quotes is bound, whatever it holds")
+        written = text.strip()
+        if _ENDS_A_REMARK.search(written):
+            raise ConfigurationError(
+                f"what {label} holds is written into the statement, since no quotes stand round it, and there it "
+                "may hold no line break or other control character, and no /* or */: any of these could end a "
+                "remark it stands in, or start one. A value in quotes is bound, whatever it holds")
+        if written.startswith("-") and self.out and isinstance(self.out[-1], str) and self.out[-1].endswith("-"):
+            # A minus of the statement's own and the minus of a number below nought would be the mark of a remark,
+            # and the rest of the line no statement any more.
+            self.out.append(" ")
+        self.out.append(written)
 
     def _name(self, label: str) -> str:
         """The name a value is bound under: one for each thing that is named, and never the same for two."""
