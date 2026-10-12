@@ -7,7 +7,7 @@ from typing import List
 
 from ...errors import ConfigurationError
 from ...job.keys import Key
-from ..base import Action, one_line
+from ..base import DIE_ON_ERROR, Action, one_line
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -29,12 +29,21 @@ class FileTouch(Action):
         Key("filename", required=True, aliases=("FILENAME",), doc="The file to make, or whose time is set to now."),
         Key("createdir", type=bool, default=False, aliases=("create_directory",),
             doc="Whether the folder the file is to stand in is made when it is not there."),
+        DIE_ON_ERROR,
     )
 
     def problems(self) -> List[str]:
         return [] if self.config["filename"] else ["filename: there is no file named"]
 
     def act(self) -> None:
+        try:
+            self._touch()
+        except ConfigurationError as exc:
+            if not self.goes_on_after(str(exc)):
+                raise
+            self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
+
+    def _touch(self) -> None:
         path = self.config["filename"]
         folder = os.path.dirname(path)
         made_folder = False

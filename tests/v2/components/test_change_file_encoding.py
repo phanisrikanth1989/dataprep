@@ -139,6 +139,19 @@ def test_input_cut_short_inside_a_character_fails_the_job(tmp_path):
     assert result.error == "'in.csv' is not written in UTF-8: byte 3 of it, on line 1, is no character there"
 
 
+def test_job_that_is_not_to_die_goes_on_and_says_why(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    folder = filled(tmp_path, {"in.csv": b"\xff", "out.csv": b"as it was"})
+    made = dict(job([change(infile_name="in.csv", outfile_name="out.csv", die_on_error=False)], []), run={"row_counts": True})
+    result = on_v2(made, folder)
+    assert result.status == "success", result.error
+    said = "'in.csv' is not written in UTF-8: byte 1 of it, on line 1, is no character there"
+    assert result.global_map["turn_ERROR_MESSAGE"] == said
+    assert result.counts["turn"] == {"NB_LINE": 1, "NB_LINE_OK": 0, "NB_LINE_REJECT": 1}
+    assert [record.getMessage() for record in caplog.records] == [f"[turn] {said}; the job goes on"]
+    assert tree(folder) == {"in.csv": b"\xff", "out.csv": b"as it was"} and "turn_FILENAME" not in result.global_map
+
+
 def test_file_that_is_not_there_and_a_folder_fail_the_job(tmp_path):
     result, folder = ran(tmp_path, {"dir/": None}, infile_name="nope.csv", outfile_name="out.csv")
     assert (result.status, result.error) == ("failed", "File not found: 'nope.csv'")

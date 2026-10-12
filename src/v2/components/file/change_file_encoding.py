@@ -7,7 +7,7 @@ import os
 from ...errors import ConfigurationError
 from ...files import put_in_place, temp_beside, transcode
 from ...job.keys import Key, Kind
-from ..base import Action, one_line
+from ..base import DIE_ON_ERROR, Action, one_line
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 from .file_row_count import unreadable
@@ -52,9 +52,18 @@ class ChangeFileEncoding(Action):
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The character encoding the output is written in."),
         Key("create", type=bool, default=True, doc="Whether the folder of the output is made when it is not there."),
         Key("buffersize", kind=Kind.IGNORED, type=object, doc="Talend's size of a piece read; v2 has its own."),
+        DIE_ON_ERROR,
     )
 
     def act(self) -> None:
+        try:
+            self._change()
+        except ConfigurationError as exc:
+            if not self.goes_on_after(str(exc)):
+                raise
+            self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
+
+    def _change(self) -> None:
         config = self.config
         source, target = config["infile_name"], config["outfile_name"]
         read_as = config["inencoding"] if config["use_inencoding"] else "UTF-8"

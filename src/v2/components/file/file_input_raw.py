@@ -1,7 +1,6 @@
 """Raw file input: a whole file as one value."""
 from __future__ import annotations
 
-import logging
 import os
 from typing import Dict, List, Optional
 
@@ -13,12 +12,10 @@ from ...files import codec_name
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...rows import hidden, visible
-from ..base import Source, one_line
+from ..base import DIE_ON_ERROR, Source
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 from .file_row_count import unreadable
-
-logger = logging.getLogger(__name__)
 
 _MB = 1024 * 1024
 _INSTEAD = "read the file as text, or hand its path to the component that needs it"
@@ -57,8 +54,7 @@ class FileInputRaw(Source):
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The file's character encoding."),
         Key("size_limit_mb", type=int, default=1024, convert=_limit,
             doc="The largest file that is read, in megabytes; a larger one is not read at all."),
-        Key("die_on_error", type=bool, default=True,
-            doc="Whether a file that cannot be read fails the job; when off, the job goes on with no row."),
+        DIE_ON_ERROR,
         Key("as_string", kind=Kind.IGNORED, type=object, doc="The file is always handed on as text."),
         Key("as_bytearray", kind=Kind.REFUSED, type=bool, reason=f"v2 has no column type that holds bytes: {_INSTEAD}"),
         Key("as_inputstream", kind=Kind.REFUSED, type=bool,
@@ -112,11 +108,8 @@ class FileInputRaw(Source):
         try:
             text = self._text()
         except ConfigurationError as exc:
-            if self.config["die_on_error"]:
+            if not self.goes_on_after(str(exc), " with no row"):
                 raise
-            said = str(exc)
-            self.global_map[f"{self.id}_ERROR_MESSAGE"] = said
-            logger.warning(one_line(f"[{self.id}] {said}; the job goes on with no row"))
             return None
         self.global_map[f"{self.id}_FILENAME_PATH"] = self.config["filename"]
         return text

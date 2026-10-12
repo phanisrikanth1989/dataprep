@@ -17,6 +17,7 @@ answer when the engine has run the subjob.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Mapping, Optional, Set, Tuple
 
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from ..engine.context import RunContext
     from ..job.model import Column, ComponentSpec
 
+logger = logging.getLogger(__name__)
+
 # Keys v1 job configs carry on any component and that never affect the data.
 COMMON_KEYS: Tuple[Key, ...] = (
     Key("label", kind=Kind.IGNORED, type=object, doc="Display label."),
@@ -37,6 +40,13 @@ COMMON_KEYS: Tuple[Key, ...] = (
     Key("execution_mode", kind=Kind.IGNORED, type=object, doc="v1 batch/streaming switch; v2 decides itself."),
     Key("chunk_size", kind=Kind.IGNORED, type=object, doc="v1 streaming chunk size."),
     Key("component_type", kind=Kind.IGNORED, type=object, doc="v1's name for the component type; a label."),
+)
+
+# For a component that asks ``goes_on_after``: the one switch between failing the job and going on.
+DIE_ON_ERROR = Key(
+    "die_on_error", type=bool, default=True,
+    doc="Whether what it cannot do fails the job. When the job config says off, the job goes on with a warning, "
+        "and why is in `<id>_ERROR_MESSAGE`.",
 )
 
 
@@ -389,6 +399,23 @@ class Component:
             carries no number.
         """
         return described(found.row(0, named=True), self.run_context.sources) if found.height else ""
+
+    def goes_on_after(self, fault: str, with_what: str = "") -> bool:
+        """Whether the job goes on after a fault that would fail it.
+
+        It does when the job config says ``die_on_error`` is off: why is
+        then left in ``<id>_ERROR_MESSAGE`` and said in a warning. For a
+        component that declares ``DIE_ON_ERROR`` among its keys.
+
+        Args:
+            fault: What could not be done, in plain words.
+            with_what: What the job goes on with, to end the warning: `` with no row``.
+        """
+        if self.config["die_on_error"]:
+            return False
+        self.global_map[f"{self.id}_ERROR_MESSAGE"] = fault
+        logger.warning(one_line(f"[{self.id}] {fault}; the job goes on{with_what}"))
+        return True
 
     @property
     def context(self) -> Dict[str, Any]:

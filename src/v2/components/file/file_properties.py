@@ -14,7 +14,7 @@ from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...job.model import Column
 from ...rows import hidden, visible
-from ..base import Source
+from ..base import DIE_ON_ERROR, Source
 from ..registry import REGISTRY
 
 _CHUNK = 1 << 22
@@ -42,7 +42,8 @@ class FileProperties(Source):
 
     A file that is not there fails the job, unless `exists` is among the
     columns: the row then says false there and holds nothing but the
-    names. A link has the properties of what it leads to, and a folder has
+    names. (Or unless the job config says `die_on_error` is off: the job
+    then goes on with no row.) A link has the properties of what it leads to, and a folder has
     no check sum. A check sum is worked out only when its column is asked
     for, piece by piece: the file is never held in memory.
     """
@@ -52,6 +53,7 @@ class FileProperties(Source):
         Key("filename", required=True, aliases=("FILENAME",), doc="The file, or the folder, to say the properties of."),
         Key("md5", type=bool, default=False, aliases=("MD5",),
             doc="Whether `md5` is a column when the job declares none. A column that is declared is always filled."),
+        DIE_ON_ERROR,
     )
 
     def problems(self) -> List[str]:
@@ -74,10 +76,12 @@ class FileProperties(Source):
         made = self.run_context.made
         if self.id not in made:
             # Once in a run, however often the engine reads the source: a check sum of a large file takes long.
-            made[self.id] = self._row()
-        frame = held_frame(self._columns(), [made[self.id]])
-        # One row: a run for picked rows has it or fails before it comes here, so there is nothing to pick among.
-        frame = frame.with_columns(pl.Series(self.row_number, [1], dtype=pl.UInt32)).with_columns(self.key_copies())
+            made[self.id] = self._held()
+        rows = made[self.id]
+        # One row at most: a run for picked rows has it or fails before it comes here, so there is nothing to
+        # pick among.
+        frame = held_frame(self._columns(), rows).with_columns(pl.Series(self.row_number, [1] * len(rows), dtype=pl.UInt32))
+        frame = frame.with_columns(self.key_copies())
         return {"main": frame.select(visible(frame.columns) + hidden(frame.columns)).lazy()}
 
     def locate(self, number: int) -> str:
@@ -97,6 +101,15 @@ class FileProperties(Source):
             return self.schema
         names = _TALEND + (("md5",) if self.config["md5"] else ())
         return [Column(name, _KNOWN[name]) for name in names]
+
+    def _held(self) -> List[Dict[str, Any]]:
+        """The one row; no row when the file cannot be looked at and the job is to go on."""
+        try:
+            return [self._row()]
+        except ConfigurationError as exc:
+            if not self.goes_on_after(str(exc), " with no row"):
+                raise
+            return []
 
     def _row(self) -> Dict[str, Any]:
         """The file's properties, each under its name; only the check sums asked for are among them."""

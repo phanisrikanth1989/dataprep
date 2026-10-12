@@ -142,3 +142,21 @@ def test_link_to_a_file_sets_the_time_of_the_file(tmp_path):
     before = time.time() - 2
     assert on_v2(job([touch(filename="link.txt")], []), folder).status == "success"
     assert os.stat(folder / "a.txt").st_mtime >= before and (folder / "a.txt").read_bytes() == b"kept"
+
+
+def test_job_that_is_not_to_die_goes_on_and_says_why(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    folder = filled(tmp_path, FILES)
+    made = dict(job([touch(filename="deep/new.txt", die_on_error=False)], []), run={"row_counts": True})
+    result = on_v2(made, folder)
+    assert result.status == "success", result.error
+    assert result.global_map["mark_ERROR_MESSAGE"] == "the folder 'deep' is not there, and is not to be made"
+    assert result.counts["mark"] == {"NB_LINE": 1, "NB_LINE_OK": 0, "NB_LINE_REJECT": 1}
+    assert [record.getMessage() for record in caplog.records] == [
+        "[mark] the folder 'deep' is not there, and is not to be made; the job goes on"]
+    assert "mark_FILENAME" not in result.global_map and not (folder / "deep").exists()
+
+
+def test_job_that_is_to_die_does(tmp_path):
+    result, _ = ran(tmp_path, filename="deep/new.txt", die_on_error=True)
+    assert result.status == "failed"

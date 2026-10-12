@@ -1,5 +1,6 @@
 """File properties: one row that says what a file is, by the columns asked for."""
 import hashlib
+import logging
 import os
 import time
 
@@ -130,6 +131,17 @@ def test_job_that_asks_whether_it_exists_gets_a_row_either_way(tmp_path):
     result, lines, _ = ran(tmp_path / "again", properties(asked, filename="nope.txt"))
     assert result.status == "success", result.error
     assert lines[1] == "nope.txt;false;;"
+
+
+def test_job_that_is_not_to_die_goes_on_with_no_row_and_says_why(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    made = dict(properties("basename:str", filename="nope.txt", die_on_error=False), run={"row_counts": True})
+    result, lines, _ = ran(tmp_path, made)
+    assert result.status == "success", result.error
+    assert result.rows == {"out": 0} and result.counts["in"] == {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
+    assert result.global_map["in_ERROR_MESSAGE"] == "File not found: 'nope.txt'"
+    assert [record.getMessage() for record in caplog.records] == [
+        "[in] File not found: 'nope.txt'; the job goes on with no row"]
 
 
 def test_file_that_cannot_be_looked_at_fails_the_job_in_plain_words(tmp_path):
