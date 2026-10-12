@@ -360,6 +360,9 @@ documentation.
   item; a failed pass stops the loop; counts in globalMap are a pass's.
   [Foreach](issues/103-foreach.md) -- a loop over values written in the
   job config, each as text.
+  [File list](issues/104-file-list.md) -- Talend's entries and its own
+  mask form; by path unless asked otherwise; dot names, links out of the
+  folder and unfinished files left out; a missing folder fails the job.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

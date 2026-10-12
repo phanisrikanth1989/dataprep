@@ -54,6 +54,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | File copy (tFileCopy) | `file_copy` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-copy) |
 | File delete (tFileDelete) | `file_delete` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-delete) |
 | File exist (tFileExist) | `file_exist` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-exist) |
+| File list (tFileList) | `file_list` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#file-list) |
 | File properties (tFileProperties) | `file_properties` | [Own rule: File jobs](own-rule/file-jobs.md#file-properties) |
 | File row count (tFileRowCount) | `file_row_count` | [Differences from v1: File jobs](differences-from-v1/file-jobs.md#file-row-count) |
 | File touch (tFileTouch) | `file_touch` | [Own rule: File jobs](own-rule/file-jobs.md#file-touch) |
