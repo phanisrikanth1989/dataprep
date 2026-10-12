@@ -64,6 +64,9 @@ rows go by it, and its two ends are different subjobs.
   after it. A die in a body ends the job.
 - No item, no pass: the log says so, and the triggers of the looping
   component fire as after any loop.
+- Items that cannot be read on (the file a long list is kept in was
+  taken away while the loop ran) fail the looping component as a pass
+  that failed does, with how many passes were run.
 - A row count of a component in the body (`<id>_NB_LINE`) is, in
   globalMap, that of the pass. The summary has the sum over the passes,
   and under `loops`, for each looping component, its `items`, the

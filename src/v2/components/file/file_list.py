@@ -40,18 +40,30 @@ def pattern_of(mask: str, glob: bool, apart: bool) -> "re.Pattern[str]":
         ValueError: When Python cannot read it as a regular expression.
     """
     try:
-        return re.compile(_from_glob(mask) if glob else mask, 0 if apart else re.IGNORECASE)
+        if glob:
+            # `*` and `?` stand for any character, a line end in a name among them.
+            return re.compile(_from_glob(mask), re.DOTALL if apart else re.DOTALL | re.IGNORECASE)
+        return re.compile(mask, 0 if apart else re.IGNORECASE)
     except re.error as exc:
         raise ValueError(f"{mask!r} is no regular expression Python reads: {exc}") from None
 
 
 def _from_glob(mask: str) -> str:
-    made: List[str] = []
+    """A pattern in Talend's form as a regular expression that is held against a name in one go.
+
+    What stands between two stars is looked for where it comes first, and
+    that place is not gone back on: a later place fits whenever the first
+    one does. A star written as `.*` would have Python try every way of
+    sharing a name out among the stars, which for a name made for it is
+    minutes.
+    """
+    # What stands between the stars, each as a regular expression of a fixed length.
+    between: List[List[str]] = [[]]
     at = 0
     while at < len(mask):
         char = mask[at]
         if char == "\\" and at + 1 < len(mask):
-            made.append(re.escape(mask[at + 1]))
+            between[-1].append(re.escape(mask[at + 1]))
             at += 2
             continue
         if char == "[":
@@ -62,12 +74,19 @@ def _from_glob(mask: str) -> str:
             end = mask.find("]", start + 1)
             if end != -1:
                 held = "".join("\\" + one if one in "\\[]^" else one for one in mask[start:end])
-                made.append(f"[{'^' if turned_round else ''}{held}]")
+                between[-1].append(f"[{'^' if turned_round else ''}{held}]")
                 at = end + 1
                 continue
-        made.append(".*" if char == "*" else "." if char == "?" else re.escape(char))
+        if char == "*":
+            between.append([])
+        else:
+            between[-1].append("." if char == "?" else re.escape(char))
         at += 1
-    return "".join(made)
+    first, *later = ["".join(part) for part in between]
+    if not later:
+        return first
+    # Between two stars: the first place that fits, kept. After the last star: whatever is left, up to the end.
+    return first + "".join(f"(?>.*?{part})" for part in later[:-1] if part) + ".*" + later[-1]
 
 
 def _named(value: str) -> str:

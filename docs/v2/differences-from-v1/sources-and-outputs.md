@@ -155,6 +155,13 @@ every converted job is a row of nothing.
   default row separator, is read. v1 loses it to the `\r` that stays.
 - A context variable that does not exist refuses the job. v1 writes the
   reference through as text.
+- What an entry of globalMap holds is handed on as it is, however the
+  value is written: `globalMap.get("KEY")`, with a cast, under the
+  converter's `{{java}}` mark, or joined to text. `00123` stays `00123`.
+  v1 has it so for a value that is not marked. One that is marked it
+  reads, once its Java has looked it up, as a number written as text,
+  and writes 123. An entry that holds nothing is a missing value; v1
+  writes the reference's own text there, as data.
 - `nb_rows` may be written as text or come from the context. v1 fails.
 - A failure names the row: `line 3 of the inline content of <id>`, or
   `row 3 of <id>` for the other two ways of writing rows.
@@ -164,7 +171,13 @@ every converted job is a row of nothing.
 - An expression is Python with no name to call on but the `random`
   module, as in v1. That is no fence: Python code can reach anything from
   there, and a job config is trusted as code is. The Java expressions a
-  converted job holds (`{{java}}...`) refuse the job, as everywhere.
+  converted job holds (`{{java}}...`) refuse the job, as everywhere, but
+  for one that only looks a value up.
+- A value that is looked up (`globalMap.get("KEY")`, alone or joined to
+  text) is the value itself and is never read as an expression: a file
+  named `1+1` is `1+1`, and Python in a file's name is not run. Under
+  the mark v1 has it so too. Without the mark v1 writes the reference's
+  own text. An entry that holds nothing is a missing value.
 - A row whose expression fails leaves by the reject output as in v1, and
   the log says how many such rows there were and what failed in the first
   (`id: division by zero`). With no flow on the reject output the log

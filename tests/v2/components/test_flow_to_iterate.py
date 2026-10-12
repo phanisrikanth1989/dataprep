@@ -261,3 +261,27 @@ def test_what_the_converter_writes_is_taken(tmp_path):
 def test_every_name_of_it(tmp_path, kind):
     result, rows = ran(tmp_path, looped(["row1.id"], kind=kind))
     assert result.status == "success" and len(rows) == 3
+
+
+# ------------------------------------------------------------------
+# What a row holds reaches the body as it was
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("written", ['globalMap.get("{}")', '((String)globalMap.get("{}"))',
+                                     '{{{{java}}}}((String)globalMap.get("{}"))'],
+                         ids=["plain", "with a cast", "as the converter marks it"])
+@pytest.mark.parametrize("body", ["FixedFlowInput", "RowGenerator"])
+def test_text_of_a_row_that_looks_like_a_number_or_like_python_reaches_the_body_as_it_was(tmp_path, body, written):
+    made = looped(["row1.acct", "row1.amt"], schema="acct:str, amt:str")
+    keys = ("row1.acct", "row1.amt")
+    if body == "RowGenerator":
+        made["components"][2]["type"] = "RowGenerator"
+        made["components"][2]["config"] = {"nb_rows": 1, "values": [
+            {"schema_column": f"c{at}", "array": written.format(key)} for at, key in enumerate(keys)]}
+    else:
+        for entry, key in zip(made["components"][2]["config"]["values_config"], keys):
+            entry["value"] = written.format(key)
+    rows = [("00123", "2.50"), ("007", "10"), ("1e5", "0x10"), ("1+1", "2 * 21"), ("A-1", "random.random()")]
+    result, seen = ran(tmp_path, made, "".join(f"{acct};{amt}\n" for acct, amt in rows).encode())
+    assert result.status == "success", result.error
+    assert seen == rows

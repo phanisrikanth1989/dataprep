@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import polars as pl
 
 from ...column_types import held_frame
-from ...job.keys import Key, Kind
+from ...job.keys import Key, Kind, Looked
 from ...rows import hidden, visible
 from ..base import Source, one_line
 from ..registry import REGISTRY
@@ -57,9 +57,13 @@ def _as_itself(text: str) -> str:
 class _Expression:
     """One column's expression, read once and worked out for every row."""
 
-    def __init__(self, text: str) -> None:
-        self.text = _LEN.sub(_length, _SPACE.sub(_spaces, text))
+    def __init__(self, written: Any) -> None:
         self.code = None
+        # What was looked up while the job runs is the value, whatever it looks like: it is never read as Python.
+        self.looked = written if isinstance(written, Looked) else None
+        if self.looked is not None:
+            return
+        self.text = _LEN.sub(_length, _SPACE.sub(_spaces, str(written)))
         try:
             # Blanks in front are not Python's business, as for v1's eval.
             self.code = compile(self.text.lstrip(" \t"), "<expression>", "eval")
@@ -68,6 +72,8 @@ class _Expression:
 
     def value(self, reach: Dict[str, Any]) -> Any:
         """What the expression comes to for one row. Raises what the expression raises."""
+        if self.looked is not None:
+            return self.looked.value
         if self.code is None:
             return _as_itself(self.text)
         try:
@@ -78,7 +84,8 @@ class _Expression:
 
 _VALUE = (
     Key("schema_column", required=True, doc="The column."),
-    Key("array", type=object, default="", nullable=True, doc="The expression every row's value comes from."),
+    Key("array", type=object, default="", nullable=True, takes_looked=True,
+        doc="The expression every row's value comes from."),
 )
 
 
@@ -94,6 +101,10 @@ class RowGenerator(Source):
     not in reach (`len('abc')`), is the value itself, as text, without the
     quotes around it. `StringHandling.SPACE(3)` is three blanks and
     `StringHandling.LEN("ab")` is 2. A column with no expression is missing.
+
+    A value that is looked up while the job runs (`globalMap.get("KEY")`,
+    alone or joined to text) is the value itself and never an expression:
+    the name of a file or a value of a row is data, whatever it looks like.
 
     A row with an expression that fails (`1/0`) leaves by the reject output
     with that column missing (false, in a true/false column) and nothing
@@ -160,7 +171,7 @@ class RowGenerator(Source):
     def _made(self) -> pl.DataFrame:
         """Every row, numbered, with what failed in it where something did."""
         expressions: List[Tuple[str, _Expression]] = [
-            (entry["schema_column"], _Expression(str(entry["array"]))) for entry in self.config["values"]
+            (entry["schema_column"], _Expression(entry["array"])) for entry in self.config["values"]
         ]
         reach = {"__builtins__": {}, "random": random}
         # True or false with no expression at all is false, as in v1, also where it may not be missing.

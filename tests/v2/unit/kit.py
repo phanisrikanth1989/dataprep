@@ -280,6 +280,9 @@ class Each(Action):
 
     def _made_when_due(self, values):
         for value in values:
+            if value == "the items are gone":
+                # As when the file the items are read from is taken away while the loop runs.
+                raise FileNotFoundError(2, "No such file or directory", "rows.v2tmp")
             Note.said.append(f"made {value}")
             yield str(value), {f"{self.id}_CURRENT_VALUE": value}
 

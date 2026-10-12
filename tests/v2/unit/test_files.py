@@ -70,3 +70,37 @@ def test_output_is_not_written_through_a_link_planted_at_its_scratch_name(tmp_pa
     assert result.status == "success", result.error
     assert victim.read_bytes() == b"keep"
     assert (tmp_path / "out.csv").read_bytes() == b"id;name\n1;a\n2;b\n" and not (tmp_path / "out.csv").is_symlink()
+
+
+def test_output_in_another_encoding_is_not_written_through_a_link_planted_at_its_second_scratch_name(tmp_path):
+    # The file is written as UTF-8 and then put in the job's encoding, through a second name beside the first.
+    (tmp_path / "in.csv").write_bytes(("1;caf" + chr(233) + "\n").encode("utf-8"))
+    victim = tmp_path / "victim.cfg"
+    victim.write_bytes(b"keep")
+    os.symlink(victim, files.temp_beside(str(tmp_path / "out.csv"), "out") + ".enc")
+    made = job([reader("id:int, name:str", path=str(tmp_path / "in.csv"), outputs=("row2",)),
+                writer("id:int, name:str", path=str(tmp_path / "out.csv"), encoding="ISO-8859-15")], [flow("row2", "in", "out")])
+    result = run_job(made)
+    assert result.status == "success", result.error
+    assert victim.read_bytes() == b"keep"
+    assert (tmp_path / "out.csv").read_bytes() == b"id;name\n1;caf\xe9\n" and not (tmp_path / "out.csv").is_symlink()
+
+
+def test_compressed_output_is_not_written_through_a_link_planted_at_its_second_scratch_name(tmp_path):
+    import zipfile
+
+    from tests.v2.components.kit import columns
+
+    (tmp_path / "in.csv").write_bytes(b"ab\ncd\n")
+    victim = tmp_path / "victim.cfg"
+    victim.write_bytes(b"keep")
+    os.symlink(victim, files.temp_beside(str(tmp_path / "out.zip"), "out") + ".zip")
+    sink = {"id": "out", "type": "FileOutputPositional", "inputs": ["row2"], "outputs": [],
+            "config": {"path": str(tmp_path / "out.txt"), "compress": True, "encoding": "UTF-8", "row_separator": "\\n",
+                       "formats": [{"schema_column": "v", "size": 2}]},
+            "schema": {"input": columns("v:str"), "output": []}}
+    result = run_job(job([reader("v:str", path=str(tmp_path / "in.csv"), outputs=("row2",)), sink], [flow("row2", "in", "out")]))
+    assert result.status == "success", result.error
+    assert victim.read_bytes() == b"keep" and not (tmp_path / "out.zip").is_symlink()
+    with zipfile.ZipFile(tmp_path / "out.zip") as held:
+        assert held.read("out.txt") == b"ab\ncd\n"

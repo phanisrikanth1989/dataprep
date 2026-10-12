@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 import polars as pl
 
 from ..errors import ConfigurationError
+from ..job.keys import Looked
 from .references import JAVA_MARK, parsed, value_of
 
 _TEMPLATE = re.compile(r"\$\{context\.(\w+)\}")
@@ -154,12 +155,23 @@ class RunContext:
                 does not exist, or a marked item reference an entry or a
                 variable that does not.
         """
+        value = self.resolved(text)
+        return value.value if isinstance(value, Looked) else value
+
+    def resolved(self, text: str) -> Any:
+        """As ``resolve``, with what an item reference was looked up for handed back as ``Looked``.
+
+        That is how a config key tells a value that was looked up while the
+        job runs (the name of a file, a value of a row) from text of the job
+        config: a component that reads such text its own way must not read
+        what was looked up that way.
+        """
         marked = text.startswith(JAVA_MARK)
         terms = parsed(text[len(JAVA_MARK):] if marked else text)
         if terms is not None and (marked or any(kind == "entry" for kind, _ in terms)):
             # An item: a globalMap entry or a context variable, alone or joined to text.
             try:
-                return value_of(terms, self.context, self.global_map)
+                return Looked(value_of(terms, self.context, self.global_map))
             except ConfigurationError:
                 if marked:
                     raise

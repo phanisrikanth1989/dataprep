@@ -129,6 +129,9 @@ not v1. ([What that means](README.md).)
   UTF-16 the byte of a line end is also half of other characters, and is
   not counted for one.
 - An input that is a pipe or a device fails the job and is never opened.
+- An encoding has to be one of text. What Python keeps under the same
+  roof and is none (`hex`, `base64`, `zlib`) refuses the job when it
+  loads, here and wherever a component takes an encoding.
 - The file is gone through piece by piece and never held in memory. It
   is written beside `outfile_name` and put there when it is whole: the
   two may be the same file, and a job that fails leaves the output as it
@@ -156,7 +159,9 @@ not v1. ([What that means](README.md).)
   file, not its path, with capitals and small letters told apart: `*`
   is any run of characters, `?` any one, `[abc]` one of a set. (Talend
   reads a mask as a regular expression in which `*` and `.` mean what
-  they mean here; `*.csv` is the same in both.)
+  they mean here; `*.csv` is the same in both.) A mask may name a
+  context variable or an entry of globalMap, as any value may, also in
+  the list of masks a converted job has.
 - The kind of archive, `archive_format`:
 
   | Kind | What it is |
@@ -231,12 +236,16 @@ not v1. ([What that means](README.md).)
   with Zstandard on a Python that does not read it fails the job and
   says so.
 - The files land by the paths the archive gives them, with the times it
-  gives them, and a folder the archive names is made also when it holds
-  nothing. A file that is there is written over. With `extractpath` off
+  gives them (a time no clock shows, or one that is no number, leaves
+  the file with the time it was unpacked at), and a folder the archive
+  names is made also when it holds nothing. A file that is there is written over. With `extractpath` off
   every file lands in the folder itself, without the folders of its
   path; two files that would then have one name fail the job.
 - `rootname` unpacks into a folder of the archive's name inside
-  `directory`: `data` for `data.zip` and for `data.tar.gz`.
+  `directory`: `data` for `data.zip` and for `data.tar.gz`. The folder
+  is always one inside `directory`: an archive named `...tar.gz`, whose
+  name less `.tar.gz` would be the folder above, is unpacked into
+  `...tar`.
 - One file compressed by itself loses the ending of its name (`a.csv`
   from `a.csv.gz`) and has the time of the archive, as gunzip has it. A
   name without that ending fails the job: there is no name to unpack it
@@ -248,7 +257,10 @@ not v1. ([What that means](README.md).)
   that was made for it is taken away again. (Python, like most tools,
   leaves half an archive behind.) A zip says how large its entries are:
   one that would not fit where `directory` is fails before a byte is
-  written.
+  written. Whatever else Python raises while it reads an archive is a
+  fault of the archive as these are: an archive made to trip its reader
+  says things no reader expects. The message then names what was
+  raised, so that a fault of v2's own is not taken for the archive's.
   - What counts as damaged in a tar: one that ends anywhere but at its
     end mark (Python's own reader takes a tar that is cut off between
     two entries, or whose next header is not whole, for a shorter

@@ -41,6 +41,7 @@ def same(tmp_path, **kwargs):
 
 def v2(tmp_path, made):
     """Run on v2 alone, inside tmp_path; returns how it ended and the file written."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     previous = os.getcwd()
     os.chdir(tmp_path)
     try:
@@ -149,6 +150,63 @@ def test_value_can_be_an_entry_of_globalmap_set_by_an_earlier_stage(tmp_path):
     run = assert_matches_v1(made, {"first.csv": b"1\n2\n"}, tmp_path)
     assert run.succeeded, run.error
     assert run.files["out.csv"] == b"n\n2\n"
+
+
+def after_entries(made, **held):
+    """The job, run after a stage that puts these entries into globalMap."""
+    made["components"].insert(0, {"id": "set", "type": "SetGlobalVar",
+                                  "config": {"variables": [{"key": key, "value": value} for key, value in held.items()]}})
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "set", "to": "in"}]
+    return made
+
+
+LOOKED_UP = ['globalMap.get("k")', '((String)globalMap.get("k"))', '{{java}}((String)globalMap.get("k"))',
+             '{{java}}"" + ((String)globalMap.get("k"))']
+WAYS = ["plain", "with a cast", "as the converter marks it", "joined to text"]
+
+
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_what_an_entry_of_globalmap_holds_is_handed_on_as_it_is_and_is_not_read_as_a_number(tmp_path, written):
+    # An account number keeps its zeros: what was looked up is data. What is written in the config itself is
+    # still read as v1 reads it (007 is 7).
+    made = after_entries(fixed(schema="acct:str, amt:str", values_config=values(acct=written, amt="007")), k="00123")
+    result, got = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert got == b"acct;amt\n00123;7\n"
+
+
+@pytest.mark.parametrize("written", LOOKED_UP[:2], ids=WAYS[:2])
+def test_v1_hands_an_entry_on_as_it_is_too(tmp_path, written):
+    made = after_entries(fixed(schema="acct:str, amt:str", values_config=values(acct=written, amt="007")), k="00123")
+    run = assert_matches_v1(made, {}, tmp_path)
+    assert run.succeeded, run.error
+    assert run.files["out.csv"] == b"acct;amt\n00123;7\n"
+
+
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_entry_is_handed_on_as_it_is_in_a_table_and_as_the_whole_inline_content_too(tmp_path, written):
+    in_table = fixed(schema="a:str, b:str", use_singlemode=False, use_intable=True,
+                     intable=table((written, "007"), names=("a", "b")))
+    result, got = v2(tmp_path / "table", after_entries(in_table, k="00123"))
+    assert result.status == "success" and got == b"a;b\n00123;7\n"
+    result, got = v2(tmp_path / "inline", after_entries(fixed(schema="a:str, b:str", **inline(written)), k="2.50"))
+    assert result.status == "success" and got == b"a;b\n2.50;\n"
+
+
+def test_entry_named_in_a_field_of_the_inline_content_is_handed_on_as_it_is_as_in_v1(tmp_path):
+    # A line of several fields is no one value the engine looks up: the component reads each field, as v1 does.
+    made = after_entries(fixed(schema="a:str, b:str", **inline('globalMap.get("k");007\n((String)globalMap.get("k"));x')),
+                         k="00123")
+    run = assert_matches_v1(made, {}, tmp_path)
+    assert run.succeeded, run.error
+    assert run.files["out.csv"] == b"a;b\n00123;7\n00123;x\n"
+
+
+def test_entry_that_holds_nothing_is_a_missing_value(tmp_path):
+    # v1 writes the reference's own text there: `globalMap.get("k")`, as data.
+    made = after_entries(fixed(schema="v:str, w:str", values_config=values(v='globalMap.get("k")', w="x")), k=None)
+    result, got = v2(tmp_path, made)
+    assert result.status == "success" and got == b"v;w\n;x\n"
 
 
 def test_value_that_is_not_of_the_declared_type_goes_missing(tmp_path):

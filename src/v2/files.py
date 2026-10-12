@@ -29,12 +29,19 @@ def codec_name(encoding: str) -> str:
     """Python's name for an encoding.
 
     Raises:
-        ConfigurationError: When Python does not know the encoding.
+        ConfigurationError: When Python does not know the encoding, or knows
+            it as something other than an encoding of text.
     """
     try:
-        return codecs.lookup(encoding).name
+        name = codecs.lookup(encoding).name
     except LookupError:
         raise ConfigurationError(f"unknown encoding: {encoding}") from None
+    try:
+        "".encode(name)
+    except (LookupError, UnicodeError):
+        # Python keeps other codecs under the same roof: bytes into bytes (hex, zlib), text into text (rot13).
+        raise ConfigurationError(f"'{encoding}' is no encoding of text") from None
+    return name
 
 
 def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = False) -> str:
@@ -95,7 +102,9 @@ def to_encoding(written: str, encoding: str, by_number: bool = False) -> bytes:
         return b""
     converted = written + ".enc"
     try:
-        _convert(written, converted, name, "xmlcharrefreplace" if by_number else "strict")
+        # A second scratch name, and the same holds for it as for the first: nothing is written through a link
+        # someone put there.
+        _convert(written, cleared(converted), name, "xmlcharrefreplace" if by_number else "strict")
         os.replace(converted, written)
     except BaseException:
         _remove(converted)

@@ -36,6 +36,10 @@ unpacked.
   `glob_expressions` off a mask is a regular expression, Python's: one
   that Python cannot read refuses the job when it loads (Talend's are
   Java's, which differ in a few rare forms).
+- A name is held against a mask in one go, however many `*` the mask
+  has and whatever the name: a name made to be slow costs nothing. `*`
+  and `?` fit any character, a line end in a name among them. A regular
+  expression of the job's own is the job's to keep from running long.
 - `case_sensitive` `NO` takes capitals and small letters for the same.
   `exclude_file` leaves out the names that fit one of the masks in
   `exclude_filemask`, a list with commas between, as in Talend (v1 takes
@@ -166,6 +170,9 @@ unpacked.
   only stands behind the job's own subjob, on its OnSubjobOk trigger.
 - A clean-up that fails fails the job, and does not hide why the job
   had failed before it.
+- It runs also after a fault no component answers for (the machine's,
+  or the engine's own); that fault then ends the run as it would have.
+  Not when the job is stopped from outside.
 - Nothing leads to it, as for a prejob.
 
 ## Run job
@@ -217,5 +224,7 @@ unpacked.
 - A flow to it refuses the job: to run a child for each row, put a flow
   to iterate before it. The keys that tune a JVM
   (`use_independent_process`, `jvm_arguments` and the like) are taken
-  and have no effect, and so is `print_parameter`: the values given are
-  shown in no log.
+  and have no effect, and so is `print_parameter`.
+- The values given to the child are shown in no log: `***` stands for
+  each where a config is shown, and a value that does not fit its type
+  is not quoted in the message. A password goes to a child this way.

@@ -406,3 +406,55 @@ def test_rows_of_one_run_are_not_those_of_the_next():
             finally:
                 os.chdir(previous)
     assert seen[0] != seen[1]
+
+
+# ------------------------------------------------------------------
+# What is looked up is a value, and no expression
+# ------------------------------------------------------------------
+
+def after_entries(made, **held):
+    """The job, run after a stage that puts these entries into globalMap."""
+    made["components"].insert(0, {"id": "set", "type": "SetGlobalVar",
+                                  "config": {"variables": [{"key": key, "value": value} for key, value in held.items()]}})
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "set", "to": "in"}]
+    return made
+
+
+LOOKED_UP = ['globalMap.get("k")', '((String)globalMap.get("k"))', '{{java}}((String)globalMap.get("k"))',
+             '{{java}}"" + ((String)globalMap.get("k"))']
+WAYS = ["plain", "with a cast", "as the converter marks it", "joined to text"]
+
+
+@pytest.mark.parametrize("held", ["1+1", "1/0", "random.random()", "007", "two words", "'quoted'", "None"])
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_what_an_entry_of_globalmap_holds_is_the_value_itself_and_is_never_read_as_an_expression(tmp_path, written, held):
+    # The name of a file, a value of a row: whatever it looks like, it is data.
+    made = after_entries(generator(schema="v:str", nb_rows=2, values=values(v=written)), k=held)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held, held]
+
+
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_what_an_entry_of_globalmap_holds_is_never_run(tmp_path, written):
+    # Python that would leave a folder behind if it were run. (`random` is the one name an expression has.)
+    held = "random._os.mkdir('made_by_a_value')"
+    made = after_entries(generator(schema="v:str", nb_rows=1, values=values(v=written)), k=held)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held] and not (tmp_path / "made_by_a_value").exists()
+
+
+def test_entry_that_holds_nothing_is_a_missing_value(tmp_path):
+    # v1 writes the reference's own text there: `globalMap.get("k")`, as data.
+    made = after_entries(generator(schema="v:str, w:str", nb_rows=1, values=values(v='globalMap.get("k")', w="'x'")), k=None)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success" and files["out.csv"] == ["v;w", ";x"]
+
+
+def test_entry_that_is_no_text_keeps_its_kind_and_an_expression_written_in_the_job_is_still_one(tmp_path):
+    made = after_entries(generator(schema="n:int, twice:int, v:str", nb_rows=1,
+                                   values=values(n='((Integer)globalMap.get("n"))', twice="2 * 21", v="'ann'")), n=7)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["n;twice;v", "7;42;ann"]

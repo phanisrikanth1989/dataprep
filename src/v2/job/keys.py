@@ -27,6 +27,21 @@ _BASE_OFF: Tuple[Any, ...] = (None, False, "", 0, [], {})
 _CONTEXT_REF = re.compile(r"\$\{context\.\w+\}|(?<![\w.])context\.\w+|(?<![\w.])globalMap\b")
 
 
+class Looked:
+    """A value that was looked up while the job runs: an entry of globalMap, or an item under the converter's mark.
+
+    It is data, and no text of the job config. A key whose component reads
+    the text of a value its own way (as an expression, as a number written
+    as text) says `takes_looked`, is handed this, and takes the value as
+    it is. Every other key is handed the value itself.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
 class Kind(str, Enum):
     """What v2 does with a config key."""
 
@@ -62,6 +77,10 @@ class Key:
         secret: Whether the value is one nobody is to see (a password). It is
             then written as ``***`` wherever a config is shown, and a
             refusal of it does not quote it.
+        takes_looked: Whether a value that was looked up while the job runs
+            is handed to the component as ``Looked``, and not as the value
+            itself. For a key whose text the component reads its own way:
+            what was looked up is then not read as such text.
     """
 
     name: str
@@ -80,6 +99,7 @@ class Key:
     fields: Optional[Tuple["Key", ...]] = None
     item_convert: Optional[Callable[[Any], Any]] = None
     secret: bool = False
+    takes_looked: bool = False
 
     @property
     def spellings(self) -> Tuple[str, ...]:
@@ -123,10 +143,10 @@ def normalize_config(
         raw: The config as written in the job config.
         keys: The declaration to check it against.
         where: The owner of the config, for refusal messages.
-        resolve: Turns a string holding context references into its value.
-            Without it such strings are passed through unchecked, which is
-            what a load-time check wants; with it they are resolved and then
-            checked like any other value.
+        resolve: Turns a string holding context references into its value,
+            or into a ``Looked`` that holds it. Without it such strings are
+            passed through unchecked, which is what a load-time check wants;
+            with it they are resolved and then checked like any other value.
 
     Returns:
         The config under v2 names, with defaults filled in, and the refusals.
@@ -217,6 +237,10 @@ def _check_value(
         if resolve is None:
             return value
         value = resolve(value)
+        if isinstance(value, Looked):
+            if key.takes_looked:
+                return value
+            value = value.value
 
     if value is None:
         if key.required and not key.nullable:
@@ -272,6 +296,8 @@ def _check_items(
         if key.items is None:
             if resolve is not None and has_context_reference(item):
                 item = resolve(item)
+                if isinstance(item, Looked):
+                    item = item.value
             items.append(item)
             continue
         if not isinstance(item, dict):

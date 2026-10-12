@@ -118,6 +118,30 @@ def test_mask_says_which_files_by_their_names(tmp_path, mask, taken):
         assert list(zipped(folder / "out.zip")) == taken
 
 
+@pytest.mark.parametrize("mask", ["${context.m}", "context.m", "{{java}}context.m", '{{java}}"*" + context.ending',
+                                  '{{java}}((String)globalMap.get("m"))', 'globalMap.get("m")'],
+                         ids=["in braces", "bare", "marked", "joined to text", "an entry, marked", "an entry"])
+@pytest.mark.parametrize("as_list", [True, False], ids=["in a list", "as text"])
+def test_mask_may_name_a_context_variable_or_an_entry_as_any_value_may(tmp_path, mask, as_list):
+    # The converter writes the masks as a list. A mask that was left as its own text would fit no file, and the
+    # archive of an earlier run would go for nothing.
+    files = dict(FILES, **{"out.zip": b"of an earlier run"})
+    made = job([action("set", "SetGlobalVar", variables=[{"key": "m", "value": "*.csv"}]),
+                archive(source="src", target="out.zip", all_files=False, mask=[mask, "*.nope"] if as_list else mask)], [])
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "set", "to": "pack"}]
+    made["context"] = {"Default": {"m": {"value": "*.csv", "type": "str"}, "ending": {"value": ".csv", "type": "str"}}}
+    result = on_v2(made, filled(tmp_path, files))
+    assert result.status == "success", result.error
+    assert list(zipped(tmp_path / "out.zip")) == ["a.csv", "sub/c.csv", "sub/deep/d.csv"]
+
+
+def test_mask_that_names_what_is_not_there_fails_the_job_and_leaves_the_archive_that_was_there(tmp_path):
+    files = dict(FILES, **{"out.zip": b"of an earlier run"})
+    result, folder = ran(tmp_path, files, source="src", target="out.zip", all_files=False, mask=["${context.nope}"])
+    assert (result.status, result.error) == ("failed", "context has no variable 'nope'")
+    assert (folder / "out.zip").read_bytes() == b"of an earlier run"
+
+
 def test_mask_is_not_looked_at_while_all_files_are_taken(tmp_path):
     _, folder = ran(tmp_path, source="src", target="out.zip", all_files=True, mask=["*.csv"])
     assert list(zipped(folder / "out.zip")) == list(ALL)

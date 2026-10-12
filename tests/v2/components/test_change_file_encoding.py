@@ -326,6 +326,8 @@ def test_component_of_the_converted_sample_job_loads_as_it_is():
     ({"infile_name": " ", "outfile_name": "b"}, "infile_name"), ({"infile_name": "a", "outfile_name": ""}, "outfile_name"),
     ({"infile_name": "a", "outfile_name": "b", "encoding": "nope"}, "encoding"),
     ({"infile_name": "a", "outfile_name": "b", "inencoding": "nope"}, "inencoding"),
+    ({"infile_name": "a", "outfile_name": "b", "encoding": "hex"}, "encoding"),
+    ({"infile_name": "a", "outfile_name": "b", "inencoding": "zlib"}, "inencoding"),
     ({"infile_name": "a", "outfile_name": "b", "nope": 1}, "nope"),
 ])
 def test_what_cannot_be_read_refuses_the_job(config, key):

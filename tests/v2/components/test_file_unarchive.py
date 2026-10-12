@@ -230,6 +230,18 @@ def test_rootname_unpacks_under_a_folder_named_after_the_archive(tmp_path, name,
     assert tree(folder / "out" / root) == UNPACKED
 
 
+@pytest.mark.parametrize("name, root", [("...tar.gz", "...tar"), ("..tar.gz", "..tar"), ("..tgz", "..tgz"), ("...zip", "...zip")])
+def test_archive_whose_name_is_dots_before_its_ending_is_unpacked_in_the_folder_given_and_not_above_it(tmp_path, name, root):
+    # Less `.tar.gz` such a name would be `..` or `.`: the folder above, or the folder itself. It is named as any
+    # other archive then, by its name up to the last dot.
+    packed = tar_of(HELD, "w:gz") if "gz" in name else zip_of(HELD)
+    result, folder = ran(tmp_path / "work", {"in/" + name: packed}, zipfile="in/" + name, directory="deep/out", rootname=True)
+    assert result.status == "success", result.error
+    assert sorted(path.name for path in (folder / "deep").iterdir()) == ["out"]
+    assert sorted(path.name for path in (folder / "deep" / "out").iterdir()) == [root]
+    assert tree(folder / "deep" / "out" / root) == UNPACKED
+
+
 @pytest.mark.parametrize("key", ["extractpath", "extract_path"])
 def test_without_their_paths_the_files_land_in_the_folder_itself(tmp_path, key):
     packed = zip_of(dict(HELD, **{"empty/": None}))
@@ -609,6 +621,49 @@ def test_tar_entry_with_a_time_no_clock_shows_is_unpacked_all_the_same(tmp_path)
     result, folder = ran(tmp_path, {"in.tar": packed}, zipfile="in.tar", directory="out")
     assert result.status == "success", result.error
     assert tree(folder / "out") == {"a.csv": b"x"}
+
+
+def test_tar_entry_with_a_time_that_is_no_number_is_unpacked_all_the_same(tmp_path):
+    packed = io.BytesIO()
+    with tarfile.open(fileobj=packed, mode="w", format=tarfile.PAX_FORMAT) as held:
+        made = member("a.csv", size=1, pax_headers={"mtime": "nan"})
+        held.addfile(made, io.BytesIO(b"x"))
+    result, folder = ran(tmp_path, {"in.tar": packed.getvalue()}, zipfile="in.tar", directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {"a.csv": b"x"}
+
+
+def zip_that_needs_a_later_zip():
+    raw = bytearray(zip_of({"a.csv": b"x"}))
+    struct.pack_into("<H", raw, raw.find(b"PK\x01\x02") + 6, 99)
+    return bytes(raw)
+
+
+def test_zip_that_needs_a_zip_python_does_not_read_fails_the_job_and_says_so(tmp_path):
+    result, folder = ran(tmp_path, {"in.zip": zip_that_needs_a_later_zip(), "out/kept.txt": b"k"}, zipfile="in.zip",
+                         directory="out")
+    assert (result.status, result.failed_component) == ("failed", "open")
+    assert result.error == "'in.zip' is packed in a way Python cannot read (zip file version 9.9); nothing is unpacked"
+    assert tree(folder / "out") == {"kept.txt": b"k"}
+
+
+def test_whatever_reading_an_archive_raises_fails_the_job_as_any_fault_does_and_leaves_the_folder_as_it_was(tmp_path, monkeypatch):
+    # An archive made to trip its reader says things no reader expects. Whatever Python raises on it, the folder is
+    # as it was, and a job that is not to die of it goes on.
+    def trips(self, *args, **kwargs):
+        raise IndexError("list index out of range")
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", trips)
+    files = {"in.tar": tar_of(HELD), "out/kept.txt": b"k"}
+    result, folder = ran(tmp_path / "dies", files, zipfile="in.tar", directory="out")
+    assert (result.status, result.failed_component) == ("failed", "open")
+    assert result.error == "'in.tar' cannot be unpacked: IndexError: list index out of range; nothing is unpacked"
+    assert tree(folder / "out") == {"kept.txt": b"k"} and sorted(path.name for path in folder.iterdir()) == ["in.tar", "out"]
+    result, folder = ran(tmp_path / "goes on", files, zipfile="in.tar", directory="out", die_on_error=False)
+    assert result.status == "success"
+    assert result.global_map["open_ERROR_MESSAGE"] == (
+        "'in.tar' cannot be unpacked: IndexError: list index out of range; nothing is unpacked")
+    assert tree(folder / "out") == {"kept.txt": b"k"}
 
 
 # ------------------------------------------------------------------

@@ -206,6 +206,20 @@ def test_unknown_encoding_is_named():
         codec_name("NOPE-1")
 
 
+@pytest.mark.parametrize("name", ["hex", "base64", "zlib", "bz2", "rot13", "undefined"])
+def test_codec_of_python_that_is_no_encoding_of_text_is_none(name):
+    # Python has them under the same roof: they turn bytes into bytes, or text into text.
+    with pytest.raises(ConfigurationError, match=f"'{name}' is no encoding of text"):
+        codec_name(name)
+
+
+@pytest.mark.parametrize("name", ["UTF-8", "utf-8-sig", "ISO-8859-15", "cp037", "UTF-16", "Shift_JIS", "idna", "ascii"])
+def test_encoding_of_text_is_known_by_pythons_name_for_it(name):
+    import codecs
+
+    assert codec_name(name) == codecs.lookup(name).name
+
+
 @pytest.mark.parametrize("encoding", ["UTF-32", "cp037"])
 def test_file_in_an_encoding_unlike_ascii_is_read_through_a_copy(tmp_path, encoding):
     from src.v2.engine.context import RunContext

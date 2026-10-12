@@ -399,6 +399,10 @@ documentation.
   [Advanced XML output](issues/113-advanced-xml-output.md) -- three
   tables drawn as one tree, groups opened and closed as the rows pass;
   a fixed value is no default, and missing is not empty.
+  [Review of loops and job control](issues/114-review-of-loops-and-job-control.md)
+  -- eight findings, all real; a value looked up while the job runs was
+  read as text of the job config, and a file's name could be run as
+  Python. Fixed: what is looked up is data.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -454,8 +458,10 @@ list are of the first destination, which is reached):
 - File jobs: the six are built and reviewed
   ([Review of the six file jobs](issues/99-review-of-the-six-file-jobs.md)).
 - Loops and job control: the seven are built
-  ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md)).
-  An independent review of them is under way. Left for later there:
+  ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md))
+  and reviewed
+  ([Review of loops and job control](issues/114-review-of-loops-and-job-control.md)).
+  Left for later there:
   passes side by side, going on after a failed item, one read of many
   files by a reader, `run.only` for a reader that a loop runs, and a
   clean-up when the job is stopped from outside.

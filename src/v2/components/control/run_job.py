@@ -64,7 +64,9 @@ class RunJob(Action):
             doc="Whether the child is given every context variable of the parent that it declares."),
         Key("context_params", type=list, default=[], doc="Context values given to the child by name.",
             items=(Key("param_name", required=True, doc="A context variable the child declares."),
-                   Key("param_value", type=object, default=None, doc="Its value; it may be an item of globalMap."))),
+                   # A password goes to a child this way: the value is shown nowhere.
+                   Key("param_value", type=object, default=None, secret=True,
+                       doc="Its value; it may be an item of globalMap. It is shown in no log."))),
         Key("use_dynamic_job", kind=Kind.REFUSED, type=bool,
             reason="the job to run has to be known when the parent loads: name it in `process`"),
         Key("use_dynamic_context", kind=Kind.REFUSED, type=bool,
@@ -138,6 +140,7 @@ class RunJob(Action):
                 given[name] = typed(value, declared) if declared is not None else value
             except ValueError:
                 raise ConfigurationError(
-                    f"{said_at}: {value!r} is no {declared}, which the job '{child.name}' declares '{name}' to be"
+                    # The value is not said: it may be one nobody is to see.
+                    f"{said_at}: the value is no {declared}, which the job '{child.name}' declares '{name}' to be"
                 ) from None
         return given

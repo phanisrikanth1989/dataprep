@@ -382,3 +382,37 @@ def test_mask_from_the_context_that_is_no_regular_expression_refuses_the_job_too
 def test_every_name_of_it(tmp_path, kind):
     result, rows, _ = ran(tmp_path, listing(kind=kind, directory="in"))
     assert result.status == "success" and len(rows) == 3
+
+
+# ------------------------------------------------------------------
+# A mask of many stars, and a name made to be slow
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("stars", [5, 20])
+def test_name_made_to_be_slow_is_held_against_a_mask_of_many_stars_at_once(stars):
+    # A name someone drops into the folder. Each star was `.*`, and Python tried every way of sharing the name out
+    # among them: minutes for one name.
+    pattern = pattern_of("*_" * stars + "*.csv", glob=True, apart=True)
+    started = time.perf_counter()
+    assert pattern.fullmatch("_" * 200 + ".txt") is None
+    assert time.perf_counter() - started < 1
+    assert pattern.fullmatch("_" * 200 + ".csv") is not None
+
+
+def test_mask_of_stars_fits_the_names_it_fitted_and_no_others():
+    import fnmatch
+    import random
+
+    drawn = random.Random(11)
+    pieces = ["*", "*", "?", "a", "b", "_", ".", "[ab]", "[!ab]", "**"]
+    for _ in range(4000):
+        mask = "".join(drawn.choice(pieces) for _ in range(drawn.randint(1, 7)))
+        name = "".join(drawn.choice("ab_.c") for _ in range(drawn.randint(0, 9)))
+        fits = pattern_of(mask, glob=True, apart=True).fullmatch(name) is not None
+        assert fits == fnmatch.fnmatchcase(name, mask), (mask, name)
+
+
+def test_star_and_question_mark_fit_a_line_end_in_a_name_too(tmp_path):
+    assert pattern_of("*.csv", glob=True, apart=True).fullmatch("a\nb.csv") is not None
+    assert pattern_of("a?b.csv", glob=True, apart=True).fullmatch("a\nb.csv") is not None
+    assert pattern_of("a*c*.csv", glob=True, apart=True).fullmatch("a\nc\n.csv") is not None

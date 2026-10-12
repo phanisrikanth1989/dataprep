@@ -66,7 +66,8 @@ def _root_name(archive: str) -> str:
     """The name of the folder an archive is unpacked under when it is to have one of its own."""
     base = os.path.basename(archive)
     for ending in _TWO_PART:
-        if base.lower().endswith(ending) and len(base) > len(ending):
+        # A name that is dots before its ending would leave `.` or `..`: this folder, or the one above it.
+        if base.lower().endswith(ending) and base[:-len(ending)].strip("."):
             return base[:-len(ending)]
     # As in Talend: the name up to its last dot, and the whole name when it has none.
     return os.path.splitext(base)[0] or base
@@ -269,6 +270,19 @@ class FileUnarchive(Action):
                 raise ConfigurationError(
                     f"'{archive}' cannot be unpacked into '{into}': {_where(fault, staging)}; nothing is unpacked"
                 ) from None
+            except NotImplementedError as fault:
+                # How Python says a zip needs a later zip than it reads, or is packed by a method it has not.
+                raise ConfigurationError(
+                    f"'{archive}' is packed in a way Python cannot read ({fault}); nothing is unpacked") from None
+            except ConfigurationError:
+                raise
+            except Exception as fault:  # noqa: BLE001
+                # An archive made to trip its reader says things no reader expects, and Python then raises what it
+                # raises. It is a fault of the archive as any other is: the folder is left as it was, and what
+                # was raised is said by its name, so that a fault of v2's own is not taken for the archive's.
+                said = " ".join(str(fault).split())
+                raise ConfigurationError(
+                    f"'{archive}' cannot be unpacked: {type(fault).__name__}: {said}; nothing is unpacked") from fault
         except BaseException:
             # The folder as it was: what was made for this archive goes, the folder itself too. Only a file that
             # was there before and could not be put back stays where it waits.
@@ -503,8 +517,9 @@ class FileUnarchive(Action):
             shutil.copyfileobj(packed, unpacked, _CHUNK)  # type: ignore[arg-type]
         try:
             os.utime(staged, (member.mtime, member.mtime))
-        except (OverflowError, OSError):
-            # A time no clock here shows: the file keeps the time it was unpacked at.
+        except (OverflowError, OSError, ValueError):
+            # A time no clock here shows, or one that is no number at all: the file keeps the time it was
+            # unpacked at.
             pass
 
     @staticmethod

@@ -88,6 +88,23 @@ def test_clean_up_runs_after_the_job_failed_and_the_job_has_failed_for_its_first
     assert (result.status, result.error, result.failed_component) == ("failed", "no luck", "main")
 
 
+def test_clean_up_runs_also_after_a_fault_no_component_answers_for_and_the_fault_goes_on(monkeypatch):
+    # A fault of the engine itself, or of the machine: it is no failure of a component, and it is not hidden.
+    from src.v2.engine.runner import Runner
+
+    really = Runner._run_subjob
+
+    def trips(self, members):
+        if "main" in members:
+            raise MemoryError("no memory left")
+        return really(self, members)
+
+    monkeypatch.setattr(Runner, "_run_subjob", trips)
+    with pytest.raises(MemoryError, match="no memory left"):
+        run(made([("main", "note", {"say": "main"}), *EDGES]))
+    assert Note.said == ["setup", "clean"]
+
+
 def test_clean_up_runs_after_a_die_and_nothing_else_does():
     components = [("main", "stop", {}), ("later", "note", {"say": "later"}), *EDGES]
     result = run(made(components))

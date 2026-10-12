@@ -6,7 +6,12 @@ import pytest
 from src.v2.errors import JobRefusedError
 from src.v2.job.loader import load_job
 
+from src.v2.components.control.postjob import Postjob
+
 from .kit import REGISTRY, Note, Once, job, lines, run
+
+if REGISTRY.get(Postjob.names[0]) is None:
+    REGISTRY.register(Postjob)
 
 VALUE = '((String)globalMap.get("each_CURRENT_VALUE"))'
 
@@ -296,3 +301,21 @@ def test_run_for_picked_rows_of_a_reader_inside_a_loop_is_refused(tmp_path):
     assert [(refusal.key, refusal.reason) for refusal in refused.value.report] == [
         ("run.only.source", "'in' is run by the loop of 'each', once for each item: a run for picked rows of such a "
                             "reader is not built yet")]
+
+
+# ------------------------------------------------------------------
+# Items that cannot be read on
+# ------------------------------------------------------------------
+
+def test_items_that_cannot_be_read_on_fail_the_component_that_starts_the_loop_as_any_fault_does():
+    # The file the items are read from is taken away while the loop runs: a cleaner of the temporary folder, a disk.
+    more = [("post", "postjob", {}), ("clean", "note", {"say": "clean"}), ("told", "note", {"say": "told"})]
+    made = looped(["a", "b", "the items are gone", "d"], *more, one_at_a_time=True,
+                  triggers=[("OnComponentOk", "post", "clean"), ("OnSubjobError", "each", "told")])
+    result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "each")
+    assert result.error == ("its loop stopped after item 2 of 4: the next could not be read: "
+                            "[Errno 2] No such file or directory: 'rows.v2tmp'")
+    # What the items are read from is put away, the trigger for a failure fires, and the clean-up runs.
+    assert Note.said == ["made a", "a", "made b", "b", "put away", "told", "clean"]
+    assert result.loops["each"] == {"items": 4, "passes": 2}

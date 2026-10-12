@@ -25,6 +25,7 @@ python -m src.v2 job.json --check    # load and check only; run nothing
 | see where v2 differs from v1 | [Differences from v1](differences-from-v1/README.md) |
 | see what a component built to its own rule does | [Components built to their own rule](own-rule/README.md) |
 | add or change a component | [Writing a v2 component](writing-a-component.md) |
+| have a component's failures name the row of the input | [Row numbers](row-numbers.md) |
 | look up a word used on these pages | [`src/v2/CONTEXT.md`](../../src/v2/CONTEXT.md) |
 
 One page per component, with every config key, is generated from the code

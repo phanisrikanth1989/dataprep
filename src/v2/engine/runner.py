@@ -303,11 +303,17 @@ class Runner:
                 parts[marked].append(index)
         # A subjob runs once, whichever part it is set off in.
         done: Set[int] = set()
-        outcome = self._drain(parts[BEFORE], result, done)
-        if outcome == "ok":
-            self._drain(parts[None], result, done)
-        elif parts[None]:
-            logger.info(f"[{self.job.name}] the job itself is not run: what its prejob set off failed")
+        try:
+            outcome = self._drain(parts[BEFORE], result, done)
+            if outcome == "ok":
+                self._drain(parts[None], result, done)
+            elif parts[None]:
+                logger.info(f"[{self.job.name}] the job itself is not run: what its prejob set off failed")
+        except Exception:
+            # A fault no component answers for: the engine's own, or the machine's. The clean-up runs all the
+            # same, and the fault then goes where it was going.
+            self._drain(parts[AFTER], result, done)
+            raise
         self._drain(parts[AFTER], result, done)
 
     def _drain(self, starts: List[int], result: JobResult, done: Optional[Set[int]] = None) -> str:
@@ -409,7 +415,19 @@ class Runner:
         global_map = self.run_context.global_map
         start = self._subjob_of[link.target]
         began = time.perf_counter()
-        for number, (named, entries) in enumerate(items.each, start=1):
+        each = iter(items.each)
+        number = 0
+        while True:
+            try:
+                named, entries = next(each)
+            except StopIteration:
+                break
+            except Exception as exc:  # noqa: BLE001
+                # What the items are read from is gone or cannot be read on (a scratch file someone took away):
+                # a failure of the component that starts the loop, as any other of its faults is.
+                return _Failed(looping, f"its loop stopped after item {number} of {items.count}: the next could not "
+                                        f"be read: {_reason(exc)}"), False
+            number += 1
             global_map.update(entries)
             global_map[f"{looping}_CURRENT_ITERATION"] = number
             logger.info(one_line(f"[{looping}] item {number} of {items.count}: {named}"))
@@ -871,7 +889,7 @@ class Runner:
 
     def _instantiate(self, spec: ComponentSpec) -> Component:
         config, refusals = normalize_config(
-            spec.raw_config, spec.cls.all_keys(), spec.where, resolve=self.run_context.resolve
+            spec.raw_config, spec.cls.all_keys(), spec.where, resolve=self.run_context.resolved
         )
         if refusals:
             raise ConfigurationError("; ".join(f"{refusal.key}: {refusal.reason}" for refusal in refusals))

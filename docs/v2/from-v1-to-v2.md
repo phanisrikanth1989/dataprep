@@ -85,6 +85,11 @@ context.out_dir + "/" + ((String)globalMap.get("tFileList_1_CURRENT_FILE"))
   read this way, so that nothing that loaded before means something
   else now; and when its entry is not there the value is left as
   written.
+- What is looked up is data, whatever it looks like. A fixed flow input
+  hands it on as it is (`00123` stays `00123`; only what is written in
+  the job config itself is read as a number there), and a row generator
+  takes it for the value and never for an expression: the name of a
+  file is no Python, and is not run.
 - This is for plain config values (a path, a name). An expression (a
   filter's condition, a map's column) is Python and reads
   `globalMap.get("key")` and `context.name` itself.

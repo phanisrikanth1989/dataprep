@@ -1,5 +1,5 @@
 """Config-key declarations: how a raw config dict is checked and normalised."""
-from src.v2.job.keys import Key, Kind, normalize_config
+from src.v2.job.keys import Key, Kind, Looked, normalize_config
 
 WHERE = "component in_1 (FileInputDelimited)"
 
@@ -242,3 +242,30 @@ def test_bad_value_after_resolving_is_refused():
     keys = (Key("limit", type=int, default=None),)
     _, refusals = _norm({"limit": "${context.max_rows}"}, keys, resolve=lambda text: "lots")
     assert [r.key for r in refusals] == ["limit"]
+
+
+# ------------------------------------------------------------------
+# A value that was looked up while the job runs
+# ------------------------------------------------------------------
+
+def test_value_that_was_looked_up_is_handed_as_such_to_a_key_that_takes_it_and_as_itself_to_any_other():
+    keys = (Key("takes", type=object, takes_looked=True), Key("plain", type=object), Key("count", type=int),
+            Key("rows", type=list, items=(Key("value", type=object, takes_looked=True), Key("other", type=object))))
+
+    def resolve(text):
+        return Looked("00123") if text == "context.looked" else "from the context"
+
+    config, refusals = _norm({"takes": "context.looked", "plain": "context.looked", "count": "context.looked",
+                              "rows": [{"value": "context.looked", "other": "context.looked"}, {"value": "context.x"}]},
+                             keys, resolve=resolve)
+    assert refusals == []
+    assert isinstance(config["takes"], Looked) and config["takes"].value == "00123"
+    assert config["plain"] == "00123" and config["count"] == 123
+    assert isinstance(config["rows"][0]["value"], Looked) and config["rows"][0]["other"] == "00123"
+    assert config["rows"][1]["value"] == "from the context"
+
+
+def test_item_of_a_plain_list_that_was_looked_up_is_the_value_itself():
+    config, refusals = _norm({"names": ["context.looked", "plain"]}, (Key("names", type=list),),
+                             resolve=lambda text: Looked("a.csv"))
+    assert refusals == [] and config == {"names": ["a.csv", "plain"]}

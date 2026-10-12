@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import polars as pl
 
 from ...errors import ConfigurationError
-from ...files import encoded, put_in_place, to_encoding
+from ...files import cleared, encoded, put_in_place, to_encoding
 from ...job.keys import Key, Kind
 from ..base import Sink, Write
 from ..registry import REGISTRY
@@ -204,7 +204,7 @@ class FileOutputPositional(Sink):
                 return
             packed = written + ".zip"
             try:
-                with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as held:
+                with zipfile.ZipFile(cleared(packed), "w", zipfile.ZIP_DEFLATED) as held:
                     with open(written, "rb") as source, held.open(os.path.basename(path), "w") as entry:
                         entry.write(settled["mark"] + header)
                         source.seek(len(settled["mark"]))

@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Tuple
 
 from ...errors import ConfigurationError
 from ...files import cleared, put_in_place, temp_beside
-from ...job.keys import Key, Kind
+from ...job.keys import Key, Kind, has_context_reference
 from ..base import DIE_ON_ERROR, FAULTS, Action, ascii_only, one_line
 from ..registry import REGISTRY
 from .file_row_count import unreadable
@@ -243,7 +243,10 @@ class FileArchive(Action):
         config = self.config
         if not os.path.isdir(source):
             return [(source, os.path.basename(source))], []
-        masks = [] if config["all_files"] else config["mask"]
+        # A mask in the converter's list may name a context variable or an entry, as any value may: the loader
+        # reads such a name in a text and in the items of a list key, and this key is either.
+        masks = [] if config["all_files"] else [
+            str(self.run_context.resolve(mask)) if has_context_reference(mask) else mask for mask in config["mask"]]
         taken: List[Tuple[str, str]] = []
         left_out: List[str] = []
         # A link to a folder is listed and not gone into: nothing is read through a link. A folder that cannot be

@@ -184,7 +184,7 @@ def test_value_of_the_whole_context_has_the_type_the_child_declares_too(tmp_path
     parent["context"]["Default"]["n"]["value"] = "many"
     result, folder = ran(tmp_path / "does not", parent, {"child.json": child})
     assert (result.status, result.failed_component) == ("failed", "run")
-    assert result.error == "the parent's context variable 'n': 'many' is no int, which the job 'child' declares 'n' to be"
+    assert result.error == "the parent's context variable 'n': the value is no int, which the job 'child' declares 'n' to be"
 
 
 def test_without_the_whole_context_the_child_has_its_own_values(tmp_path):
@@ -212,6 +212,20 @@ def test_child_runs_once_for_each_pass_of_a_loop_with_the_item_given_to_it(tmp_p
     assert result.summary()["children"]["run"]["runs"] == 2
 
 
+def test_value_given_to_the_child_is_shown_in_no_log_and_in_no_message(tmp_path, caplog):
+    # A password goes to a child this way. The config of a component is in the log at DEBUG.
+    caplog.set_level(logging.DEBUG, logger="src.v2")
+    child = touching(word={"value": "", "type": "str"}, n={"value": "1", "type": "int"})
+    step = run_step(process="child", context_params=[{"param_name": "word", "param_value": "S3cr3t-Value"}])
+    result, _ = ran(tmp_path / "fine", parent_of(step), {"child.json": child})
+    assert result.status == "success", result.error
+    assert "S3cr3t-Value" not in caplog.text and '"param_value": "***"' in caplog.text
+    # Nor where it does not fit the type the child declares.
+    step = run_step(process="child", context_params=[{"param_name": "n", "param_value": "S3cr3t-Value"}])
+    result, _ = ran(tmp_path / "unfit", parent_of(step), {"child.json": child})
+    assert result.status == "failed" and "S3cr3t-Value" not in caplog.text + result.error
+
+
 @pytest.mark.parametrize("declared", ["int", "Decimal", "float", "bool"])
 def test_value_that_does_not_fit_the_childs_type_fails_the_job(tmp_path, declared):
     child = touching(n={"value": "1", "type": declared})
@@ -219,7 +233,7 @@ def test_value_that_does_not_fit_the_childs_type_fails_the_job(tmp_path, declare
     result, folder = ran(tmp_path, parent_of(step), {"child.json": child})
     assert (result.status, result.failed_component) == ("failed", "run")
     assert result.error == (
-        f"context_params[0].param_value: 'many' is no {declared}, which the job 'child' declares 'n' to be")
+        f"context_params[0].param_value: the value is no {declared}, which the job 'child' declares 'n' to be")
     assert not (folder / "made.txt").exists()
 
 

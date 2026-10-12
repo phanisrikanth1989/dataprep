@@ -152,7 +152,7 @@ def _judged_now(spec: ComponentSpec, runner: Runner) -> Optional[str]:
         The problems to report, empty when every one of them waits for the
         context; None when the config is not what stopped the build.
     """
-    _, refusals = normalize_config(spec.raw_config, spec.cls.all_keys(), spec.where, resolve=runner.run_context.resolve)
+    _, refusals = normalize_config(spec.raw_config, spec.cls.all_keys(), spec.where, resolve=runner.run_context.resolved)
     if not refusals:
         return None
     wrong: List[str] = [
