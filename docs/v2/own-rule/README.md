@@ -17,4 +17,4 @@ What they share:
 
 | Page | What is on it |
 |---|---|
-| [File jobs](file-jobs.md) | File touch, File properties, Raw file input, Change file encoding |
+| [File jobs](file-jobs.md) | File touch, File properties, Raw file input, Change file encoding, File archive |

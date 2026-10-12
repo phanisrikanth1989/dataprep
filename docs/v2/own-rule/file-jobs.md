@@ -36,7 +36,7 @@ not v1. ([What that means](README.md).)
   | `mtime` | when it was last changed, in milliseconds since 1970 |
   | `mtime_string` | the same in local time: `2026-10-12 14:03:05` |
   | `md5`, `sha256` | check sums of what it holds, in hexadecimal |
-  | `type` | `file` or `folder` |
+  | `type` | `file`, `folder`, or `other` for a pipe or a device |
   | `exists` | whether it is there |
 
 - A job that declares no columns, as a converted job does, gets the seven
@@ -46,8 +46,9 @@ not v1. ([What that means](README.md).)
 - A file that is not there fails the job. When `exists` is among the
   columns it does not: the row says false there and holds nothing but
   the names. (Azure Data Factory's Get Metadata does the same.)
-- A link has the properties of what it leads to. A folder has no check
-  sum.
+- A link has the properties of what it leads to. Only a file has a
+  check sum: a folder holds no bytes, and a pipe or a device is never
+  opened.
 - A check sum is worked out only when its column is asked for, in one
   reading of the file, piece by piece, and once in a run. `md5` is asked
   for as a check sum and not for security, so that a server that allows
@@ -75,6 +76,8 @@ not v1. ([What that means](README.md).)
   where: `'in.xml' is not written in UTF-8: byte 12 of it, on line 3, is
   no character there`. (Talend puts a replacement character there and
   goes on.)
+- A pipe or a device fails the job and is never opened: it is no file
+  to read from start to end.
 - The whole file is held in memory as one value, and about three times
   over while it is read. That is what the component is for, so it reads
   no file larger than `size_limit_mb` megabytes (1024 when not given):
@@ -112,6 +115,7 @@ not v1. ([What that means](README.md).)
 
   (Talend writes a replacement character or a question mark there and
   goes on.)
+- An input that is a pipe or a device fails the job and is never opened.
 - The file is gone through piece by piece and never held in memory. It
   is written beside `outfile_name` and put there when it is whole: the
   two may be the same file, and a job that fails leaves the output as it
@@ -123,3 +127,69 @@ not v1. ([What that means](README.md).)
   was written as what, and how many bytes.
 - `buffersize` is taken and has no effect: v2 reads in pieces of its own
   size.
+
+## File archive
+
+- The files of the folder `source` are packed into the archive `target`.
+  An entry is a file by its path below the folder (`sub/c.csv`), and the
+  entries come in the order of their names. Only files are entries: a
+  folder is in the archive through the files in it, and an empty folder
+  is not in it. This is how Talend lays an archive out. `source` may
+  also be one file, which is then the one entry, under its name.
+- Which files: `sub_directroy` off leaves out the files of subfolders
+  (the spelling is Talend's; `include_subdirectories` is taken too).
+  With `all_files` off only the files whose name fits one of the
+  patterns in `mask` are taken. A pattern is held against the name of a
+  file, not its path, with capitals and small letters told apart: `*`
+  is any run of characters, `?` any one, `[abc]` one of a set. (Talend
+  reads a mask as a regular expression in which `*` and `.` mean what
+  they mean here; `*.csv` is the same in both.)
+- The kind of archive, `archive_format`:
+
+  | Kind | What it is |
+  |---|---|
+  | `zip` | a zip archive (also when none is given) |
+  | `tgz` | a tar archive compressed with gzip (`tar.gz`, Talend's `TAR_GZIP`) |
+  | `tar` | a tar archive, not compressed |
+  | `tar.zst` | a tar archive compressed with Zstandard |
+  | `gzip` | one file, `source_file`, compressed with gzip; no names |
+  | `zst` | one file, `source_file`, compressed with Zstandard; no names |
+
+  Zstandard packs to about the size gzip does and about three times as
+  fast (tried on 76 MB of delimited text at level 4: gzip 102 MB a
+  second, Zstandard 350, both to a third of the size; unpacking is as
+  fast for both). Python has it from 3.14: on an older one a job that
+  asks for it is refused when it loads.
+- `level` is how hard the archive is compressed: 0, not at all, to 9
+  (1 to 22 for Zstandard); 4 when none is given, as in Talend.
+- Each file is read piece by piece and never held in memory. The archive
+  is written beside `target` and put there when it is whole: a job that
+  fails leaves the archive that was there, and nothing beside it.
+- The same files give the same bytes, whenever and on whichever server
+  they are archived: the entries are in a fixed order, a tar entry says
+  nothing of who owns the file and has its time in whole seconds, and
+  the gzip header of a `tgz` has no time in it. (A `gzip` of one file
+  has the file's own name and time in its header, as the gzip command
+  writes them.)
+- A link, or anything else that is no file, among the files is left out
+  and named in a warning: nothing is read through a link, and an
+  archive holds files. A folder that cannot be looked into fails the
+  job; it is not passed over.
+- The archive never holds itself, also when `target` is in `source`.
+- A `source` that is neither a file nor a folder (a pipe, a device)
+  fails the job and is never opened.
+- When no file is taken, no archive is written, one that was there is
+  taken away, and a warning says so. `<id>_NB_FILE` is then 0.
+- The folder of the archive has to be there unless `mkdir` is on. An
+  archive that is there is written over, unless `overwrite` is off:
+  then the job fails.
+- It leaves `<id>_ARCHIVE_FILEPATH` and `<id>_ARCHIVE_FILENAME`, as in
+  Talend, and `<id>_NB_FILE`, the number of files in the archive.
+- Not done: encryption. `encrypt_files` on refuses the job, since Python
+  cannot write an encrypted zip. Names in a zip are written in UTF-8
+  and marked so, whatever `encoding` says; `zip64_mode` and
+  `use_sync_flush` are taken and have no effect (a zip is written with
+  ZIP64 where it needs it).
+- Not as in v1: v1 writes zip only, and reads `include_subdirectories`
+  and `compression_level` where the converter writes `sub_directroy`
+  and `level`.
