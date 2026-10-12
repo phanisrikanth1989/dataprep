@@ -358,6 +358,8 @@ documentation.
   [The iterate link](issues/102-the-iterate-link.md) -- no flow; the
   body is the target's subjob and what it sets off, run once for each
   item; a failed pass stops the loop; counts in globalMap are a pass's.
+  [Foreach](issues/103-foreach.md) -- a loop over values written in the
+  job config, each as text.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
