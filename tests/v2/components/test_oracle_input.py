@@ -130,6 +130,41 @@ def test_rows_that_come_in_batches_of_any_size_are_handed_on_in_groups_of_one_si
     assert [value for group in made for value in group.column("n").to_pylist()] == list(range(1, sum(sizes) + 1))
 
 
+@pytest.mark.parametrize("config, asked", [({}, 2), ({"use_cursor": True, "cursor_size": 3}, 3), ({"use_cursor": False, "cursor_size": 3}, 2)])
+def test_a_round_trip_brings_as_many_rows_as_the_session_says_is_best_unless_the_job_says(emp, tmp_path, monkeypatch, config, asked):
+    """A session of Oracle's own client reads best with fewer rows a round trip than one without."""
+    from tests.v2.database import SqliteSession
+
+    sizes = []
+    plain = SqliteSession.batches
+
+    def noted(self, statement, binds, types, size):
+        sizes.append(size)
+        return plain(self, statement, binds, types, size)
+
+    monkeypatch.setattr(SqliteSession, "batches", noted)
+    monkeypatch.setattr(SqliteSession, "rows_a_round_trip", 2, raising=False)
+    out, made = to_file(tmp_path, **config)
+    result = run(made)
+    assert result.status == "success", result.error
+    assert sizes == [asked] and lines(out) == ["id;name;amt", "1;ann ;1.50", "2;;2.26", "3; bob;"]
+
+
+def test_without_a_number_of_its_own_a_session_reads_fifty_thousand_rows_a_round_trip(emp, tmp_path, monkeypatch):
+    from tests.v2.database import SqliteSession
+
+    sizes = []
+    plain = SqliteSession.batches
+
+    def noted(self, statement, binds, types, size):
+        sizes.append(size)
+        return plain(self, statement, binds, types, size)
+
+    monkeypatch.setattr(SqliteSession, "batches", noted)
+    out, made = to_file(tmp_path)
+    assert run(made).status == "success" and sizes == [50_000]
+
+
 def test_a_group_that_is_full_is_handed_on_before_more_rows_are_asked_for():
     import pyarrow
 

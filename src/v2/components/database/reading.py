@@ -168,9 +168,10 @@ class DatabaseInput(Source):
         from pyarrow import parquet
 
         made = statements.read(self.config["query"], self.context, self.global_map, dialect=self.dialect)
-        size = self.config["cursor_size"] if self.config["use_cursor"] else _BATCH
         names = [column.name for column in self.schema]
         session, own = self.session()
+        # The job's own number; or the one the session reads best with; or the reader's.
+        size = self.config["cursor_size"] if self.config["use_cursor"] else session.rows_a_round_trip or _BATCH
         try:
             text, binds = session.bound(made)
             fields = session.fields(text, binds)

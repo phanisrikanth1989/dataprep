@@ -2,12 +2,13 @@
 import copy
 import json
 import logging
+import secrets
 from pathlib import Path
 
 import pytest
 
 from src.v2 import run_job
-from tests.v2.components.kit import columns, flow, job, reader
+from tests.v2.components.kit import columns, flow, job, reader  # noqa: F401
 
 pytestmark = pytest.mark.oracle
 
@@ -200,6 +201,37 @@ def test_a_block_for_each_row_that_commits_and_fails_for_a_row_says_why_and_what
     assert "; what the statement did before that could not be taken back (ORA-01086:" in result.error
     assert result.error.endswith("a statement that stores by itself leaves no place to go back to")
     assert held_in(oracle_db, table) == [(1, "a"), (2, "b"), (4, "d")]
+
+
+@pytest.mark.parametrize("statement, left", [
+    # A query, which is run row by row with the row's values as plain values.
+    ('"select 1 / (select count(*) from {t} where at = " + row1.AT + " and amt = " + row1.AMT + ") from dual"', [1, 2]),
+    # An update and a block, which go for all the rows at once.
+    ('"update {t} set id = id + 10 where at = " + row1.AT + " and amt = " + row1.AMT', [11, 12]),
+    ('"begin update {t} set id = id + 10 where at = " + row1.AT + " and amt = " + row1.AMT + "; end;"', [11, 12]),
+])
+def test_a_statement_for_each_row_finds_a_row_by_a_moment_with_a_fraction_of_a_second(oracle_db, tmp_path, statement, left):
+    """Found on 2026-10-13, in either mode: the query found no row. A driver takes a moment for a date unless it is
+    told, and a date has no fraction of a second. (With Oracle's own client the rows of the other two go as plain
+    values too.)"""
+    name = f"V2K_{secrets.token_hex(5).upper()}"
+    with oracle_db.connect() as held, held.cursor() as cursor:
+        cursor.execute(f"create table {name} (id number, at timestamp(6), amt number(10,3))")
+        cursor.execute(f"insert into {name} values (1, timestamp '2024-01-31 13:14:15.123456', 0.125)")
+        cursor.execute(f"insert into {name} values (2, timestamp '2024-01-31 13:14:15.000001', 2.5)")
+        held.commit()
+    rows = "ID:int, AT:datetime@%Y-%m-%d %H:%M:%S.%f, AMT:float"
+    (tmp_path / "in.csv").write_text("1;2024-01-31 13:14:15.123456;0.125\n2;2024-01-31 13:14:15.000001;2.5\n")
+    made = {"id": "r", "type": "tOracleRow", "inputs": ["row1"], "outputs": [],
+            "schema": {"input": columns(rows), "output": []},
+            "config": {**oracle_db.block(), "use_existing_connection": False, "query": statement.format(t=name)}}
+    try:
+        result = run_job(job([reader(rows, path=str(tmp_path / "in.csv")), made], [flow("row1", "in", "r")]))
+        assert result.status == "success", result.error
+        assert [found for (found,) in oracle_db.rows(f"select id from {name} order by id")] == left
+    finally:
+        with oracle_db.connect() as held, held.cursor() as cursor:
+            cursor.execute(f"drop table {name} purge")
 
 
 def test_a_block_that_cannot_be_compiled_is_no_rows_fault(oracle_db, tmp_path):

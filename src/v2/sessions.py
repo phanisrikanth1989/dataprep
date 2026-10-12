@@ -206,6 +206,8 @@ class Session:
 
     # For a column of a kind that cannot be taken as the job declares it: what to write in the query instead.
     advice: Mapping[str, str] = {}
+    # How many rows a round trip brings best when the job does not say; None where the reader's own number does.
+    rows_a_round_trip: Optional[int] = None
 
     def run(self, statement: str, binds: Optional[Mapping[str, Any]] = None) -> int:
         """Run one statement with its bound values. Returns how many rows it changed."""
@@ -258,7 +260,9 @@ class Session:
         """
         raise NotImplementedError
 
-    def call(self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str]) -> Dict[int, List[Any]]:
+    def call(
+        self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str], ins: Optional[Mapping[int, str]] = None
+    ) -> Dict[int, List[Any]]:
         """Run a block that calls a procedure once for each row of values, in one round trip.
 
         Args:
@@ -269,6 +273,9 @@ class Session:
             outs: Each place that hands a value out, from 0, and the kind
                 of value it hands out: ``number``, ``text``, ``date``,
                 ``datetime`` or ``large text``.
+            ins: The places that only take a value in whose kind has to
+                be said for it, and that kind: ``datetime`` for a moment,
+                which a driver may otherwise take for a date.
 
         Returns:
             For each such place, the value every call handed out.

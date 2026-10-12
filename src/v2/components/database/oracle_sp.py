@@ -150,12 +150,15 @@ class OracleSP(Action, Transform):
         for key, setting in (("nls_language", "nls_language"), ("nls_territory", "nls_territory")):
             if config[key].strip().upper() != "NONE":
                 session.run(f"alter session set {setting} = '{config[key].strip()}'")
+        # A moment that only goes in is said to be one: by itself a driver may take it for a date.
+        ins = {at: "datetime" for at, name in enumerate(taken)
+               if name is not None and at not in outs and declared[name].type == "datetime"}
         came_out: Dict[int, List[Any]] = {place: [] for place in outs}
         for start in range(0, frame.height, _BATCH):
             rows = [tuple(_plain(value) for value in row) for row in handed_in.slice(start, _BATCH).iter_rows()] \
                 if handed_in is not None else [()] * min(_BATCH, frame.height - start)
             try:
-                got = session.call(block, rows, outs)
+                got = session.call(block, rows, outs, ins)
             except CallFailed as fault:
                 raise DatabaseError(f"the call failed: {fault}{self.where(frame.slice(start + fault.at, 1))}") from None
             for place in outs:

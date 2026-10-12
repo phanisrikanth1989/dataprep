@@ -65,8 +65,18 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
   - A session opens with a user and a password in either mode.
     Kerberos and a wallet that holds the password are not built, and
     were not tried: they need a site that has them.
+  - **With the client v2 works another way, for speed**: rows are
+    handed to it as plain values and not as an Arrow table, and a round
+    trip of a reader brings 2,000 rows where the job does not say. How
+    much that is worth, and what stays slower, is under
+    [Speed and memory](#speed-and-memory-as-measured-on-one-machine).
 - A session says in the database who it is: its module is `dataprep-v2`
   and its action the job's name (`v$session`).
+- A session asks for the largest session data unit (2 MB), which is
+  Oracle's advice for moving data in bulk; the two sides settle on the
+  smaller of what each asks for. A connect string that names a unit of
+  its own (`?sdu=...`) keeps it. Against Oracle 19 the database's own
+  has to be raised too: it is 8 KB there.
 - **The connection block** is the same on every component that can open
   a session:
 
@@ -242,9 +252,11 @@ statement does**:
 - `trim_all_column` strips every text column of surrounding blanks, and
   `trim_column` the columns it names.
 - `use_cursor` with `cursor_size` says how many rows a round trip
-  brings; without it, 50,000. The scratch file is laid out the same
-  whatever that number is. (Talend's own, a thousand, took about 40%
-  longer than 50,000 for ten million rows: more round trips.)
+  brings; without it, 50,000 (2,000 with Oracle's own client, which
+  reads faster so). The scratch file is laid out the same
+  whatever that number is. (Without the client Talend's own, a
+  thousand, took 8% longer than 50,000 with the database beside the
+  engine and 40% longer one hop away: more round trips.)
 - The rows come in the order the database hands them: with an `ORDER BY`
   in the query, in that order, as Oracle works such a query out today.
   (The query is given to Oracle inside another that converts its
@@ -442,6 +454,8 @@ statement does**:
   session of its own the engine stores when the subjob is done. A
   procedure that commits by itself stores what waited on the session
   too, and a warning then says whose work that was.
+- A moment handed in keeps its fraction of a second: the driver is
+  told that it is one.
 - A call that fails fails the job, with Oracle's words and the row
   (`line 2 of in.csv`). The calls before it in the same subjob are
   rolled back with it; what a procedure committed by itself is not. A
@@ -544,6 +558,30 @@ Oracle has more than the two processor threads Oracle Free takes.
   network takes elsewhere.
 - Not measured: the SQL Server input after this (it shares the reading
   with the Oracle input), anything on RHEL, and files beyond these.
+
+**With Oracle's own client** (thick mode), on 2026-10-13, in a container
+of Oracle Linux 8 on the same Mac, the same jobs with the client and
+without it side by side:
+
+| What | Rows | Without the client | With it | With it, encryption demanded |
+|---|---|---|---|---|
+| input, a query to a CSV file | 10 million | 12.8 s | 13.9 s | 15.8 s |
+| output, insert | 10 million | 29 s | 40 s | 35 s |
+| output, insert | 1 million | 2.2 s | 3.9 s | 5.0 s |
+| row, an insert for each row | 100,000 | 0.5 s | 0.7 s | |
+| row, a block for each row | 100,000 | 1.1 s | 1.2 s | 1.3 s |
+| row, a query for each row | 20,000 | 5.2 s | 5.4 s | |
+| stored procedure for each row, a value coming out | 100,000 | 0.6 s | 4.1 s | 6.8 s |
+
+- **Reading is as fast with the client; storing takes about half as
+  long again.** Memory is the same.
+- **A procedure with a value that comes out is called one round trip a
+  call by the client**, where the driver by itself sends them all at
+  once: 25,000 calls a second against 170,000.
+- Native Network Encryption (AES256, SHA256 checksums) cost a tenth or
+  so on what goes in bulk, and more on what goes call by call.
+- Before v2 worked the client's way these were 22 s to read, 47 s to
+  insert ten million rows with 2.4 GB held, and 28 s for the block.
 
 ## What refuses the job
 

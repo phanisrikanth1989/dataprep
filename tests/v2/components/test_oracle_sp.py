@@ -132,8 +132,34 @@ def test_with_a_session_of_its_own_what_it_did_is_stored_when_the_subjob_is_done
     assert procedures.sessions[0].did[-2:] == ["commit", "close"]
 
 
+def test_a_moment_that_only_goes_in_is_said_to_be_one(procedures, tmp_path, monkeypatch):
+    """Found on 2026-10-13 against the real database: a procedure handed 13:14:15.123456 got 13:14:15. A driver
+    takes a moment for a date unless it is told."""
+    told = []
+    plain = SqliteSession.call
+
+    def noting(self, block, rows, outs, ins=None):
+        told.append((dict(outs), dict(ins or {})))
+        return plain(self, block, rows, outs, ins)
+
+    monkeypatch.setattr(SqliteSession, "call", noting)
+    monkeypatch.setitem(SqliteSession.procedures, "takes", lambda at, name, back, day: {2: at})
+    rows = "at:datetime@%Y-%m-%d %H:%M:%S.%f, name:str, back:datetime@%Y-%m-%d %H:%M:%S.%f, day:date@%Y-%m-%d"
+    (tmp_path / "in.csv").write_text("2024-01-31 13:14:15.123456;ann;;2024-01-31\n")
+    components = [connection(schema_db=""), reader(rows, path=str(tmp_path / "in.csv")),
+                  sp(inputs=("row1",), outputs=("row2",), schema=rows, sp_name="takes",
+                     sp_args=arguments(("at", "IN"), ("name", "IN"), ("back", "INOUT"), ("day", "IN"))),
+                  writer(rows, path=str(tmp_path / "out.csv")),
+                  {"id": "c", "type": "tOracleCommit", "config": {"connection": CONN}, "inputs": [], "outputs": []}]
+    result = run(job(components, [flow("row1", "in", "p"), flow("row2", "p", "out")], triggers=after(CONN, "in", "c")))
+    assert result.status == "success", result.error
+    # The moment that goes in is said; the one that also comes out is said with what comes out; a text and a day
+    # are what a driver takes them for.
+    assert told == [({2: "datetime"}, {0: "datetime"})]
+
+
 def test_a_procedure_that_stores_by_itself_what_waited_is_told(procedures, tmp_path, monkeypatch, caplog):
-    def commits(self, block, rows, outs):
+    def commits(self, block, rows, outs, ins=None):
         self._held.execute("commit")
         return {}
 
@@ -268,7 +294,7 @@ def test_what_a_value_comes_out_as(procedures, tmp_path):
         typed[at]["dbtype"] = kind
     seen = {}
 
-    def noting(self, block, rows, outs):
+    def noting(self, block, rows, outs, ins=None):
         seen.update(outs)
         return {place: [None] * len(rows) for place in outs}
 

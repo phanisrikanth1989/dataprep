@@ -62,6 +62,31 @@ def test_values_go_in_and_come_out_for_each_row(oracle_db, made, tmp_path):
                      f"2;;2.010;-;2024-03-06;2024-03-04 05:06:07.123456;{big}"]
 
 
+def test_a_moment_handed_to_a_procedure_keeps_its_fraction_of_a_second(oracle_db, tmp_path):
+    """Found on 2026-10-13, in either mode: the procedure got 13:14:15. A driver takes a moment for a date unless
+    it is told, and a date has no fraction of a second."""
+    name = f"V2M_{secrets.token_hex(4).upper()}"
+    with oracle_db.connect() as held, held.cursor() as cursor:
+        cursor.execute(f"create or replace procedure {name} (a in timestamp, b in out timestamp, c out varchar2) as "
+                       "begin c := to_char(a, 'HH24:MI:SS.FF6') || ' ' || to_char(b, 'HH24:MI:SS.FF6'); "
+                       "b := a + interval '1' second; end;")
+    rows = "AT:datetime@%Y-%m-%d %H:%M:%S.%f, BOTH:datetime@%Y-%m-%d %H:%M:%S.%f, SAID:str"
+    (tmp_path / "in.csv").write_text("2024-01-31 13:14:15.123456;2024-01-31 01:02:03.000007;\n")
+    sp = {"id": "p", "type": "tOracleSP", "inputs": ["row1"], "outputs": ["row2"],
+          "schema": {"input": columns(rows), "output": columns(rows)},
+          "config": {**oracle_db.block(), "use_existing_connection": False, "sp_name": name,
+                     "sp_args": arguments(("AT", "IN", "AUTOMAPPING"), ("BOTH", "INOUT", "AUTOMAPPING"), ("SAID", "OUT", "AUTOMAPPING"))}}
+    try:
+        result = run_job(job([reader(rows, path=str(tmp_path / "in.csv")), sp, writer(rows, path=str(tmp_path / "out.csv"))],
+                             [flow("row1", "in", "p"), flow("row2", "p", "out")]))
+        assert result.status == "success", result.error
+        assert (tmp_path / "out.csv").read_text().splitlines()[1:] == [
+            "2024-01-31 13:14:15.123456;2024-01-31 13:14:16.123456;13:14:15.123456 01:02:03.000007"]
+    finally:
+        with oracle_db.connect() as held, held.cursor() as cursor:
+            cursor.execute(f"drop procedure {name}")
+
+
 def test_a_function_returns_every_digit(oracle_db, made, tmp_path):
     result, lines = calling(oracle_db, tmp_path, "1;;;;;;\n2;;;;;;\n", sp_name=made["f"], is_function=True,
                             return_column="TWICE", sp_args=arguments(("ID", "IN", "AUTOMAPPING")))

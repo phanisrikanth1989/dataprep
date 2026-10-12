@@ -134,7 +134,7 @@ class SqliteSession(Session):
     # that hands back the values out, by place.
     procedures: dict = {}
 
-    def call(self, block, rows, outs):
+    def call(self, block, rows, outs, ins=None):
         self.asked.append(block)
         self.did.append(("call", block, len(rows)))
         name = re.search(r"([\w.$#]+)\s*(?:\(|;)", block.split(":=")[-1]).group(1)

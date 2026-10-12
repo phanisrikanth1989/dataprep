@@ -36,15 +36,29 @@ SERVICE = dict(connection_type="ORACLE_SERVICE_NAME", host="db.example", port="1
 # What the driver is given
 # ------------------------------------------------------------------
 
+# The session data unit every session asks for: the most there is. The driver's own is 8 KB, and ten million rows
+# were read in 5.3 seconds with it and in 4.6 with what the database then allowed (64 KB). Measured on 2026-10-13.
+UNIT = {"sdu": 2_097_152}
+
+
 def test_a_service_name():
     assert oracle.arguments(block(**SERVICE)) == {
-        "user": "app", "password": "s3cret", "host": "db.example", "port": 1521, "service_name": "SALES",
+        "user": "app", "password": "s3cret", "host": "db.example", "port": 1521, "service_name": "SALES", **UNIT,
     }
+
+
+def test_every_kind_of_connection_asks_for_the_largest_session_data_unit():
+    """Oracle's own advice for moving data in bulk. The two sides settle on the smaller of what each asks for, and a
+    connect string that names its own unit keeps it: both seen against the real database."""
+    for more in (SERVICE, dict(host="h", dbname="ORCL", user="app", password="x"),
+                 dict(connection_type="ORACLE_RAC", rac_url="//scan:1522/S", user="app", password="x"),
+                 dict(connection_type="ORACLE_OCI", local_service_name="SALES", user="app", password="x")):
+        assert oracle.arguments(block(**more))["sdu"] == 2_097_152
 
 
 def test_a_sid_is_the_type_a_block_has_when_it_names_none():
     given = oracle.arguments(block(host="db.example", dbname="ORCL", user="app", password="x"))
-    assert given == {"user": "app", "password": "x", "host": "db.example", "port": 1521, "sid": "ORCL"}
+    assert given == {"user": "app", "password": "x", "host": "db.example", "port": 1521, "sid": "ORCL", **UNIT}
 
 
 @pytest.mark.parametrize("url, given", [
@@ -58,19 +72,19 @@ def test_a_sid_is_the_type_a_block_has_when_it_names_none():
 ])
 def test_a_url_of_its_own_is_handed_on_without_what_makes_it_a_jdbc_url(url, given):
     made = oracle.arguments(block(connection_type="ORACLE_RAC", rac_url=url, user="app", password="x"))
-    assert made == {"user": "app", "password": "x", **given}
+    assert made == {"user": "app", "password": "x", **given, **UNIT}
 
 
 def test_a_name_of_tnsnames_is_looked_up_in_the_folder_of_the_file_named():
     made = oracle.arguments(block(connection_type="ORACLE_OCI", local_service_name="SALES", user="app", password="x",
                                   use_tns_file=True, tns_file="/etc/oracle/tnsnames.ora"))
-    assert made == {"user": "app", "password": "x", "dsn": "SALES", "config_dir": "/etc/oracle"}
+    assert made == {"user": "app", "password": "x", "dsn": "SALES", "config_dir": "/etc/oracle", **UNIT}
 
 
 def test_a_name_of_tnsnames_with_no_file_named_is_left_to_the_driver_to_find():
     made = oracle.arguments(block(connection_type="ORACLE_OCI", local_service_name="SALES", user="app", password="x",
                                   tns_file="/etc/oracle/tnsnames.ora"))
-    assert made == {"user": "app", "password": "x", "dsn": "SALES"}
+    assert made == {"user": "app", "password": "x", "dsn": "SALES", **UNIT}
 
 
 def test_a_port_may_be_written_as_text_or_as_a_number():
@@ -297,6 +311,9 @@ def stand_in(version="26.0.1", **fails):
             raise Refused(fails["client"])
 
     driver.connect, driver.init_oracle_client = connect, init_oracle_client
+    # The kinds a value can be said to be, by names a test can read.
+    driver.DB_TYPE_NUMBER, driver.DB_TYPE_DATE, driver.DB_TYPE_TIMESTAMP = "a number", "a date", "a timestamp"
+    driver.DB_TYPE_BINARY_DOUBLE, driver.DB_TYPE_BOOLEAN, driver.DB_TYPE_CLOB = "a binary double", "a boolean", "a clob"
     return driver
 
 
@@ -311,7 +328,7 @@ def test_a_session_is_opened_with_what_the_block_says_and_tagged_with_the_job(dr
     with caplog.at_level("INFO", logger="src.v2"):
         session = oracle.opened(block(**SERVICE, schema_db="HR"), "tDBConnection_1", "nightly_load")
     assert driver.asked == [{"user": "app", "password": "s3cret", "host": "db.example", "port": 1521,
-                             "service_name": "SALES"}]
+                             "service_name": "SALES", **UNIT}]
     held = driver.opened[0]
     assert (held.module, held.action) == ("dataprep-v2", "nightly_load")
     assert (session.opened_by, session.schema, session.shared, session.auto_commit) == ("tDBConnection_1", "HR", False, False)
@@ -340,7 +357,7 @@ def test_with_oracles_own_client_a_name_of_tnsnames_is_looked_up_in_the_file_the
     names (ORA-12154, seen on 2026-10-13). The driver's reader of the file works in either mode."""
     session = oracle.opened(block(**TNS), "c", "j", {"thick_mode": True})
     assert driver.looked_up == [("/etc/oracle", "sales")]
-    assert driver.asked == [{"user": "app", "password": "x", "dsn": driver.names["SALES"]}]
+    assert driver.asked == [{"user": "app", "password": "x", "dsn": driver.names["SALES"], **UNIT}]
     # It is still named by what the job wrote.
     assert session.what == "app@sales"
 
@@ -354,12 +371,13 @@ def test_with_oracles_own_client_a_name_no_file_knows_is_said_as_any_session_tha
 
 def test_with_oracles_own_client_a_name_with_no_file_named_is_left_to_the_client_to_find(driver):
     oracle.opened(block(**{**TNS, "use_tns_file": False}), "c", "j", {"thick_mode": True})
-    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales"}]
+    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales", **UNIT}]
 
 
 def test_without_oracles_own_client_the_driver_is_handed_the_name_and_the_folder_as_before(driver):
     oracle.opened(block(**TNS), "c", "j")
-    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales", "config_dir": "/etc/oracle"}]
+    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales", "config_dir": "/etc/oracle",
+                                                        **UNIT}]
 
 
 def test_a_long_connect_string_is_cut_where_a_session_is_named(driver):
@@ -819,6 +837,18 @@ def test_a_procedure_is_called_for_each_row_and_what_comes_out_is_read_by_place(
     assert made.opened[0].did[-1] == "cursor closed"
 
 
+def test_a_moment_handed_to_a_procedure_is_said_to_be_one(monkeypatch):
+    """Found on 2026-10-13, in either mode: a procedure handed 13:14:15.123456 got 13:14:15. By itself a moment
+    is bound as a DATE."""
+    made, seen = calling(monkeypatch, out=[[None], [None], ["x"]])
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    session.call("begin p(:1, :2, :3); end;", [("at", 1, None)], {2: "text"}, {0: "datetime"})
+    assert seen["sizes"] == ("a timestamp", None, 32767)
+    # Nothing is said of what goes in when nothing is known of it.
+    session.call("begin p(:1, :2, :3); end;", [("at", 1, None)], {2: "text"})
+    assert seen["sizes"] == (None, None, 32767)
+
+
 def test_a_procedure_with_no_value_is_called_as_many_times_as_there_are_rows(monkeypatch):
     made, seen = calling(monkeypatch)
     session = oracle.opened(block(**SERVICE), "c", "j")
@@ -902,6 +932,9 @@ class Batching:
     def __exit__(self, *exc):
         self.held.did.append("cursor closed")
 
+    def setinputsizes(self, *kinds):
+        self.held.told = getattr(self.held, "told", []) + [kinds]
+
     def parse(self, statement):
         self.held.did.append(("parse", statement))
         if self.whole and self.kind == "query":
@@ -916,9 +949,10 @@ class Batching:
             raise failing(NOT_FOR_MANY, 0)
         if self.kind == "query":
             raise AssertionError("a query sent for many rows loses the session")
-        size = rows if isinstance(rows, int) else rows.num_rows
-        self.held.did.append(("many", statement, rows if isinstance(rows, int) else rows.column(0).to_pylist(),
-                              batcherrors, arraydmlrowcounts))
+        size = rows if isinstance(rows, int) else len(rows) if isinstance(rows, list) else rows.num_rows
+        first = rows if isinstance(rows, int) else [row[0] for row in rows] if isinstance(rows, list) else rows.column(0).to_pylist()
+        self.held.did.append(("many", statement, first, batcherrors, arraydmlrowcounts))
+        self.held.handed = getattr(self.held, "handed", []) + [rows]
         if self.whole:
             raise self.whole
         sent = getattr(self.held, "sent", 0)
@@ -952,6 +986,8 @@ def batching(monkeypatch, kind, **more):
     monkeypatch.setitem(sys.modules, "oracledb", made)
     session = oracle.opened(block(**SERVICE), "c", "j")
     held = made.opened[0]
+    # A session of Oracle's own client says so of itself.
+    held.thin = not more.get("thick", False)
     monkeypatch.setattr(Held, "cursor", lambda self: Batching(self, kind, **more))
     return session, held
 
@@ -1005,6 +1041,86 @@ def test_a_query_for_each_row_is_run_row_by_row_since_the_driver_loses_the_sessi
     assert refused == [(1, "ORA-01722: invalid number")] and changed == [0, 0, 0]
     assert [did[2] for did in held.did if did[0] == "execute"] == [[10, "x"], [11, "y"], [12, "z"]]
     assert not sendings(held)
+
+
+def test_with_oracles_own_client_rows_are_handed_over_as_tuples(monkeypatch):
+    """Handed to the client as an Arrow table, ten thousand rows of eight columns took 2.2 GB and a million rows 3.5
+    seconds to insert, where tuples take 0.4 GB and 2.6 seconds; a block of PL/SQL for 100,000 rows took 17.6 seconds
+    where tuples take 0.7. Without the client an Arrow table is the faster (1.75 seconds). Measured on 2026-10-13,
+    python-oracledb 26.0.1, Instant Client 23.26."""
+    import datetime
+    import decimal
+
+    rows = pyarrow.table({
+        "n": [1, 2], "v": pyarrow.array(["x", None], pyarrow.large_string()),
+        "amt": pyarrow.array([decimal.Decimal("1.50"), None], pyarrow.decimal128(38, 2)),
+        "d": pyarrow.array([datetime.date(2024, 1, 31), None], pyarrow.date32()),
+        "ts": pyarrow.array([datetime.datetime(2024, 1, 31, 13, 14, 15, 123456), None], pyarrow.timestamp("us")),
+        "f": pyarrow.array([0.5, None], pyarrow.float64()),
+    })
+    session, held = batching(monkeypatch, "changes", thick=True)
+    assert session.many("insert into t values (:1, :2, :3, :4, :5, :6)", rows, counts=True) == ([], [1, 1])
+    assert held.handed == [[
+        (1, "x", decimal.Decimal("1.50"), datetime.date(2024, 1, 31), datetime.datetime(2024, 1, 31, 13, 14, 15, 123456), 0.5),
+        (2, None, None, None, None, None),
+    ]]
+    # The driver is told what each column is, as an Arrow table says of itself. By itself a moment is bound as a
+    # DATE and loses its fraction of a second: seen against the real database on 2026-10-13, in either mode.
+    assert held.told == [("a number", None, "a number", "a date", "a timestamp", "a binary double")]
+    # Without the client they go as they came, and say it themselves.
+    session, held = batching(monkeypatch, "changes")
+    session.many("insert into t values (:1, :2, :3, :4, :5, :6)", rows, counts=True)
+    assert held.handed == [rows] and isinstance(held.handed[0], pyarrow.Table) and not hasattr(held, "told")
+
+
+def test_a_true_or_false_is_said_to_be_one_too(monkeypatch):
+    session, held = batching(monkeypatch, "changes", thick=True)
+    session.many("insert into t values (:1, :2)", pyarrow.table({"flag": [True, None], "n": pyarrow.array([1, 2], pyarrow.int32())}))
+    assert held.told == [("a boolean", "a number")] and held.handed == [[(True, 1), (None, 2)]]
+
+
+@pytest.mark.parametrize("thick", [False, True])
+def test_the_values_of_a_query_run_for_each_row_are_said_to_be_what_they_are(monkeypatch, thick):
+    """Found on 2026-10-13, in either mode: a query for each row that compared a moment of the row found no row.
+    The values went to the driver as plain values, a moment among them was bound as a DATE, and its fraction of a
+    second was gone."""
+    import datetime
+
+    at = datetime.datetime(2024, 1, 31, 13, 14, 15, 123456)
+    session, held = batching(monkeypatch, "query", thick=thick)
+    rows = pyarrow.table({"a": [10, 11], "at": pyarrow.array([at, None], pyarrow.timestamp("us"))})
+    session.many("select count(*) from t where n = :1 and at = :2", rows)
+    # (With the client they were said once before: with the rows it would not take for many.)
+    assert held.told == [("a number", "a timestamp")] * (2 if thick else 1)
+    assert [did[2] for did in held.did if did[0] == "execute"] == [[10, at], [11, None]]
+
+
+def test_with_oracles_own_client_the_values_of_a_block_are_said_to_be_what_they_are_each_time_it_is_sent(monkeypatch):
+    session, held = batching(monkeypatch, "block", fails=(1,), thick=True)
+    session.many("begin p(:1, :2); end;", pyarrow.table({"a": [10, 11, 12], "f": [0.5, 1.5, 2.5]}))
+    # With the sending the driver refuses for its switches, with the whole of them, and with those after the one
+    # that failed.
+    assert held.told == [("a number", "a binary double")] * 3
+
+
+def test_with_oracles_own_client_the_rows_of_a_block_go_as_tuples_too_from_the_row_after_each_that_failed(monkeypatch):
+    session, held = batching(monkeypatch, "block", fails=(1,), thick=True)
+    refused, _ = session.many("begin p(:1, :2); end;", pyarrow.table({"a": [10, 11, 12], "b": ["x", "y", "z"]}))
+    assert [at for at, _ in refused] == [1]
+    assert held.handed == [[(10, "x"), (11, "y"), (12, "z")], [(12, "z")]]
+    # A statement that takes no value is sent with how many times it is to run, as without the client.
+    session, held = batching(monkeypatch, "block", thick=True)
+    session.many("begin p; end;", 3)
+    assert held.handed == [3]
+
+
+def test_how_many_rows_a_round_trip_brings_best_is_each_modes_own(monkeypatch):
+    """Ten million rows read with the client took 22 seconds and 1.5 GB at 50,000 rows a round trip, and 14 seconds
+    and 0.9 GB at 2,000. Without it the number hardly matters (12 to 14 seconds). Measured on 2026-10-13."""
+    session, held = batching(monkeypatch, "changes", thick=True)
+    assert session.rows_a_round_trip == 2_000
+    session, held = batching(monkeypatch, "changes")
+    assert session.rows_a_round_trip is None
 
 
 def test_with_oracles_own_client_a_query_for_each_row_is_run_row_by_row_too(monkeypatch):

@@ -16,6 +16,8 @@ import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
+import polars as pl
+
 from .column_types import DEFAULT_DECIMAL_SCALE
 from .errors import DatabaseError
 from .job.keys import Key, Kind
@@ -113,9 +115,21 @@ _INNER = "v2q"
 # What the driver says, before it sends anything, of a statement that is no insert, update, delete or merge and is
 # handed over for many rows the way those are.
 _NOT_FOR_MANY = "DPY-2040"
+# The session data unit a session asks for: the most there is, which is Oracle's own advice for moving data in bulk.
+# The two sides settle on the smaller of what each asks for, and the driver's own is 8 KB: ten million rows were
+# read in 5.3 seconds with that and in 4.6 with the 64 KB the database allowed. A connect string that names a unit of
+# its own keeps it. Oracle's own client takes its unit from its own files and is asked in vain. Measured on
+# 2026-10-13, python-oracledb 26.0.1.
+_UNIT = 2_097_152
 # What the driver says, in its own mode, of a database that asks for what only Oracle's own client does: Native
 # Network Encryption, and a password kept the way Oracle 10 kept one.
 _ONLY_ITS_OWN_CLIENT = ("DPY-3001", "DPY-3015")
+# Rows a round trip when a session of Oracle's own client reads and the job does not say. Ten million rows of eight
+# columns took 22 seconds and 1.5 GB at 50,000 rows a round trip, 14 seconds and 0.9 GB at 2,000, 15 seconds at
+# 1,000: the client keeps room for each column's widest value, for as many rows as a round trip brings. Without
+# the client the number hardly matters (12 to 14 seconds), and the reader's own stands. Measured on 2026-10-13,
+# python-oracledb 26.0.1, Instant Client 23.26.
+_CLIENTS_ROUND_TRIP = 2_000
 # What Oracle's own client says (thick mode) of a query handed over for many rows: "not supported". Of a block it
 # says what the driver says above. Seen on 2026-10-13, Instant Client 23.26.
 _NO_QUERY_FOR_MANY = "DPI-1013"
@@ -241,7 +255,7 @@ def problems(config: Mapping[str, Any]) -> List[str]:
 def arguments(config: Mapping[str, Any]) -> Dict[str, Any]:
     """What the driver is given to open a session with a connection block. The password is one of them, by itself."""
     kind = config["connection_type"]
-    given: Dict[str, Any] = {"user": config["user"], "password": config["password"]}
+    given: Dict[str, Any] = {"user": config["user"], "password": config["password"], "sdu": _UNIT}
     if kind in (SID, SERVICE):
         given.update(host=config["host"].strip(), port=config["port"])
         given["sid" if kind == SID else "service_name"] = config["dbname"].strip()
@@ -322,6 +336,59 @@ class OracleSession(Session):
         self._held = held
         self._driver = driver
 
+    @property
+    def rows_a_round_trip(self) -> Optional[int]:
+        return None if self._held.thin else _CLIENTS_ROUND_TRIP
+
+    def _handed(self, cursor: Any, rows: Any) -> Any:
+        """Rows as the driver takes them best: an Arrow table as it is, and for Oracle's own client as tuples.
+
+        Handed to the client as an Arrow table, ten thousand rows of eight
+        columns took 2.2 GB, a million rows 3.5 seconds to insert and a
+        block of PL/SQL for 100,000 rows 17.6 seconds; as tuples 0.4 GB,
+        2.6 seconds and 0.7 seconds. Without the client an Arrow table is
+        the faster (1.75 seconds a million rows). Measured on 2026-10-13,
+        python-oracledb 26.0.1, Instant Client 23.26.
+
+        Args:
+            cursor: The cursor the rows are sent on: it is told what each
+                column is where the rows no longer say it themselves.
+            rows: An Arrow table; or, for a statement that takes no value,
+                how many times it is run.
+        """
+        if isinstance(rows, int) or self._held.thin:
+            return rows
+        cursor.setinputsizes(*self._kinds(rows))
+        return pl.from_arrow(rows).rows()
+
+    def _kinds(self, rows: Any) -> List[Any]:
+        """What the driver is told each column of an Arrow table is when its rows go as plain values: what the
+        driver reads from such a table itself.
+
+        By itself a moment is bound as a DATE and loses its fraction of a
+        second, and a float as a NUMBER. Seen on 2026-10-13, in either
+        mode. A text is left to the driver, which makes room for it.
+        """
+        import pyarrow
+
+        driver, said = self._driver, pyarrow.types
+        told: List[Any] = []
+        for field in rows.schema:
+            kind = field.type
+            if said.is_timestamp(kind):
+                told.append(driver.DB_TYPE_TIMESTAMP)
+            elif said.is_date(kind):
+                told.append(driver.DB_TYPE_DATE)
+            elif said.is_floating(kind):
+                told.append(driver.DB_TYPE_BINARY_DOUBLE)
+            elif said.is_boolean(kind):
+                told.append(driver.DB_TYPE_BOOLEAN)
+            elif said.is_integer(kind) or said.is_decimal(kind):
+                told.append(driver.DB_TYPE_NUMBER)
+            else:
+                told.append(None)
+        return told
+
     def bound(self, statement: "Statement") -> Tuple[str, Any]:
         return statement.named()
 
@@ -360,7 +427,7 @@ class OracleSession(Session):
             for start in range(0, total, step):
                 sent = (rows.slice(start, step) if several else min(step, total - start)) if step < total else rows
                 try:
-                    cursor.executemany(statement, sent, batcherrors=True, arraydmlrowcounts=counts)
+                    cursor.executemany(statement, self._handed(cursor, sent), batcherrors=True, arraydmlrowcounts=counts)
                 except self._driver.Error as fault:
                     if start or _code(fault) not in (_NOT_FOR_MANY, _NO_QUERY_FOR_MANY):
                         raise
@@ -396,6 +463,9 @@ class OracleSession(Session):
         # block the driver learns nothing here.)
         cursor.parse(statement)
         if cursor.description is not None:
+            if several:
+                # The values go as plain values here, in either mode: what each is, is said for them.
+                cursor.setinputsizes(*self._kinds(rows))
             for at, given in enumerate([list(row.values()) for row in rows.to_pylist()] if several else [None] * total):
                 try:
                     cursor.execute(statement, given)
@@ -409,7 +479,7 @@ class OracleSession(Session):
         start = 0
         while start < total:
             try:
-                cursor.executemany(statement, rows.slice(start) if several else total - start)
+                cursor.executemany(statement, self._handed(cursor, rows.slice(start)) if several else total - start)
                 break
             except self._driver.Error as fault:
                 if _not_compiled(fault) or not self._held.is_healthy():
@@ -419,10 +489,12 @@ class OracleSession(Session):
                 start = at + 1
         return refused, [0] * total if counts else []
 
-    def call(self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str]) -> Dict[int, List[Any]]:
+    def call(
+        self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str], ins: Optional[Mapping[int, str]] = None
+    ) -> Dict[int, List[Any]]:
         import decimal
 
-        driver = self._driver
+        driver, ins = self._driver, ins or {}
         # A number comes out as every digit it has: left to itself the driver makes it a float.
         kinds = {"number": decimal.Decimal, "text": _TEXT_OUT, "date": driver.DB_TYPE_DATE,
                  "datetime": driver.DB_TYPE_TIMESTAMP, "large text": driver.DB_TYPE_CLOB}
@@ -430,7 +502,10 @@ class OracleSession(Session):
         with self._held.cursor() as cursor:
             try:
                 if width:
-                    cursor.setinputsizes(*[kinds[outs[place]] if place in outs else None for place in range(width)])
+                    # A value that only goes in is said to be what it is where it would be taken for another: by
+                    # itself a moment is bound as a DATE, and loses its fraction of a second.
+                    cursor.setinputsizes(*[kinds[outs[place]] if place in outs else kinds.get(ins.get(place))
+                                           for place in range(width)])
                     cursor.executemany(block, rows)
                 else:
                     cursor.executemany(block, len(rows))

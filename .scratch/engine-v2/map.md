@@ -477,6 +477,20 @@ documentation.
   client showed, fixed; every real test passes with it and without;
   a database that demands Native Network Encryption takes v2 with it.
   Slower with the client; Kerberos and wallets not built.
+  [Faster with Oracle's own client, and a fraction of a second that was lost](issues/130-faster-with-oracles-own-client.md)
+  -- with the client rows go as tuples and a reader's round trip is
+  2,000 rows: reading as fast as without it, a block for each row 24
+  times as fast as before, an insert half as long again. Found on the
+  way, in pushed code and in either mode: a moment handed to a
+  procedure or compared in a query for each row lost its fraction of a
+  second. The driver's direct path load stores by itself: not built.
+  [How Oracle is made fast from Python: what its makers say](issues/131-how-oracle-is-made-fast-from-python.md)
+  -- the research, with a table of what was tried of each finding: the
+  thin driver is the faster by construction; Polars' `large_string`
+  goes to the driver as a LONG, which is what made the client dear;
+  Native Network Encryption will never be in the thin driver, and TLS
+  or the client are the ways out; every session now asks for the
+  largest session data unit.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

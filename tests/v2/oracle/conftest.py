@@ -14,6 +14,8 @@ With ``V2_ORACLE_THICK=1`` every session of the run is one of Oracle's own
 client (python-oracledb's thick mode), which has to be installed;
 ``V2_ORACLE_LIB_DIR`` names its folder where it is not found by itself. A
 process is in one mode or the other, so the whole run is.
+``thick/Dockerfile`` beside this file makes a container with the client
+in it, and says how to run the tests there.
 """
 import os
 import secrets
