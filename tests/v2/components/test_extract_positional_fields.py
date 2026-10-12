@@ -192,4 +192,4 @@ def test_every_blank_python_strips_is_trimmed(tmp_path):
 
 
 def test_pattern_given_as_nothing_refuses_the_job_by_its_key():
-    assert refusals(extract(pattern=None)) == [("pattern", "names no width")]
+    assert refusals(extract(pattern=None)) == [("pattern", "required config key has no value")]

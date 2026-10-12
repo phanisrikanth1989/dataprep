@@ -8,16 +8,17 @@ import lzma
 import os
 import shutil
 import stat
+import sys
 import tarfile
 import time
 import zipfile
 import zlib
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ...errors import ConfigurationError
-from ...files import not_a_file, temp_beside
+from ...files import cleared, not_a_file, temp_beside
 from ...job.keys import Key, Kind
-from ..base import DIE_ON_ERROR, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, Action, one_line
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 
@@ -39,6 +40,11 @@ _PACKED: Tuple[Tuple[bytes, str, Optional[Callable[..., Any]], str], ...] = (
 )
 # Endings of two parts that a folder named after an archive loses whole.
 _TWO_PART = (".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst")
+# The endings that say tar. A tar with no entry is zero bytes and nothing else, and so is a file of zero bytes:
+# of those two, only the name tells which one it is.
+_TAR_NAMES = (".tar", ".tgz", ".tbz", ".tbz2", ".txz", ".tzst") + _TWO_PART
+# A tar is written in blocks of this many bytes: the header of an entry is one, and so is the mark of its end.
+_BLOCK = 512
 # What Python raises on an archive that is cut short or holds other bytes than it says.
 _DAMAGE: Tuple[type, ...] = (zipfile.BadZipFile, tarfile.TarError, zlib.error, lzma.LZMAError, EOFError, gzip.BadGzipFile)
 if zstd is not None:
@@ -72,6 +78,85 @@ def _said(fault: BaseException) -> str:
     return " ".join(str(fault).split()) or type(fault).__name__
 
 
+def _damaged(archive: str, fault: BaseException) -> ConfigurationError:
+    short = isinstance(fault, EOFError) or "nexpected end" in str(fault) or "truncated" in str(fault).lower()
+    return ConfigurationError(
+        f"'{archive}' is damaged: {'it ends before its end' if short else _said(fault)}; nothing is unpacked")
+
+
+def _packing(archive: str) -> Optional[Tuple[str, Callable[..., Any], str]]:
+    """How an archive's bytes are compressed, told from the first of them: what the way is called, what opens
+    it and the ending a name has for it. None when they are not compressed."""
+    with open(archive, "rb") as handle:
+        start = handle.read(8)
+    for magic, name, opener, ending in _PACKED:
+        if start.startswith(magic):
+            if opener is None:
+                raise ConfigurationError(
+                    f"'{archive}' is compressed with {name}, which Python reads from 3.14 on, and this is Python "
+                    f"{sys.version_info.major}.{sys.version_info.minor}")
+            return name, opener, ending
+    return None
+
+
+def _is_entry(block: bytes) -> bool:
+    """Whether a block of a file is the header of an entry of a tar: it carries a check sum of itself."""
+    try:
+        tarfile.TarInfo.frombuf(block, tarfile.ENCODING, "surrogateescape")
+    except tarfile.HeaderError:
+        return False
+    return True
+
+
+def _beyond(stream: Any) -> bool:
+    """Read a stream to its end; returns whether any byte on the way is not zero.
+
+    Reading to the end is also what makes a compressed stream say that it
+    is not whole: its check sum stands after its last byte.
+    """
+    more = False
+    while True:
+        piece = stream.read(_CHUNK)
+        if not piece:
+            return more
+        more = more or piece.count(0) != len(piece)
+
+
+class _Watched:
+    """What a tar is read from, which keeps the last piece read.
+
+    Python's reader of tar stops without a word where it finds no entry:
+    at the mark of the end, and just the same where the archive is cut
+    short or a header is not whole. The piece it read last is what it
+    stopped at.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._last: Tuple[int, bytes] = (-1, b"")
+
+    def read(self, size: int = -1) -> bytes:
+        at = self._stream.tell()
+        data = self._stream.read(size)
+        self._last = (at, data)
+        return data
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self._stream.seek(offset, whence)
+
+    def tell(self) -> int:
+        return self._stream.tell()
+
+    def block_at(self, offset: int) -> bytes:
+        """The block at an offset, or as much of it as there is: the last piece read, when that is it."""
+        at, data = self._last
+        if at != offset:
+            self._stream.seek(offset)
+            data = self._stream.read(_BLOCK)
+        return data
+
+
+
 @REGISTRY.register
 class FileUnarchive(Action):
     """Unpack the archive `zipfile` into the folder `directory`.
@@ -88,10 +173,12 @@ class FileUnarchive(Action):
     All of it or none: the archive is unpacked into a folder of its own
     inside `directory`, and the files are moved to their places when
     every one of them is whole. An archive that is cut short or damaged,
-    or that would not fit, leaves `directory` as it was. A name that
-    would land outside `directory` fails the job. A link or a special
-    file in the archive is left out and named in a warning, and nothing
-    is written through a link that is already in the folder.
+    or that would not fit, leaves `directory` as it was, and so does a
+    file that cannot be moved to its place: what was moved before it is
+    put back. A name that would land outside `directory` fails the job. A
+    link or a special file in the archive is left out and named in a
+    warning, and nothing is written through a link that is already in the
+    folder.
 
     A zip locked with a password is opened with `password` when
     `checkpassword` is on. The password is shown in no log.
@@ -140,9 +227,8 @@ class FileUnarchive(Action):
     def act(self) -> None:
         try:
             self._unpack()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc)):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc)
             self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
 
     def _unpack(self) -> None:
@@ -157,39 +243,43 @@ class FileUnarchive(Action):
             into = os.path.join(into, _root_name(archive))
         kind = self._kind(archive)
         made = self._made(into)
-        staging = temp_beside(os.path.join(into, os.path.basename(archive)), self.id)
-        shutil.rmtree(staging, ignore_errors=True)
+        # A folder of the archive's own in the folder it is unpacked into: `new` for what is unpacked, `old` for
+        # the files that are there and that it takes the place of, until all of it has landed.
+        scratch = temp_beside(os.path.join(into, os.path.basename(archive)), self.id)
+        staging, aside = os.path.join(scratch, "new"), os.path.join(scratch, "old")
         try:
             try:
-                os.mkdir(staging)
-                entries, left_out = self._staged(kind, archive, staging, into)
-                placed = self._placed(entries, archive, staging, into)
+                for folder in (cleared(scratch), staging, aside):
+                    os.mkdir(folder)
+                entries, left_out, noted = self._staged(kind, archive, staging, into)
+                placed = self._placed(entries, archive, staging, aside, into, fresh=made is not None)
             except _DAMAGE as fault:
-                short = isinstance(fault, EOFError) or "nexpected end" in str(fault) or "truncated" in str(fault).lower()
-                why = "it ends before its end" if short else _said(fault)
-                raise ConfigurationError(f"'{archive}' is damaged: {why}; nothing is unpacked") from None
+                raise _damaged(archive, fault) from None
             except OSError as fault:
-                where = ""
-                if isinstance(fault.filename, str):
-                    # An entry is named as the archive names it, not by where it was being unpacked to.
-                    inside = fault.filename.startswith(staging + os.sep)
-                    where = f": '{os.path.relpath(fault.filename, staging) if inside else fault.filename}'"
+                if fault.errno is None:
+                    # No fault of the system: how bzip2 says that the bytes are not what it packed.
+                    raise _damaged(archive, fault) from None
                 raise ConfigurationError(
-                    f"'{archive}' cannot be unpacked into '{into}': {_said(fault)}{where}; nothing is unpacked"
+                    f"'{archive}' cannot be unpacked into '{into}': {_where(fault, staging)}; nothing is unpacked"
                 ) from None
         except BaseException:
-            # The folder as it was: what was made for this archive goes, the folder itself too.
+            # The folder as it was: what was made for this archive goes, the folder itself too. Only a file that
+            # was there before and could not be put back stays where it waits.
             shutil.rmtree(staging, ignore_errors=True)
+            if not _waiting(aside):
+                shutil.rmtree(scratch, ignore_errors=True)
             if made is not None:
                 shutil.rmtree(made, ignore_errors=True)
             raise
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
         if left_out:
             several = len(left_out) > 1
             logger.warning(one_line(
                 f"[{self.id}] {len(left_out)} link{'s' if several else ''} or special file{'s' if several else ''} in "
                 f"'{archive}' {'are' if several else 'is'} left out; the first: '{left_out[0]}'"
             ))
+        for note in noted:
+            logger.warning(one_line(f"[{self.id}] {note}"))
         say_each = logger.info if config["printout"] else logger.debug
         for path in placed:
             say_each(one_line(f"[{self.id}] unpacked '{path}'"))
@@ -207,22 +297,27 @@ class FileUnarchive(Action):
     def _kind(archive: str) -> str:
         """What an archive is, by what it holds: `tar`, `zip`, or the name of the way its one file is compressed."""
         try:
-            # A tar first: its header carries a check sum of itself, so nothing else is taken for one, where the
-            # end of a zip may stand in any file that happens to hold a zip.
-            with tarfile.open(archive, "r:*"):
-                return "tar"
-        except (tarfile.TarError, EOFError, zlib.error, lzma.LZMAError):
-            pass
+            packing = _packing(archive)
+            with (packing[1] if packing else open)(archive, "rb") as held:
+                first = held.read(_BLOCK)
+                # A tar first: the header of an entry carries a check sum of itself, so nothing else is taken for
+                # one, where the end of a zip may stand in any file that happens to hold a zip.
+                if _is_entry(first):
+                    return "tar"
+                # A tar with no entry is zero bytes to its end, and so is a file of zero bytes: the name decides.
+                named_tar = os.path.basename(archive).lower().endswith(_TAR_NAMES)
+                if named_tar and first.count(0) == _BLOCK and not _beyond(held):
+                    return "tar"
+            if packing:
+                return packing[0]
+            if zipfile.is_zipfile(archive):
+                return "zip"
+        except _DAMAGE as fault:
+            raise _damaged(archive, fault) from None
         except OSError as fault:
-            if not isinstance(fault, gzip.BadGzipFile):
-                raise ConfigurationError(f"'{archive}' cannot be read: {_said(fault)}") from None
-        if zipfile.is_zipfile(archive):
-            return "zip"
-        with open(archive, "rb") as handle:
-            start = handle.read(8)
-        for magic, name, opener, _ in _PACKED:
-            if start.startswith(magic) and opener is not None:
-                return name
+            if fault.errno is None:
+                raise _damaged(archive, fault) from None
+            raise ConfigurationError(f"'{archive}' cannot be read: {_said(fault)}") from None
         raise ConfigurationError(
             f"'{archive}' is no archive v2 can unpack: it is neither a zip nor a tar archive, nor one file compressed "
             "with gzip, bzip2, xz or Zstandard"
@@ -246,13 +341,19 @@ class FileUnarchive(Action):
     # Unpacking, into a folder of the archive's own
     # ------------------------------------------------------------------
 
-    def _staged(self, kind: str, archive: str, staging: str, into: str) -> Tuple[List[Entry], List[str]]:
-        """Unpack every entry into the staging folder; returns the entries in the archive's order, and what was left out."""
+    def _staged(self, kind: str, archive: str, staging: str, into: str) -> Tuple[List[Entry], List[str], List[str]]:
+        """Unpack every entry into the staging folder.
+
+        Returns:
+            The entries in the archive's order, the names of what was left
+            out, and what is to be said in a warning once all of it has
+            landed.
+        """
         if kind == "zip":
-            return self._from_zip(archive, staging, into)
+            return (*self._from_zip(archive, staging, into), [])
         if kind == "tar":
             return self._from_tar(archive, staging)
-        return self._from_one_file(kind, archive, staging), []
+        return self._from_one_file(kind, archive, staging), [], []
 
     def _from_zip(self, archive: str, staging: str, into: str) -> Tuple[List[Entry], List[str]]:
         config = self.config
@@ -278,7 +379,7 @@ class FileUnarchive(Action):
                 elif kind_of and kind_of != stat.S_IFREG:
                     left_out.append(name)
                 else:
-                    entries.append((name, info))
+                    entries.append((_a_file(name, archive), info))
             needed = sum(info.file_size for _, info in entries if info is not None)
             free = shutil.disk_usage(into).free
             if needed > free:
@@ -321,33 +422,76 @@ class FileUnarchive(Action):
         changed = time.mktime(tuple(info.date_time) + (0, 0, -1))
         os.utime(staged, (changed, changed))
 
-    @staticmethod
-    def _from_tar(archive: str, staging: str) -> Tuple[List[Entry], List[str]]:
+    def _from_tar(self, archive: str, staging: str) -> Tuple[List[Entry], List[str], List[str]]:
         entries: List[Entry] = []
         left_out: List[str] = []
-        with tarfile.open(archive, "r:*") as held:
-            for member in held:
-                name = _inside(member.name, member.name, archive)
-                if not (member.isreg() or member.isdir() or member.islnk()):
-                    # A link by name, a pipe, a device. A second name for a file of the archive (a hard link) is
-                    # a file, and is unpacked.
-                    left_out.append(name)
-                    continue
-                try:
-                    # Python's own filter for data: no owner, no setuid, nothing outside the folder.
-                    held.extract(member, staging, filter="data")
-                except tarfile.FilterError:
-                    raise ConfigurationError(
-                        f"'{archive}' holds '{member.name}', which leads out of the folder it is unpacked to: "
-                        "nothing is unpacked"
-                    ) from None
-                except KeyError:
-                    raise ConfigurationError(
-                        f"'{archive}' is damaged: '{member.name}' is a second name for a file that is not in it; "
-                        "nothing is unpacked"
-                    ) from None
-                entries.append((name, member.isdir()))
-        return entries, left_out
+        # The files unpacked so far, by name, and the names of what was left out.
+        whole: Dict[str, str] = {}
+        left: Set[str] = set()
+        noted: List[str] = []
+        packing = _packing(archive)
+        with (packing[1] if packing else open)(archive, "rb") as plain:
+            watched = _Watched(plain)
+            # Python's reader finds the entries. It makes no file: every file is made here, from the bytes of an
+            # entry that is a file, so that nothing an archive holds can make a link, a pipe or a device.
+            with tarfile.open(fileobj=watched, mode="r:") as held:
+                last = ""
+                for member in held:
+                    name, last = _inside(member.name, member.name, archive), member.name
+                    if member.isdir():
+                        entries.append((name, True))
+                        continue
+                    # A second name for a file of the archive (a hard link) names the file it is for.
+                    first = _first_name(member, archive) if member.islnk() else None
+                    if not member.isreg() and first not in whole:
+                        if first is not None and first not in left:
+                            raise ConfigurationError(
+                                f"'{archive}' is damaged: '{member.name}' is a second name for a file that is not in "
+                                "it; nothing is unpacked")
+                        # A link by name, a pipe, a device, or a second name for one of those.
+                        left.add(name)
+                        left_out.append(name)
+                        continue
+                    staged = os.path.join(staging, _a_file(name, archive))
+                    if first is None:
+                        self._one_of_a_tar(held, member, staged)
+                    else:
+                        # A file of its own, and not the one file under two names: a copy.
+                        os.makedirs(os.path.dirname(staged), exist_ok=True)
+                        shutil.copy2(whole[first], staged)
+                    whole[name] = staged
+                    entries.append((name, False))
+                stopped_at = watched.block_at(held.offset)
+            if len(stopped_at) < _BLOCK:
+                raise ConfigurationError(f"'{archive}' is damaged: it ends before its end; nothing is unpacked")
+            if stopped_at.count(0) != _BLOCK:
+                raise ConfigurationError(
+                    f"'{archive}' is damaged: what follows '{last}' in it is no entry; nothing is unpacked")
+            # To the last byte: a compressed archive says only there whether all of it is what was packed.
+            if _beyond(watched):
+                noted.append(f"'{archive}' goes on after its end, and what stands there is not unpacked: it may be "
+                             "more than one archive joined")
+        return entries, left_out, noted
+
+    @staticmethod
+    def _one_of_a_tar(held: tarfile.TarFile, member: tarfile.TarInfo, staged: str) -> None:
+        # Of the permissions an entry has, none that lets the file run as its owner or be written by others;
+        # and the file is made with them, so that it gets no more than a new file gets here (the umask).
+        mode = member.mode & 0o755
+        if not mode & 0o100:
+            mode &= ~0o111
+        os.makedirs(os.path.dirname(staged), exist_ok=True)
+        if os.path.lexists(staged):
+            # A second entry of one name: the file of the first goes, with its permissions.
+            os.remove(staged)
+        packed = held.extractfile(member)
+        with packed, open(staged, "wb", opener=lambda path, flags: os.open(path, flags, mode | 0o600)) as unpacked:  # type: ignore[union-attr]
+            shutil.copyfileobj(packed, unpacked, _CHUNK)  # type: ignore[arg-type]
+        try:
+            os.utime(staged, (member.mtime, member.mtime))
+        except (OverflowError, OSError):
+            # A time no clock here shows: the file keeps the time it was unpacked at.
+            pass
 
     @staticmethod
     def _from_one_file(kind: str, archive: str, staging: str) -> List[Entry]:
@@ -371,8 +515,24 @@ class FileUnarchive(Action):
     # Moving what was unpacked to its place
     # ------------------------------------------------------------------
 
-    def _placed(self, entries: List[Entry], archive: str, staging: str, into: str) -> List[str]:
-        """Move the files from the staging folder to their places; returns the paths of the files, in order."""
+    def _placed(
+        self, entries: List[Entry], archive: str, staging: str, aside: str, into: str, fresh: bool
+    ) -> List[str]:
+        """Move the files from the staging folder to their places; returns the paths of the files, in order.
+
+        All of them or none: a file that is there is moved aside first, and
+        when a file cannot be moved to its place every move before it is
+        taken back.
+
+        Args:
+            entries: The entries of the archive, in its order.
+            archive: The archive, for a message.
+            staging: Where the files were unpacked to.
+            aside: Where a file that is written over waits until all have landed.
+            into: The folder to unpack into.
+            fresh: Whether `into` was made for this archive: then taking the
+                folder away puts everything back, and the caller does that.
+        """
         flat = not self.config["extractpath"]
         folders: List[str] = []
         files: Dict[str, str] = {}
@@ -406,15 +566,86 @@ class FileUnarchive(Action):
                 raise ConfigurationError(
                     f"'{final}' of '{archive}' is a file, and '{target}' is a folder: nothing is unpacked"
                 )
-        for name in folders:
-            os.makedirs(os.path.join(into, name), exist_ok=True)
+        # What takes each thing done back again, in the order it was done.
+        back: List[Callable[[], None]] = []
         placed: List[str] = []
-        for final, name in files.items():
-            target = os.path.join(into, final)
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            os.replace(os.path.join(staging, name), target)
-            placed.append(target)
+        try:
+            for name in folders:
+                _folder(os.path.join(into, name), back)
+            for number, (final, name) in enumerate(files.items()):
+                target = os.path.join(into, final)
+                _folder(os.path.dirname(target), back)
+                if os.path.lexists(target):
+                    was = os.path.join(aside, str(number))
+                    os.replace(target, was)
+                    back.append(lambda was=was, target=target: os.replace(was, target))
+                os.replace(os.path.join(staging, name), target)
+                back.append(lambda target=target: os.remove(target))
+                placed.append(target)
+        except BaseException as fault:
+            stood = _taken_back(back)
+            if stood is not None and not fresh and isinstance(fault, OSError):
+                kept = f": the files that were there and are not back are kept in '{aside}'" if _waiting(aside) else ""
+                raise ConfigurationError(
+                    f"'{archive}' cannot be unpacked into '{into}': {_where(fault, staging)}; and '{into}' could not be "
+                    f"put back as it was ({_where(stood, staging)}){kept}"
+                ) from None
+            raise
         return placed
+
+
+def _folder(path: str, back: List[Callable[[], None]]) -> None:
+    """Make a folder, and the folders above it that are not there, noting for each what takes it away again."""
+    missing: List[str] = []
+    while not os.path.isdir(path):
+        missing.append(path)
+        if os.path.lexists(path):
+            # Something that is no folder stands there: making the folder says so.
+            break
+        path = os.path.dirname(path)
+    for folder in reversed(missing):
+        os.mkdir(folder)
+        back.append(lambda folder=folder: os.rmdir(folder))
+
+
+def _waiting(aside: str) -> bool:
+    """Whether a file that was there before still waits where it was moved aside to."""
+    return os.path.isdir(aside) and bool(os.listdir(aside))
+
+
+def _taken_back(back: List[Callable[[], None]]) -> Optional[OSError]:
+    """Take back what was done, the last thing first; returns what stood in the way, if anything did."""
+    stood: Optional[OSError] = None
+    for step in reversed(back):
+        try:
+            step()
+        except OSError as fault:
+            stood = stood or fault
+    return stood
+
+
+def _where(fault: OSError, staging: str) -> str:
+    """What went wrong and with which file, an entry named as the archive names it and not by where it was unpacked to."""
+    if not isinstance(fault.filename, str):
+        return _said(fault)
+    inside = fault.filename.startswith(staging + os.sep)
+    return f"{_said(fault)}: '{os.path.relpath(fault.filename, staging) if inside else fault.filename}'"
+
+
+def _a_file(name: str, archive: str) -> str:
+    """The name of an entry that is a file, which has to be one."""
+    if not name:
+        raise ConfigurationError(f"'{archive}' is damaged: it holds a file without a name; nothing is unpacked")
+    return name
+
+
+def _first_name(member: tarfile.TarInfo, archive: str) -> str:
+    """The name of the file a second name (a hard link) is for, as a path below the folder."""
+    parts = [part for part in member.linkname.split("/") if part not in ("", ".")]
+    if ".." in parts:
+        raise ConfigurationError(
+            f"'{archive}' holds '{member.name}', which leads out of the folder it is unpacked to: nothing is unpacked")
+    return "/".join(parts)
 
 
 def _inside(name: str, as_named: str, archive: str) -> str:

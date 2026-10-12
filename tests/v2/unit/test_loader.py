@@ -419,6 +419,45 @@ def test_column_talend_declares_an_object_is_held_as_text(written):
     assert load(job).components["in_1"].schema[0].type == "str"
 
 
+def test_refusal_of_a_secret_value_does_not_show_it_whatever_refuses_it():
+    from src.v2.job.keys import normalize_config
+
+    def no_sevens(value):
+        if "7" in value:
+            raise ValueError(f"{value!r} holds a seven")
+        return value
+
+    secret = "the value does not fit the key; it is a secret and is not shown"
+    keys = (
+        Key("pin", secret=True, convert=no_sevens),
+        Key("mode", secret=True, choices=("a", "b")),
+        Key("logins", type=list, secret=True, items=(Key("word", required=True), Key("level", type=int))),
+        Key("vault", type=dict, secret=True, fields=(Key("word", type=int),)),
+        Key("token", required=True, secret=True),
+    )
+    raw = {"pin": "1727", "mode": "hunter2", "logins": [{"word": "w", "level": "hunter2"}], "vault": {"word": "hunter2"},
+           "token": "${context.hunter2}"}
+    _, found = normalize_config(raw, keys, "component x", resolve=lambda text: None)
+    assert [(refusal.key, refusal.reason) for refusal in found] == [
+        ("pin", secret), ("mode", secret), ("logins[0].level", secret), ("vault.word", secret),
+        ("token", "required config key has no value")]
+
+
+def test_secret_inside_a_list_or_an_object_is_not_shown():
+    from src.v2.job.keys import without_secrets
+    keys = (
+        Key("servers", type=list, items=(Key("host"), Key("password", secret=True))),
+        Key("proxy", type=dict, fields=(Key("user"), Key("password", secret=True))),
+        Key("vault", type=dict, secret=True), Key("names", type=list), Key("plain", type=dict),
+    )
+    config = {"servers": [{"host": "a", "password": "p1"}, {"host": "b", "password": ""}],
+              "proxy": {"user": "u", "password": "p2"}, "vault": {"k": "v"}, "names": ["x"], "plain": None}
+    assert without_secrets(config, keys) == {
+        "servers": [{"host": "a", "password": "***"}, {"host": "b", "password": ""}],
+        "proxy": {"user": "u", "password": "***"}, "vault": "***", "names": ["x"], "plain": None}
+    assert config["servers"][0]["password"] == "p1" and config["proxy"]["password"] == "p2"
+
+
 def test_refusal_of_a_secret_value_does_not_show_it():
     from src.v2.job.keys import normalize_config
     keys = (Key("password", secret=True), Key("pin", type=int, secret=True, convert=lambda value: 1 / 0 if value else value))

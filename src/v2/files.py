@@ -97,7 +97,11 @@ def to_encoding(written: str, encoding: str) -> bytes:
     return codecs.getincrementalencoder(name)().encode("")
 
 
-def transcode(source: str, target: str, read_as: str, write_as: str) -> int:
+class Longer(Exception):
+    """A file turned out to hold more bytes than it may, while it was read."""
+
+
+def transcode(source: str, target: str, read_as: str, write_as: str, at_most: Optional[int] = None) -> int:
     """Write a file's text to another file in another encoding, piece by piece.
 
     The text is written as it is: line ends are not touched. A byte order
@@ -109,6 +113,9 @@ def transcode(source: str, target: str, read_as: str, write_as: str) -> int:
         target: The file to write.
         read_as: The source's encoding.
         write_as: The target's encoding.
+        at_most: How many bytes the source may hold, when it may not hold
+            any number: a file that is still being written to is found out
+            here, however small it was when it was looked at.
 
     Returns:
         How many bytes were written.
@@ -117,20 +124,29 @@ def transcode(source: str, target: str, read_as: str, write_as: str) -> int:
         ConfigurationError: When a byte of the source is no character in
             its encoding, or one of its characters cannot be written in the
             target's. The message names the place by its line.
+        Longer: When the source holds more than ``at_most`` bytes.
     """
-    decoder = codecs.getincrementaldecoder(codec_name(read_as))()
+    name = codec_name(read_as)
+    decoder = codecs.getincrementaldecoder(name)()
     encoder = codecs.getincrementalencoder(codec_name(write_as))()
     fed = lines = written = 0
     at_start = True
     with open(source, "rb") as reading, open(target, "wb") as writing:
         while True:
             chunk = reading.read(_CHUNK)
+            if at_most is not None and fed + len(chunk) > at_most:
+                raise Longer()
             # What the decoder still holds of the piece before: the start of a character that goes on in this one.
-            held = len(decoder.getstate()[0])
+            state = decoder.getstate()
+            held = len(state[0])
             try:
                 text = decoder.decode(chunk, final=not chunk)
             except UnicodeDecodeError as fault:
-                line = lines + chunk[:max(fault.start - held, 0)].count(b"\n") + 1
+                # The lines before the fault are counted in the text, not in the bytes: in UTF-16 the byte of a
+                # line end is also half of other characters.
+                before = codecs.getincrementaldecoder(name)()
+                before.setstate(state)
+                line = lines + before.decode(chunk[:max(fault.start - held, 0)]).count("\n") + 1
                 raise ConfigurationError(
                     f"'{source}' is not written in {read_as}: byte {fed - held + fault.start + 1} of it, on line {line}, "
                     "is no character there"
@@ -172,6 +188,25 @@ def temp_beside(path: str, component_id: str) -> str:
     folder, name = os.path.split(path)
     safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in component_id)
     return os.path.join(folder, f".{name}.{safe}.v2tmp{os.getpid()}")
+
+
+def cleared(path: str) -> str:
+    """Make sure nothing stands at a scratch name before a file or a folder is made there; returns the name.
+
+    What a run that was killed left there goes: a file, or a folder with
+    what it holds. So does a link, the link itself and not what it leads
+    to: what is then written to the name is not written through a link
+    someone put there.
+
+    Raises:
+        OSError: What stands there cannot be removed. Nothing is written
+            to the name then.
+    """
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        os.remove(path)
+    return path
 
 
 def encoded(text: str, encoding: str) -> bytes:

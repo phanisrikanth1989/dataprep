@@ -68,7 +68,7 @@ not v1. ([What that means](README.md).)
 - One row whose one column holds the whole text of the file `filename`.
   The column has the name the job declares, and `content`, Talend's name
   for it, when the job declares none. More than one column refuses the
-  job.
+  job, and so does a column declared as anything but text.
 - The text is as the file has it: every line end is kept as it is. A
   byte order mark at the start of the file is no part of the text.
 - It is read in `encoding` (ISO-8859-15 when none is given, as Talend's
@@ -78,18 +78,29 @@ not v1. ([What that means](README.md).)
   goes on.)
 - A pipe or a device fails the job and is never opened: it is no file
   to read from start to end.
-- The whole file is held in memory as one value, and about three times
-  over while it is read. That is what the component is for, so it reads
-  no file larger than `size_limit_mb` megabytes (1024 when not given):
-  a larger one fails the job before a byte is read. A file to be gone
-  through row by row belongs to a reader.
+- The whole file is held in memory as one value: that is what the
+  component is for. A file to be gone through row by row belongs to a
+  reader.
+  - While the file is read it is in memory about twice: as the bytes
+    read and as the value. Python never holds it as a text of its own,
+    which can be four times the size of the file.
+  - Every step the value then passes through holds it once more for as
+    long as the step runs. That is Polars: the one value of a table of
+    one row is kept beside the table and copied with it. A job that read
+    a file of 256 MB and wrote it out again held seven to nine times
+    the file's size at its most. (Measured on a Mac, where a figure of
+    this kind is rough; not yet on the servers.)
+  - So it reads no file larger than `size_limit_mb` megabytes (256 when
+    not given). A larger one fails the job before a byte is read, and a
+    file that grows past the limit while it is read fails it too.
+  - The value is let go of when its subjob has finished.
 - A file that cannot be read fails the job. When the job config says
   `die_on_error` is off, the job goes on with no row and a warning, and
   why is in `<id>_ERROR_MESSAGE`. (Talend hands on a row of nothing
   then.)
 - The path of a file that was read is left in `<id>_FILENAME_PATH`. The
-  file is read once in a run. A failure later in the flow names the row
-  as `the content of <filename>`.
+  file is read once in its subjob. A failure later in the flow names the
+  row as `the content of <filename>`.
 - Only text: `as_bytearray` and `as_inputstream` refuse the job, since
   v2 has no column type that holds bytes or an open file. A column the
   job declares as `object`, as a converted job does, is held as text.
@@ -114,7 +125,9 @@ not v1. ([What that means](README.md).)
   ```
 
   (Talend writes a replacement character or a question mark there and
-  goes on.)
+  goes on.) The line is a line of the text, whatever the encoding: in
+  UTF-16 the byte of a line end is also half of other characters, and is
+  not counted for one.
 - An input that is a pipe or a device fails the job and is never opened.
 - The file is gone through piece by piece and never held in memory. It
   is written beside `outfile_name` and put there when it is whole: the
@@ -159,18 +172,25 @@ not v1. ([What that means](README.md).)
   fast (tried on 76 MB of delimited text at level 4: gzip 102 MB a
   second, Zstandard 350, both to a third of the size; unpacking is as
   fast for both). Python has it from 3.14: on an older one a job that
-  asks for it is refused when it loads.
+  asks for it is refused when it loads. It is written with a check sum
+  of what it holds, as the zstd command writes one, so that damage is
+  found when it is unpacked.
 - `level` is how hard the archive is compressed: 0, not at all, to 9
   (1 to 22 for Zstandard); 4 when none is given, as in Talend.
 - Each file is read piece by piece and never held in memory. The archive
   is written beside `target` and put there when it is whole: a job that
   fails leaves the archive that was there, and nothing beside it.
-- The same files give the same bytes, whenever and on whichever server
-  they are archived: the entries are in a fixed order, a tar entry says
-  nothing of who owns the file and has its time in whole seconds, and
-  the gzip header of a `tgz` has no time in it. (A `gzip` of one file
-  has the file's own name and time in its header, as the gzip command
-  writes them.)
+- The same files give the same bytes whenever they are archived: the
+  entries are in a fixed order, a tar entry says nothing of who owns the
+  file and has its time in whole seconds, and the gzip header of a `tgz`
+  has no time in it. For `tar`, `tgz` and `tar.zst` that holds on
+  whichever server. A `zip` holds the time of each entry as a clock on
+  the wall showed it where it was packed, without saying where that was:
+  its bytes are the same on two servers only when both keep the same
+  time zone. (A `gzip` of one file has the file's own name and time in
+  its header, as the gzip command writes them.)
+- A file whose name is not written in UTF-8 fails the job: an archive
+  names its entries in UTF-8, and such a name is no text.
 - A link, or anything else that is no file, among the files is left out
   and named in a warning: nothing is read through a link, and an
   archive holds files. A folder that cannot be looked into fails the
@@ -203,7 +223,13 @@ not v1. ([What that means](README.md).)
   in one of those ways. Which it is is told from what it holds, not from
   its name: a zip named `in.dat` is unpacked as a zip. (Talend goes by
   the name, and takes whatever is not named `.tar`, `.tar.gz`, `.tgz` or
-  `.gz` for a zip.)
+  `.gz` for a zip.) One case only is decided by the name: a tar with no
+  entry is zero bytes to its end, and so is a file of zero bytes. It is
+  taken for an empty archive when its name says tar (`.tar`, `.tar.gz`,
+  `.tgz` and the like) and unpacks to nothing; under any other name it
+  is no archive, or the one compressed file it is. An archive compressed
+  with Zstandard on a Python that does not read it fails the job and
+  says so.
 - The files land by the paths the archive gives them, with the times it
   gives them, and a folder the archive names is made also when it holds
   nothing. A file that is there is written over. With `extractpath` off
@@ -223,6 +249,23 @@ not v1. ([What that means](README.md).)
   leaves half an archive behind.) A zip says how large its entries are:
   one that would not fit where `directory` is fails before a byte is
   written.
+  - What counts as damaged in a tar: one that ends anywhere but at its
+    end mark (Python's own reader takes a tar that is cut off between
+    two entries, or whose next header is not whole, for a shorter
+    archive and says nothing), and a compressed one whose check sum does
+    not fit, which is looked at by reading it to its last byte. A tar
+    that is not compressed holds no check of the bytes of its files:
+    a byte changed inside a file cannot be told. Nor can it in one
+    packed with Zstandard without a check sum (the zstd command and
+    v2's own archive write one).
+  - What stands after the end mark of a tar is not unpacked, as with
+    the tar command, and a warning says so: it may be more than one
+    archive joined.
+  - A file that is there is moved aside before the new one takes its
+    place. When a file cannot be moved to its place, every move before
+    it is taken back, and the files that were there are there again.
+    Should that not work either, the job says so, and says where the
+    files that were there are kept.
 - What an archive may not do:
   - A name that climbs out of the folder (`../x`) fails the job.
     Python's own zip reader puts such a file in the folder under another
@@ -232,11 +275,19 @@ not v1. ([What that means](README.md).)
     with backslashes; they are taken as the separators they are.
   - A link, a pipe or a device in the archive is left out and named in
     a warning. A second name for a file of a tar archive (a hard link)
-    is a file and is unpacked.
+    is unpacked as a file of its own, a copy, so that what is later
+    written to the one is not written to the other. A second name for
+    a link or a special file is left out with it.
+  - No file is made by Python's own unpacking of a tar: it only reads
+    the entries, and the component writes the bytes of each file. So
+    nothing an archive holds can make a link, a pipe or a device, or
+    reach a file outside `directory`.
   - Nothing is written through a link that is already in `directory`
     and leads out of it: that fails the job before anything is moved.
   - A tar entry's owner is not carried over, nor a permission that
-    would let a file run as its owner.
+    would let a file run as its owner or be written by others. Of the
+    permissions that are left, a file gets no more than a new file gets
+    on the server (its umask), as with the tar command.
 - A zip locked with a password is opened with `password` when
   `checkpassword` is on. The password is shown in no log. Python opens
   the old zip locking only, and slowly; an entry locked with AES fails

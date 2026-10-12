@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ...errors import ConfigurationError
 from ...job.keys import Key, Kind, has_context_reference
-from ..base import DIE_ON_ERROR, MAX_ITEMS, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, MAX_ITEMS, Action, one_line
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -189,9 +189,8 @@ class FileList(Action):
         held = self.global_map
         try:
             found = self._found()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc)):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc)
             held.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
             return
         root = self.config["directory"]

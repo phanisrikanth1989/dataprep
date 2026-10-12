@@ -73,11 +73,6 @@ class ExtractPositionalFields(ExtractFields):
                 "schema declares not nullable, fails the job; when off, the row leaves by the reject output."),
     ) + tuple(Key(name, kind=Kind.IGNORED, type=object, doc="Never read by v1.") for name in _UNREAD)
 
-    def problems(self) -> List[str]:
-        if self.config["pattern"] is None:
-            return ["pattern: names no width"]
-        return super().problems()
-
     def filled(self, names: List[str]) -> List[str]:
         if self.schema:
             return super().filled(names)

@@ -116,6 +116,17 @@ def test_value_of_the_wrong_kind_is_refused(key, value, said):
     assert len(found) == 1 and found[0].startswith(said)
 
 
+def test_required_key_given_nothing_is_refused_by_name():
+    assert checked(Key("filename", required=True), None) == (None, ["required config key has no value"])
+    value, found = checked(Key("filename", required=True), "${context.f}", resolve=lambda text: None)
+    assert (value, found) == (None, ["required config key has no value: '${context.f}' holds none"])
+    # A key that may be left out, or that may be nothing, is given nothing without a word.
+    assert checked(Key("filename", default="x.csv"), None) == ("x.csv", [])
+    assert checked(Key("filename", required=True, nullable=True), None) == (None, [])
+    # Before the context is known, the value is left as written.
+    assert checked(Key("filename", required=True), "${context.f}") == ("${context.f}", [])
+
+
 def test_key_declared_with_an_unknown_type_is_reported_not_hidden():
     _, found = checked(Key("x", type=set), 1)
     assert found == ["key 'x' declares an unknown type <class 'set'>"]

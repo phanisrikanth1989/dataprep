@@ -69,7 +69,8 @@ class RunContext:
         # The UTF-8 copies files in other encodings are read through: (file, encoding) to the copy.
         self.utf8_copies: Dict[Tuple[str, str], str] = {}
         # The rows a source made rather than read, by its id: a source that is read again in the same
-        # run hands on the same rows, also where they were drawn at random.
+        # subjob hands on the same rows, also where they were drawn at random. They go when the subjob
+        # has finished, so that a file's worth of them is not held to the end of the run.
         self.made: Dict[str, Any] = {}
         # The items of each loop whose component has run and whose passes the engine has not yet started,
         # by the component's id.
@@ -211,7 +212,7 @@ class RunContext:
         return items
 
     def cleanup(self) -> None:
-        """Remove every scratch file handed out."""
+        """Remove every scratch file handed out, and let go of what the sources of a subjob made."""
         for path in self._scratch:
             try:
                 os.remove(path)
@@ -220,6 +221,7 @@ class RunContext:
         self._scratch.clear()
         self.utf8_copies.clear()
         self.sources.clear()
+        self.made.clear()
 
 
 def _as_text(value: Any) -> str:

@@ -13,9 +13,9 @@ import zipfile
 from typing import Any, List, Optional, Tuple
 
 from ...errors import ConfigurationError
-from ...files import put_in_place, temp_beside
+from ...files import cleared, put_in_place, temp_beside
 from ...job.keys import Key, Kind
-from ..base import DIE_ON_ERROR, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, Action, ascii_only, one_line
 from ..registry import REGISTRY
 from .file_row_count import unreadable
 
@@ -74,6 +74,21 @@ def _unowned(member: tarfile.TarInfo) -> tarfile.TarInfo:
 
 def _not_passed_over(fault: OSError) -> None:
     raise ConfigurationError(f"'{fault.filename}' cannot be read: {(fault.strerror or type(fault).__name__).lower()}")
+
+
+def _zstandard(raw: Any, level: int) -> Any:
+    """What packs bytes with Zstandard into an open file, with a check sum of them at the end, as the zstd command
+    writes one: without it, damage cannot be told when the archive is unpacked."""
+    parameter = zstd.CompressionParameter
+    return zstd.ZstdFile(raw, "wb", options={parameter.compression_level: level, parameter.checksum_flag: 1})
+
+
+def _is_utf8(name: str) -> bool:
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 @REGISTRY.register
@@ -158,9 +173,8 @@ class FileArchive(Action):
     def act(self) -> None:
         try:
             self._pack()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc)):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc)
             self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
 
     def _pack(self) -> None:
@@ -184,9 +198,20 @@ class FileArchive(Action):
         if folder and not os.path.isdir(folder):
             if not config["mkdir"]:
                 raise ConfigurationError(f"the folder '{folder}' is not there, and is not to be made")
-            os.makedirs(folder, exist_ok=True)
-        beside = temp_beside(target, self.id)
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except OSError as exc:
+                raise ConfigurationError(f"the folder '{folder}' cannot be made: {unreadable(folder, exc)}") from None
+        try:
+            beside = cleared(temp_beside(target, self.id))
+        except OSError as exc:
+            raise ConfigurationError(f"'{target}' cannot be written: {unreadable(target, exc)}") from None
         taken, left_out = self._files(source, {os.path.realpath(target), os.path.realpath(beside)})
+        for _, name in taken:
+            if not _is_utf8(name):
+                # An archive names its entries in UTF-8. What Linux hands on for other bytes is no text at all.
+                raise ConfigurationError(
+                    f"'{ascii_only(name)}' of '{source}' cannot be packed: its name is not written in UTF-8")
         if left_out:
             logger.warning(one_line(
                 f"[{self.id}] {len(left_out)} links or special files of '{source}' are left out of the archive; "
@@ -276,7 +301,7 @@ class FileArchive(Action):
                 # No name and no time in the gzip header: the same files give the same bytes.
                 packer: Any = gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=level, mtime=0)
             elif kind == "tar.zst":
-                packer = zstd.ZstdFile(raw, "wb", level=level)
+                packer = _zstandard(raw, level)
             else:
                 packer = raw
             try:
@@ -297,6 +322,6 @@ class FileArchive(Action):
                     filename=os.path.basename(source), fileobj=raw, mode="wb", compresslevel=level, mtime=changed
                 )
             else:
-                packer = zstd.ZstdFile(raw, "wb", level=level)
+                packer = _zstandard(raw, level)
             with packer:
                 shutil.copyfileobj(reading, packer, _CHUNK)

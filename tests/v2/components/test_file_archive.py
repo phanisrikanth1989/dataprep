@@ -1,4 +1,5 @@
 """File archive: files packed into one archive."""
+import errno
 import gzip
 import io
 import logging
@@ -10,7 +11,8 @@ import zipfile
 
 import pytest
 
-from src.v2 import load_job
+from src.v2 import files, load_job
+from src.v2.components.file import file_archive
 from src.v2.errors import JobRefusedError
 from tests.v2.components.kit import job
 
@@ -131,6 +133,39 @@ def test_no_file_to_take_writes_no_archive_and_takes_away_the_one_that_was_there
         "[pack] no file of 'src' is taken: no archive is written, and 'out.zip', which was there, is taken away"]
 
 
+@pytest.mark.parametrize("written, name", [("zip", "out.zip"), ("tgz", "out.tar.gz"), ("gzip", "out.gz")])
+def test_link_planted_where_the_archive_is_written_before_it_is_put_in_place_is_not_written_through(tmp_path, written, name):
+    folder = filled(tmp_path, dict(FILES, **{"victim.cfg": b"keep"}))
+    os.symlink(folder / "victim.cfg", files.temp_beside(str(folder / name), "pack"))
+    source = {"source_file": "src/a.csv"} if written == "gzip" else {"source": "src"}
+    result = on_v2(job([archive(target=name, archive_format=written, **source)], []), folder)
+    assert result.status == "success", result.error
+    assert (folder / "victim.cfg").read_bytes() == b"keep"
+    assert (folder / name).is_file() and not (folder / name).is_symlink()
+
+
+def test_link_planted_where_the_archive_is_written_that_cannot_be_taken_away_fails_the_job(tmp_path, monkeypatch):
+    folder = filled(tmp_path, dict(FILES, **{"victim.cfg": b"keep"}))
+    scratch = files.temp_beside("out.zip", "pack")
+    os.symlink(folder / "victim.cfg", folder / scratch)
+    really = os.remove
+    monkeypatch.setattr(os, "remove", lambda path, *more, **kept: (_ for _ in ()).throw(
+        OSError(errno.EPERM, "Operation not permitted", str(path))) if str(path) == scratch else really(path, *more, **kept))
+    result = on_v2(job([archive(source="src", target="out.zip")], []), folder)
+    assert (result.status, result.error) == ("failed", "'out.zip' cannot be written: operation not permitted")
+    assert (folder / "victim.cfg").read_bytes() == b"keep" and not (folder / "out.zip").exists()
+
+
+@needs_zstd
+@pytest.mark.parametrize("written, name, source", [("tar.zst", "out.tar.zst", {"source": "src"}),
+                                                   ("zst", "out.zst", {"source_file": "src/a.csv"})])
+def test_zstandard_archive_carries_a_check_sum_of_what_it_holds(tmp_path, written, name, source):
+    result, folder = ran(tmp_path, target=name, archive_format=written, **source)
+    assert result.status == "success", result.error
+    # The fifth byte of a Zstandard frame describes it; its third bit says that a check sum ends the frame.
+    assert (folder / name).read_bytes()[4] & 0b100
+
+
 def test_archive_in_the_folder_it_is_made_of_does_not_hold_itself(tmp_path):
     result, folder = ran(tmp_path, source="src", target="src/out.zip")
     assert result.status == "success", result.error
@@ -239,6 +274,18 @@ def test_level_0_stores_and_a_higher_level_makes_a_smaller_archive(tmp_path):
     assert sizes[0] == len(files["src/big.txt"]) and sizes[0] > sizes["1"] > sizes[9]
 
 
+@needs_zstd
+def test_higher_level_makes_a_smaller_zstandard_archive(tmp_path):
+    files = {"src/a.csv": b"".join(b"%d;some text that packs well;%d\n" % (number, number % 97) for number in range(60_000))}
+    sizes = {}
+    for level in (1, 19):
+        result, folder = ran(tmp_path / str(level), files, source_file="src/a.csv", target="out.zst", archive_format="zst",
+                             level=level)
+        assert result.status == "success", result.error
+        sizes[level] = (folder / "out.zst").stat().st_size
+    assert sizes[19] < sizes[1]
+
+
 def test_level_is_4_when_none_is_given_and_compression_level_is_v1s_name_for_it():
     assert load_job(job([archive(source="a", target="b")], [])).components["pack"].config["level"] == 4
     assert load_job(job([archive(source="a", target="b", compression_level="9")], [])).components["pack"].config["level"] == 9
@@ -343,6 +390,34 @@ def test_archive_that_cannot_be_written_is_said_before_any_file_is_read(tmp_path
     os.chmod(folder / "src/a.csv", 0o000)
     result = on_v2(job([archive(source="src", target="taken")], []), folder)
     assert (result.status, result.error) == ("failed", "'taken' cannot be written: it is a folder")
+
+
+@pytest.mark.parametrize("die", [True, False])
+def test_folder_of_the_archive_that_cannot_be_made_fails_the_job_in_plain_words_or_lets_it_go_on(tmp_path, die):
+    # `src/a.csv` is a file: no folder can be made below it.
+    made = job([archive(source="src", target="src/a.csv/deep/out.zip", mkdir=True, die_on_error=die)], [])
+    result = on_v2(made, filled(tmp_path, FILES))
+    said = "the folder 'src/a.csv/deep' cannot be made: not a directory"
+    if die:
+        assert (result.status, result.error) == ("failed", said)
+    else:
+        assert result.status == "success" and result.global_map["pack_ERROR_MESSAGE"] == said
+
+
+@pytest.mark.parametrize("written, name", [("zip", "out.zip"), ("tgz", "out.tgz"), ("tar", "out.tar")])
+def test_file_whose_name_is_not_utf_8_fails_the_job_in_plain_words_and_no_archive_is_written(tmp_path, monkeypatch, written, name):
+    really = file_archive.FileArchive._files
+
+    def as_linux_gives_it(self, source, never):
+        # A name that is not UTF-8, as Linux hands it to Python. macOS holds no such file, so the name is put in here.
+        taken, left_out = really(self, source, never)
+        return [(path, entry.replace("a.csv", "caf" + chr(0xDCE9) + ".csv")) for path, entry in taken], left_out
+
+    monkeypatch.setattr(file_archive.FileArchive, "_files", as_linux_gives_it)
+    result, folder = ran(tmp_path, source="src", target=name, archive_format=written)
+    assert (result.status, result.error) == (
+        "failed", "'caf\\udce9.csv' of 'src' cannot be packed: its name is not written in UTF-8")
+    assert not (folder / name).exists()
 
 
 def test_job_that_is_not_to_die_goes_on_and_says_why(tmp_path):

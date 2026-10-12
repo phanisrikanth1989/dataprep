@@ -26,8 +26,8 @@ import polars as pl
 from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only,
                                one_line)
 from ..errors import ConfigurationError, JobFailedError
-from ..files import put_in_place, temp_beside
-from ..job.graph import bodies, subjobs
+from ..files import cleared, put_in_place, temp_beside
+from ..job.graph import subjobs
 from ..job.keys import normalize_config, without_secrets
 from ..job.model import ComponentSpec, Iterate, Job, Only, RunSettings, Trigger
 from ..column_types import VIOLATION, conform
@@ -196,7 +196,6 @@ class Runner:
         for trigger in job.triggers:
             self._leaving.setdefault(self._subjob_of[trigger.source], []).append(trigger)
         self._iterates = {link.source: link for link in job.iterates}
-        self._bodies = bodies(job)
         # What each loop came to, by the id of the component that starts it: its items, the passes run, and
         # the item a pass failed at.
         self.loops: Dict[str, Dict[str, Any]] = {}
@@ -358,15 +357,11 @@ class Runner:
             logger.info(f"[{looping}] no item: what it leads to is not run")
             return None, False
         global_map = self.run_context.global_map
-        start, body = self._subjob_of[link.target], self._bodies[looping]
+        start = self._subjob_of[link.target]
         began = time.perf_counter()
         for number, (named, entries) in enumerate(items.each, start=1):
             global_map.update(entries)
             global_map[f"{looping}_CURRENT_ITERATION"] = number
-            for index in body:
-                for component_id in self._plan[index]:
-                    # What a source made for the pass before is not this pass's.
-                    self.run_context.made.pop(component_id, None)
             logger.info(one_line(f"[{looping}] item {number} of {items.count}: {named}"))
             told["passes"] += 1
             before = len(result.failures)
@@ -917,7 +912,13 @@ class Runner:
         state.writes, state.taps = [], []
         if not wanted and not writes and not taps:
             return []
-        temps = [temp_beside(write.path, component_id) for component_id, write, _ in writes]
+        temps: List[str] = []
+        for component_id, write, _ in writes:
+            try:
+                # Nothing is written through a link that stands where the file is written before it is put in place.
+                temps.append(cleared(temp_beside(write.path, component_id)))
+            except OSError as exc:
+                raise _Failed(component_id, _reason(exc)) from exc
         state.temps += temps
         started = time.perf_counter()
         try:

@@ -723,7 +723,7 @@ def test_row_order_is_kept_on_many_rows(tmp_path, inner):
     [
         ({}, "join_key: required config key is missing"),
         ({"join_key": []}, "join_key: at least one pair of key columns is needed"),
-        ({"join_key": None}, "join_key: at least one pair of key columns is needed"),
+        ({"join_key": None}, "join_key: required config key has no value"),
         ({"join_key": "dept"}, "join_key: expected a list"),
         ({"join_key": [{"input_column": "dept"}]}, "join_key[0].lookup_column: required config key is missing"),
         ({"join_key": [{"lookup_column": "dept"}]}, "join_key[0].input_column: required config key is missing"),

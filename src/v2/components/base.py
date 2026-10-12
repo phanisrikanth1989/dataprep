@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, List,
 
 import polars as pl
 
+from ..errors import ConfigurationError
 from ..expressions.translate import Scope
 from ..job.keys import Key, Kind
 from ..rows import REASON, described, first_of, key_column, row_column, shown, visible
@@ -42,7 +43,7 @@ COMMON_KEYS: Tuple[Key, ...] = (
     Key("component_type", kind=Kind.IGNORED, type=object, doc="v1's name for the component type; a label."),
 )
 
-# For a component that asks ``goes_on_after``: the one switch between failing the job and going on.
+# For a component that asks ``fail_or_go_on``: the one switch between failing the job and going on.
 DIE_ON_ERROR = Key(
     "die_on_error", type=bool, default=True,
     doc="Whether what it cannot do fails the job. When the job config says off, the job goes on with a warning, "
@@ -86,6 +87,21 @@ def ascii_only(text: str) -> str:
 # A line break and every other control character, each as the escape it is written with.
 _CONTROL = {code: f"\\x{code:02x}" for code in (*range(32), 127)}
 _CONTROL.update({9: "\\t", 10: "\\n", 13: "\\r"})
+
+
+# What a component that works on files may meet and cannot help: the job config asks for what cannot be done, the
+# file system says no, or a name or a text is not in the encoding it has to be in.
+FAULTS = (ConfigurationError, OSError, UnicodeError)
+
+
+def in_plain_words(fault: BaseException) -> str:
+    """A fault as the one line that says it: what the file system said, in its words and with the file it named."""
+    if isinstance(fault, ConfigurationError):
+        return str(fault)
+    if isinstance(fault, OSError) and fault.strerror:
+        named = f": '{fault.filename}'" if isinstance(fault.filename, str) else ""
+        return ascii_only(f"{fault.strerror.lower()}{named}")
+    return ascii_only(" ".join(str(fault).split()) or type(fault).__name__)
 
 
 def one_line(text: str) -> str:
@@ -443,22 +459,26 @@ class Component:
             count = len(items)
         self.run_context.items[self.id] = Items(items, count, self.config["max_items"], done)
 
-    def goes_on_after(self, fault: str, with_what: str = "") -> bool:
-        """Whether the job goes on after a fault that would fail it.
+    def fail_or_go_on(self, fault: BaseException, with_what: str = "") -> None:
+        """Fail the job with a fault, in plain words, unless the job is to go on after one.
 
-        It does when the job config says ``die_on_error`` is off: why is
-        then left in ``<id>_ERROR_MESSAGE`` and said in a warning. For a
-        component that declares ``DIE_ON_ERROR`` among its keys.
+        The job goes on when its config says ``die_on_error`` is off: why
+        is then left in ``<id>_ERROR_MESSAGE`` and said in a warning. For
+        a component that declares ``DIE_ON_ERROR`` among its keys, called
+        where it has caught one of ``FAULTS``.
 
         Args:
-            fault: What could not be done, in plain words.
+            fault: What was caught.
             with_what: What the job goes on with, to end the warning: `` with no row``.
+
+        Raises:
+            ConfigurationError: The job is to die on a fault.
         """
+        said = in_plain_words(fault)
         if self.config["die_on_error"]:
-            return False
-        self.global_map[f"{self.id}_ERROR_MESSAGE"] = fault
-        logger.warning(one_line(f"[{self.id}] {fault}; the job goes on{with_what}"))
-        return True
+            raise ConfigurationError(said) from None
+        self.global_map[f"{self.id}_ERROR_MESSAGE"] = said
+        logger.warning(one_line(f"[{self.id}] {said}; the job goes on{with_what}"))
 
     @property
     def context(self) -> Dict[str, Any]:

@@ -5,9 +5,9 @@ import logging
 import os
 
 from ...errors import ConfigurationError
-from ...files import not_a_file, put_in_place, temp_beside, transcode
+from ...files import cleared, not_a_file, put_in_place, temp_beside, transcode
 from ...job.keys import Key, Kind
-from ..base import DIE_ON_ERROR, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, Action, one_line
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 from .file_row_count import unreadable
@@ -58,9 +58,8 @@ class ChangeFileEncoding(Action):
     def act(self) -> None:
         try:
             self._change()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc)):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc)
             self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
 
     def _change(self) -> None:
@@ -75,10 +74,13 @@ class ChangeFileEncoding(Action):
         if folder and not os.path.isdir(folder):
             if not config["create"]:
                 raise ConfigurationError(f"the folder '{folder}' is not there, and is not to be made")
-            os.makedirs(folder, exist_ok=True)
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except OSError as exc:
+                raise ConfigurationError(f"the folder '{folder}' cannot be made: {unreadable(folder, exc)}") from None
         beside = temp_beside(target, self.id)
         try:
-            size = transcode(source, beside, read_as, config["encoding"])
+            size = transcode(source, cleared(beside), read_as, config["encoding"])
             put_in_place(beside, target)
         except OSError as exc:
             if exc.filename == source:

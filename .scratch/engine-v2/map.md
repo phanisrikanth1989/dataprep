@@ -346,6 +346,11 @@ documentation.
   [File unarchive](issues/98-file-unarchive.md) -- every kind Python
   reads, told from the content; all of it or none; names checked, links
   left out, a zip held against the free space; the password a secret.
+  [Review of the six file jobs](issues/99-review-of-the-six-file-jobs.md)
+  -- fourteen findings, fixed test first: a tar that is cut or changed
+  unpacks nothing, no entry can make a link or reach outside, moves are
+  taken back, the raw input holds twice the file and not nine times, a
+  fault of the file system honours `die_on_error`.
   [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md)
   -- a pass is a unit of its own everywhere; clean-up runs after a
   failure everywhere but in v1; a converted loop job cannot load today.
@@ -418,8 +423,8 @@ documentation.
 For the thirty more components of 2026-10-12 (the paragraphs after this
 list are of the first destination, which is reached):
 
-- File jobs: the six are built. An independent review of them is still
-  to be done.
+- File jobs: the six are built and reviewed
+  ([Review of the six file jobs](issues/99-review-of-the-six-file-jobs.md)).
 - Loops and job control are decided
   ([Loops and job control: the decisions](issues/100-loops-and-job-control-the-decisions.md))
   and not built: reading an item in a config string, the iterate link,

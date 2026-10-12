@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import polars as pl
 
-from ...column_types import held_frame, polars_schema
+from ...column_types import polars_schema
 from ...errors import ConfigurationError
-from ...files import codec_name, not_a_file
+from ...files import Longer, not_a_file, transcode
 from ...job.keys import Key, Kind
 from ...job.model import Column
 from ...rows import hidden, visible
-from ..base import DIE_ON_ERROR, Source
+from ..base import DIE_ON_ERROR, FAULTS, Source
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 from .file_row_count import unreadable
@@ -37,8 +37,9 @@ class FileInputRaw(Source):
     place. The column has the name the job declares, and `content` when it
     declares none.
 
-    The whole file is held in memory as one value, and about three times
-    over while it is read. That is what the component is for, and why it
+    The whole file is held in memory as one value: twice while it is
+    read, and once more by every step the value passes through, for as
+    long as the step runs. That is what the component is for, and why it
     reads no file larger than `size_limit_mb`. A file to be gone through
     row by row is a reader's.
 
@@ -52,7 +53,7 @@ class FileInputRaw(Source):
     keys = (
         Key("filename", required=True, doc="The file to read."),
         Key("encoding", default="ISO-8859-15", convert=encoding, doc="The file's character encoding."),
-        Key("size_limit_mb", type=int, default=1024, convert=_limit,
+        Key("size_limit_mb", type=int, default=256, convert=_limit,
             doc="The largest file that is read, in megabytes; a larger one is not read at all."),
         DIE_ON_ERROR,
         Key("as_string", kind=Kind.IGNORED, type=object, doc="The file is always handed on as text."),
@@ -65,6 +66,10 @@ class FileInputRaw(Source):
         found = [] if self.config["filename"].strip() else ["filename: there is no file named"]
         if len(self.schema) > 1:
             found.append(f"schema: a raw file input hands on one column, the file's text; {len(self.schema)} are declared")
+        elif self._column().type != "str":
+            column = self._column()
+            found.append(f"schema: the column of a raw file input holds the file's text, and '{column.name}' is "
+                         f"declared {column.type}")
         return found
 
     def declared_outputs(self) -> Dict[str, pl.LazyFrame]:
@@ -78,16 +83,16 @@ class FileInputRaw(Source):
     def read(self) -> Dict[str, pl.LazyFrame]:
         made = self.run_context.made
         if self.id not in made:
-            # Once in a run, however often the engine reads the source.
-            made[self.id] = (self._held(),)
-        text = made[self.id][0]
-        column = self._column()
-        rows = [] if text is None else [{column.name: text}]
+            # Once in its subjob, however often the engine reads the source.
+            made[self.id] = self._held()
+        # The value goes into the plan as it is, and no frame is made of it here: Polars holds the value of a
+        # frame of one row a second time, and copies it whenever such a frame is copied.
         # One row at most: a run for picked rows has it or fails before it comes here, so there is nothing to
         # pick among.
-        frame = held_frame([column], rows).with_columns(pl.Series(self.row_number, [1] * len(rows), dtype=pl.UInt32))
+        frame = pl.LazyFrame().select(pl.lit(made[self.id]), pl.lit(1, dtype=pl.UInt32).alias(self.row_number))
         frame = frame.with_columns(self.key_copies())
-        return {"main": frame.select(visible(frame.columns) + hidden(frame.columns)).lazy()}
+        names = frame.collect_schema().names()
+        return {"main": frame.select(visible(names) + hidden(names))}
 
     def locate(self, number: int) -> str:
         return f"the content of {self.config['filename']}"
@@ -103,42 +108,42 @@ class FileInputRaw(Source):
     def _column(self) -> Column:
         return self.schema[0] if self.schema else Column("content", "str")
 
-    def _held(self) -> Optional[str]:
-        """The file's text; None when it cannot be read and the job is to go on."""
+    def _held(self) -> pl.Series:
+        """The file's text as the one value of a column; no value when it cannot be read and the job is to go on."""
         try:
             text = self._text()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc), " with no row"):
-                raise
-            return None
+        except FAULTS as exc:
+            self.fail_or_go_on(exc, " with no row")
+            return pl.Series(self._column().name, [], dtype=pl.String)
         self.global_map[f"{self.id}_FILENAME_PATH"] = self.config["filename"]
         return text
 
-    def _text(self) -> str:
+    def _text(self) -> pl.Series:
+        """The file's text as one value.
+
+        It is written as UTF-8 to a scratch file first, a piece at a time,
+        and the bytes of that file are what the value is made of: Python
+        never holds the text as a text of its own, which is up to four
+        times the size of the file.
+        """
         config = self.config
         path, limit = config["filename"], config["size_limit_mb"]
         if not os.path.exists(path):
             raise ConfigurationError(f"File not found: '{path}'")
         if not_a_file(path):
             raise ConfigurationError(f"'{path}' cannot be read: {not_a_file(path)}")
+        too_large = f"more than the {limit} MB a raw file input reads by `size_limit_mb`"
+        why = "the whole file would be held in memory as one value"
+        scratch = self.run_context.temp_path(".utf8")
         try:
-            with open(path, "rb") as handle:
-                size = os.fstat(handle.fileno()).st_size
-                if size > limit * _MB:
-                    raise ConfigurationError(
-                        f"'{path}' holds {size} bytes, more than the {limit} MB a raw file input reads by "
-                        "`size_limit_mb`: the whole file would be held in memory as one value"
-                    )
+            size = os.path.getsize(path)
+            if size > limit * _MB:
+                raise ConfigurationError(f"'{path}' holds {size} bytes, {too_large}: {why}")
+            transcode(path, scratch, config["encoding"], "UTF-8", at_most=limit * _MB)
+            with open(scratch, "rb") as handle:
                 data = handle.read()
+        except Longer:
+            raise ConfigurationError(f"'{path}' holds {too_large} (it grew while it was read): {why}") from None
         except OSError as exc:
             raise ConfigurationError(f"'{path}' cannot be read: {unreadable(path, exc)}") from None
-        try:
-            text = data.decode(codec_name(config["encoding"]))
-        except UnicodeDecodeError as exc:
-            line = data.count(b"\n", 0, exc.start) + 1
-            raise ConfigurationError(
-                f"'{path}' is not written in {config['encoding']}: byte {exc.start + 1} of it, on line {line}, "
-                "is no character there"
-            ) from None
-        # A byte order mark says how the file is written; it is no part of what is written.
-        return text.removeprefix("\ufeff")
+        return pl.Series(self._column().name, [data], dtype=pl.Binary).cast(pl.String)

@@ -1,10 +1,12 @@
 """Raw file input: a whole file as one value."""
 import logging
 import os
+import tracemalloc
 
 import pytest
 
-from src.v2 import load_job, run_job
+from src.v2 import files, load_job, run_job
+from src.v2.components.file import file_input_raw
 from src.v2.errors import JobRefusedError
 from tests.v2.components.kit import columns, flow, job, writer
 
@@ -91,6 +93,15 @@ def test_byte_that_is_no_character_fails_the_job_and_says_where(tmp_path):
     assert result.error == "'in.txt' is not written in UTF-8: byte 12 of it, on line 3, is no character there"
 
 
+def test_line_of_a_fault_is_a_line_of_the_text_also_where_its_characters_hold_the_byte_of_a_line_end(tmp_path):
+    # Gujarati letters: written in UTF-16, each holds the byte 0x0A, which is no line end there.
+    letters = "".join(chr(code) for code in (0x0A85, 0x0A86, 0x0A87, 0x0A88))
+    data = f"line1\nline2 {letters}\nline3 ".encode("utf-16-le") + b"\x00\xd8" + "x\n".encode("utf-16-le")
+    result, written = ran(tmp_path, raw(filename="in.txt", encoding="UTF-16LE"), {"in.txt": data})
+    assert (result.status, written) == ("failed", None)
+    assert result.error == "'in.txt' is not written in UTF-16LE: byte 47 of it, on line 3, is no character there"
+
+
 def test_file_that_is_not_there_fails_the_job(tmp_path):
     result, written = ran(tmp_path, raw(filename="nope.txt"), {})
     assert (result.status, result.error, written) == ("failed", "File not found: 'nope.txt'", None)
@@ -108,6 +119,16 @@ def test_pipe_or_device_fails_the_job_and_is_never_opened(tmp_path):
     assert (result.status, result.error) == ("failed", "'pipe' cannot be read: it is no file, but a pipe or a device")
     result = on_v2(raw(filename="/dev/zero"), folder)
     assert (result.status, result.error) == ("failed", "'/dev/zero' cannot be read: it is no file, but a pipe or a device")
+
+
+def test_file_that_may_not_be_read_fails_the_job_in_plain_words(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root may read everything")
+    folder = filled(tmp_path, {"in.txt": b"x"})
+    os.chmod(folder / "in.txt", 0o000)
+    result = on_v2(raw(filename="in.txt"), folder)
+    assert (result.status, result.error) == ("failed", "'in.txt' cannot be read: permission denied")
+    assert not (folder / "out.txt").exists()
 
 
 def test_job_that_is_not_to_die_goes_on_with_no_row_and_says_why(tmp_path, caplog):
@@ -151,8 +172,41 @@ def test_file_as_large_as_the_limit_is_read(tmp_path):
     assert result.status == "success" and written == exact + b"\n"
 
 
-def test_limit_is_a_gigabyte_when_none_is_given():
-    assert load_job(raw(filename="in.txt")).components["in"].config["size_limit_mb"] == 1024
+def test_file_that_grows_past_the_limit_while_it_is_read_fails_the_job(tmp_path, monkeypatch):
+    really = file_input_raw.transcode
+
+    def while_it_grows(source, target, *more, **kept):
+        # Small when it was looked at; someone goes on writing to it before it is read.
+        with open(source, "ab") as growing:
+            growing.write(b"x" * (2 * 1024 * 1024))
+        return really(source, target, *more, **kept)
+
+    monkeypatch.setattr(file_input_raw, "transcode", while_it_grows)
+    result, written = ran(tmp_path, raw(filename="in.txt", size_limit_mb=2), {"in.txt": b"x"})
+    assert (result.status, written) == ("failed", None)
+    assert result.error == (
+        "'in.txt' holds more than the 2 MB a raw file input reads by `size_limit_mb` (it grew while it was read): "
+        "the whole file would be held in memory as one value")
+
+
+def test_text_is_never_held_as_a_text_of_pythons(tmp_path, monkeypatch):
+    # One character beyond the usual ones makes a text of Python's four times as large as the file.
+    monkeypatch.setattr(files, "_CHUNK", 1 << 20)
+    data = b"0123456789;abcdefghij\n" * 700_000 + chr(0x1F600).encode("utf-8")
+    folder = filled(tmp_path, {"in.txt": data})
+    tracemalloc.start()
+    try:
+        result = on_v2(raw(filename="in.txt", encoding="UTF-8"), folder)
+        most = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert result.status == "success", result.error
+    assert (folder / "out.txt").read_bytes() == data + b"\n"
+    assert most < 1.5 * len(data), f"{most / len(data):.1f} times the file was held by Python"
+
+
+def test_limit_is_a_quarter_of_a_gigabyte_when_none_is_given():
+    assert load_job(raw(filename="in.txt")).components["in"].config["size_limit_mb"] == 256
 
 
 # ------------------------------------------------------------------
@@ -233,6 +287,11 @@ def test_what_the_converter_writes_is_taken(tmp_path):
                die_on_error=False, tstatcatcher_stats=False, label="")
     result, written = ran(tmp_path, made, {"in.txt": b"x"})
     assert result.status == "success" and written == b"x\n"
+
+
+def test_column_declared_as_anything_but_text_refuses_the_job():
+    assert refusals(raw(schema="content:int", filename="in.txt")) == [
+        ("schema", "the column of a raw file input holds the file's text, and 'content' is declared int")]
 
 
 def test_more_than_one_column_refuses_the_job():

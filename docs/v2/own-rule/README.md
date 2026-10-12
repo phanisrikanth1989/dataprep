@@ -8,10 +8,18 @@ too.
 
 What they share:
 
-- What cannot be done fails the job and says why. Where the job config
-  itself carries `die_on_error` and it is off, the job goes on with a
-  warning, and why is in `<id>_ERROR_MESSAGE`.
+- What cannot be done fails the job and says why, in plain words: also
+  what the file system refuses (no room, no permission), whatever the
+  step it happens in. Where the job config itself carries `die_on_error`
+  and it is off, the job goes on with a warning, and why is in
+  `<id>_ERROR_MESSAGE`.
+- A key that has to be given and has no value refuses the job by its
+  name: also when the value was to come from a context variable that
+  holds nothing.
 - A file is written beside its place and put there when it is whole.
+  Nothing is written through a link that someone put where the file is
+  written first: the link is taken away, and when it cannot be, the job
+  fails.
 - Each counts one row (`<id>_NB_LINE`, `_OK`, `_REJECT`) unless it says
   otherwise.
 

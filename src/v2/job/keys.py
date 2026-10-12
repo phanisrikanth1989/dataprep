@@ -88,9 +88,20 @@ class Key:
 
 
 def without_secrets(config: Dict[str, Any], keys: Sequence[Key]) -> Dict[str, Any]:
-    """A config as it may be shown, in a log say: a secret that was given is ``***``."""
-    secrets = {key.name for key in keys if key.secret}
-    return {name: "***" if name in secrets and value not in (None, "") else value for name, value in config.items()}
+    """A config as it may be shown, in a log say: a secret that was given is ``***``, also where it is one of the
+    keys of an object or of the objects of a list."""
+    declared = {key.name: key for key in keys}
+    shown: Dict[str, Any] = {}
+    for name, value in config.items():
+        key = declared.get(name)
+        if key is not None and key.secret and value not in (None, ""):
+            value = "***"
+        elif key is not None and key.fields is not None and isinstance(value, dict):
+            value = without_secrets(value, key.fields)
+        elif key is not None and key.items is not None and isinstance(value, list):
+            value = [without_secrets(item, key.items) if isinstance(item, dict) else item for item in value]
+        shown[name] = value
+    return shown
 
 
 def has_context_reference(value: Any) -> bool:
@@ -201,12 +212,17 @@ def _check_value(
     refusals: List[Refusal],
 ) -> Any:
     """Return the value a component sees for one supported key."""
+    written = value
     if key.type not in (EXPRESSION, CODE) and has_context_reference(value):
         if resolve is None:
             return value
         value = resolve(value)
 
     if value is None:
+        if key.required and not key.nullable:
+            # Said here by the key's name: left to the component, nothing would be what it trips over.
+            held = f": '{written}' holds none" if isinstance(written, str) and not key.secret else ""
+            refusals.append(Refusal(where, path, f"required config key has no value{held}"))
         return None if key.nullable else copy.deepcopy(key.default)
 
     try:
@@ -217,11 +233,13 @@ def _check_value(
     if value is None:
         return copy.deepcopy(key.default)
 
+    # What is wrong inside a secret is said by its place only: a reason may quote the value.
+    inside: List[Refusal] = []
     if key.type is list:
-        value = _check_items(key, value, where, path, resolve, refusals)
+        value = _check_items(key, value, where, path, resolve, inside)
     elif key.type is dict and key.fields is not None:
-        value, nested = normalize_config(value, key.fields, where, resolve, _prefix=path + ".")
-        refusals.extend(nested)
+        value, inside = normalize_config(value, key.fields, where, resolve, _prefix=path + ".")
+    refusals.extend(Refusal(found.where, found.key, _SECRET_REASON) if key.secret else found for found in inside)
 
     if key.convert is not None:
         try:
@@ -232,7 +250,8 @@ def _check_value(
 
     if key.choices is not None and value not in key.choices:
         allowed = ", ".join(repr(choice) for choice in key.choices)
-        refusals.append(Refusal(where, path, f"{value!r} is not allowed; use one of {allowed}"))
+        said = _SECRET_REASON if key.secret else f"{value!r} is not allowed; use one of {allowed}"
+        refusals.append(Refusal(where, path, said))
         return copy.deepcopy(key.default)
     return value
 

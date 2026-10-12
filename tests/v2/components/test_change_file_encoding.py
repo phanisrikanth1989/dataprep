@@ -105,6 +105,15 @@ def test_folder_of_the_output_is_made_unless_it_is_not_to_be(tmp_path):
     assert tree(folder) == {"in.csv": b"x"}
 
 
+def test_link_planted_where_the_text_is_written_before_it_is_put_in_place_is_not_written_through(tmp_path):
+    folder = filled(tmp_path, {"in.csv": TEXT.encode("utf-8"), "victim.cfg": b"keep"})
+    os.symlink(folder / "victim.cfg", files.temp_beside(str(folder / "out.csv"), "turn"))
+    result = on_v2(job([change(infile_name="in.csv", outfile_name="out.csv", encoding="UTF-16LE")], []), folder)
+    assert result.status == "success", result.error
+    assert tree(folder) == {"in.csv": TEXT.encode("utf-8"), "out.csv": TEXT.encode("utf-16-le"), "victim.cfg": b"keep"}
+    assert not (folder / "out.csv").is_symlink()
+
+
 def test_file_that_is_there_is_written_over_and_keeps_its_permissions(tmp_path):
     folder = filled(tmp_path, {"in.csv": b"new", "out.csv": b"old"})
     os.chmod(folder / "out.csv", 0o640)
@@ -137,6 +146,19 @@ def test_character_the_output_cannot_hold_fails_the_job_and_says_where(tmp_path)
 def test_input_cut_short_inside_a_character_fails_the_job(tmp_path):
     result, _ = ran(tmp_path, {"in.csv": "ab\u20ac".encode("utf-8")[:-1]}, infile_name="in.csv", outfile_name="out.csv")
     assert result.error == "'in.csv' is not written in UTF-8: byte 3 of it, on line 1, is no character there"
+
+
+@pytest.mark.parametrize("die", [True, False])
+def test_folder_of_the_output_that_cannot_be_made_fails_the_job_in_plain_words_or_lets_it_go_on(tmp_path, die):
+    # `in.csv` is a file: no folder can be made below it.
+    folder = filled(tmp_path, {"in.csv": b"x"})
+    result = on_v2(job([change(infile_name="in.csv", outfile_name="in.csv/deep/out.csv", die_on_error=die)], []), folder)
+    said = "the folder 'in.csv/deep' cannot be made: not a directory"
+    if die:
+        assert (result.status, result.error) == ("failed", said)
+    else:
+        assert result.status == "success" and result.global_map["turn_ERROR_MESSAGE"] == said
+    assert tree(folder) == {"in.csv": b"x"}
 
 
 def test_job_that_is_not_to_die_goes_on_and_says_why(tmp_path, caplog):
@@ -243,6 +265,25 @@ def test_place_of_a_fault_is_right_whatever_the_pieces_cut_through(tmp_path, mon
     result, _ = ran(tmp_path, {"in.csv": "ab\ncd\n\u0142\n".encode("utf-8")}, infile_name="in.csv", outfile_name="out.csv",
                     encoding="ISO-8859-1")
     assert result.error == r"'in.csv' holds '\u0142' on line 3, which ISO-8859-1 cannot write"
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 5, 64, 1 << 20])
+def test_line_of_a_fault_is_a_line_of_the_text_also_where_its_characters_hold_the_byte_of_a_line_end(tmp_path, monkeypatch, size):
+    monkeypatch.setattr(files, "_CHUNK", size)
+    # Gujarati letters: written in UTF-16, each holds the byte 0x0A, which is no line end there.
+    letters = "".join(chr(code) for code in (0x0A85, 0x0A86, 0x0A87, 0x0A88))
+    data = f"line1\nline2 {letters}\nline3 ".encode("utf-16-le") + b"\x00\xd8" + "x\n".encode("utf-16-le")
+    result, _ = ran(tmp_path, {"in.txt": data}, infile_name="in.txt", outfile_name="out.txt", use_inencoding=True,
+                    inencoding="UTF-16LE", encoding="UTF-8")
+    assert result.error == "'in.txt' is not written in UTF-16LE: byte 47 of it, on line 3, is no character there"
+
+
+def test_file_that_turns_out_longer_than_it_may_be_is_not_gone_through_to_its_end(tmp_path):
+    source, target = tmp_path / "in.txt", tmp_path / "out.txt"
+    source.write_bytes(b"0123456789")
+    assert files.transcode(str(source), str(target), "UTF-8", "UTF-8", at_most=10) == 10
+    with pytest.raises(files.Longer):
+        files.transcode(str(source), str(target), "UTF-8", "UTF-8", at_most=9)
 
 
 # ------------------------------------------------------------------

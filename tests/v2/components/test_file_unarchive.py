@@ -1,10 +1,12 @@
 """File unarchive: an archive unpacked into a folder, all of it or none."""
 import bz2
+import errno
 import gzip
 import io
 import logging
 import lzma
 import os
+import random
 import shutil
 import stat
 import struct
@@ -16,6 +18,7 @@ import zipfile
 import pytest
 
 from src.v2 import load_job
+from src.v2.components.file import file_unarchive
 from src.v2.errors import JobRefusedError
 from tests.v2.components.kit import job
 
@@ -104,6 +107,16 @@ def test_archive_is_unpacked_into_the_folder_with_the_paths_and_the_times_of_its
     assert sorted(path.name for path in (folder / "out").iterdir()) == ["a.csv", "sub", "was_there.txt"]
 
 
+def test_compressed_file_that_holds_a_zip_is_unpacked_as_the_one_file_it_is(tmp_path):
+    # Not compressed at all: the zip stands in the file byte for byte, and Python would take the file for a zip.
+    inner = zip_of(HELD)
+    packed = gzip.compress(inner, compresslevel=0)
+    assert zipfile.is_zipfile(io.BytesIO(packed))
+    result, folder = ran(tmp_path, {"in.zip.gz": packed}, zipfile="in.zip.gz", directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {"in.zip": inner}
+
+
 def test_tar_that_holds_a_zip_is_unpacked_as_the_tar_it_is(tmp_path):
     inner = zip_of(HELD)
     result, folder = ran(tmp_path, {"in.tar": tar_of({"inner.zip": inner})}, zipfile="in.tar", directory="out")
@@ -149,6 +162,46 @@ def test_file_that_is_no_archive_fails_the_job(tmp_path, data):
         "failed", "'in.zip' is no archive v2 can unpack: it is neither a zip nor a tar archive, nor one file "
                   "compressed with gzip, bzip2, xz or Zstandard")
     assert not (folder / "out").exists()
+
+
+ZEROS_FIRST = b"\x00" * 1024 + b"REAL PAYLOAD\n" * 100
+
+
+@pytest.mark.parametrize("name, pack", [("dump.bin.gz", gzip.compress), ("dump.bin.bz2", bz2.compress),
+                                        ("dump.bin.xz", lzma.compress), ("dump.tar.gz", gzip.compress)])
+def test_one_compressed_file_that_starts_with_zero_bytes_is_unpacked_as_the_file_it_is(tmp_path, name, pack):
+    result, folder = ran(tmp_path, {name: pack(ZEROS_FIRST)}, zipfile=name, directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {name.rsplit(".", 1)[0]: ZEROS_FIRST}
+    assert result.global_map["open_NB_FILE"] == 1
+
+
+@pytest.mark.parametrize("name, data", [("dump.bin", ZEROS_FIRST), ("dump.tar", ZEROS_FIRST), ("zeros.bin", b"\x00" * 10240)],
+                         ids=["zero bytes and then others", "the same under the name of a tar", "zero bytes and nothing else"])
+def test_file_that_starts_with_zero_bytes_and_is_no_archive_fails_the_job(tmp_path, name, data):
+    result, folder = ran(tmp_path, {name: data}, zipfile=name, directory="out")
+    assert (result.status, result.error) == (
+        "failed", f"'{name}' is no archive v2 can unpack: it is neither a zip nor a tar archive, nor one file "
+                  "compressed with gzip, bzip2, xz or Zstandard")
+    assert not (folder / "out").exists()
+
+
+@pytest.mark.parametrize("name, packed", [
+    ("empty.tar", tar_of({})), ("empty.tar.gz", tar_of({}, "w:gz")), ("empty.tgz", gzip.compress(tar_of({}))),
+    ("EMPTY.TAR.XZ", tar_of({}, "w:xz")),
+], ids=["tar", "tar.gz", "tgz", "tar.xz in capitals"])
+def test_tar_with_no_entries_is_told_by_its_name_and_unpacks_to_nothing(tmp_path, name, packed):
+    result, folder = ran(tmp_path, {name: packed}, zipfile=name, directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {} and result.global_map["open_NB_FILE"] == 0
+
+
+def test_archive_compressed_in_a_way_this_python_does_not_read_fails_the_job_and_says_which(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_unarchive, "_PACKED", tuple(
+        (magic, name, None if name == "Zstandard" else opener, ending) for magic, name, opener, ending in file_unarchive._PACKED))
+    result, folder = ran(tmp_path, {"in.tar.zst": b"\x28\xb5\x2f\xfd" + b"x" * 40}, zipfile="in.tar.zst", directory="out")
+    assert result.status == "failed" and not (folder / "out").exists()
+    assert result.error.startswith("'in.tar.zst' is compressed with Zstandard, which Python reads from 3.14 on, and this is Python 3.")
 
 
 def test_archive_with_no_entries_unpacks_to_nothing(tmp_path):
@@ -284,6 +337,54 @@ def test_links_and_what_is_no_file_are_left_out_and_named(tmp_path, caplog):
         "[open] 3 links or special files in 'in.tar' are left out; the first: 'inside'"]
 
 
+def test_second_name_for_a_link_or_a_special_file_is_left_out_with_it_and_nothing_outside_is_touched(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    folder = filled(tmp_path, {"elsewhere/victim.cfg": b"owner-only\n"})
+    victim = folder / "elsewhere/victim.cfg"
+    os.chmod(victim, 0o600)
+    os.utime(victim, (LONG_AGO - 1000, LONG_AGO - 1000))
+    extra = [(member("s", type=tarfile.SYMTYPE, linkname=str(victim)), None),
+             (member("h", type=tarfile.LNKTYPE, linkname="s", mode=0o777), None),
+             (member("p", type=tarfile.FIFOTYPE), None),
+             (member("data.csv", type=tarfile.LNKTYPE, linkname="p", mode=0o644), None),
+             (member("again.csv", type=tarfile.LNKTYPE, linkname="data.csv", mode=0o644), None)]
+    (folder / "in.tar").write_bytes(tar_of({"a.csv": b"x"}, extra=extra))
+    result = on_v2(job([unarchive(zipfile="in.tar", directory="out")], []), folder)
+    assert result.status == "success", result.error
+    # By name first: a pipe that had been planted would keep whoever reads it waiting.
+    assert os.listdir(folder / "out") == ["a.csv"]
+    assert tree(folder / "out") == {"a.csv": b"x"}
+    assert (stat.S_IMODE(os.stat(victim).st_mode), int(os.stat(victim).st_mtime)) == (0o600, LONG_AGO - 1000)
+    assert result.global_map["open_NB_FILE"] == 1
+    assert [record.getMessage() for record in caplog.records] == [
+        "[open] 5 links or special files in 'in.tar' are left out; the first: 's'"]
+
+
+def test_second_name_for_a_file_is_a_file_of_its_own(tmp_path):
+    extra = [(member("sub/same.csv", type=tarfile.LNKTYPE, linkname="./a.csv"), None)]
+    result, folder = ran(tmp_path, {"in.tar": tar_of({"a.csv": b"x;1\n"}, extra=extra)}, zipfile="in.tar", directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {"a.csv": b"x;1\n", "sub/": None, "sub/same.csv": b"x;1\n"}
+    # Not one file under two names: what is later written to the one is not written to the other.
+    assert os.stat(folder / "out/a.csv").st_ino != os.stat(folder / "out/sub/same.csv").st_ino
+    assert int(os.stat(folder / "out/sub/same.csv").st_mtime) == LONG_AGO
+    assert result.global_map["open_NB_FILE"] == 2
+
+
+def test_last_of_two_tar_entries_of_one_name_stays_with_its_bytes_and_its_permissions(tmp_path):
+    packed = tar_of({}, extra=[(member("a.csv", size=5, mode=0o600), b"first"), (member("b.csv", size=1, mode=0o644), b"b"),
+                               (member("a.csv", size=6, mode=0o644), b"second")])
+    before = os.umask(0o022)
+    try:
+        result, folder = ran(tmp_path, {"in.tar": packed}, zipfile="in.tar", directory="out")
+    finally:
+        os.umask(before)
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {"a.csv": b"second", "b.csv": b"b"}
+    assert stat.S_IMODE(os.stat(folder / "out/a.csv").st_mode) == 0o644
+    assert result.global_map["open_NB_FILE"] == 2
+
+
 def test_link_in_the_folder_that_leads_out_of_it_is_not_written_through(tmp_path):
     folder = filled(tmp_path, {"in.zip": zip_of({"a.csv": b"x", "sub/b.txt": b"y"}), "out/": None, "elsewhere/": None})
     os.symlink("../elsewhere", folder / "out/sub")
@@ -293,10 +394,23 @@ def test_link_in_the_folder_that_leads_out_of_it_is_not_written_through(tmp_path
     assert tree(folder / "elsewhere") == {} and not (folder / "out/a.csv").exists()
 
 
-def test_permissions_that_would_do_harm_are_not_carried_over(tmp_path):
-    packed = tar_of({}, extra=[(member("run.sh", size=1, mode=0o6777), b"x")])
-    _, folder = ran(tmp_path, {"in.tar": packed}, zipfile="in.tar", directory="out")
-    assert stat.S_IMODE(os.stat(folder / "out/run.sh").st_mode) == 0o755
+@pytest.mark.parametrize("mask, modes", [
+    (0o022, {"run.sh": 0o755, "open.csv": 0o644, "shut.csv": 0o600, "odd.csv": 0o644}),
+    (0o027, {"run.sh": 0o750, "open.csv": 0o640, "shut.csv": 0o600, "odd.csv": 0o640}),
+    # Where a new file gets everything, what an entry may not have is still not given.
+    (0o000, {"run.sh": 0o755, "open.csv": 0o644, "shut.csv": 0o600, "odd.csv": 0o644}),
+])
+def test_permissions_that_would_do_harm_are_not_carried_over_nor_more_than_a_new_file_gets_here(tmp_path, mask, modes):
+    # `odd.csv` may be run by others and not by its owner: then by none.
+    packed = tar_of({}, extra=[(member("run.sh", size=1, mode=0o6777), b"x"), (member("open.csv", size=1, mode=0o666), b"x"),
+                               (member("shut.csv", size=1, mode=0o400), b"x"), (member("odd.csv", size=1, mode=0o655), b"x")])
+    before = os.umask(mask)
+    try:
+        result, folder = ran(tmp_path, {"in.tar": packed}, zipfile="in.tar", directory="out")
+    finally:
+        os.umask(before)
+    assert result.status == "success", result.error
+    assert {name: stat.S_IMODE(os.stat(folder / "out" / name).st_mode) for name in modes} == modes
 
 
 # ------------------------------------------------------------------
@@ -323,6 +437,229 @@ def test_damaged_archive_fails_the_job_and_leaves_the_folder_as_it_was(tmp_path,
     assert result.status == "failed" and result.error.startswith(said), result.error
     assert tree(folder / "out") == {"a.csv": b"of an earlier run", "kept.txt": b"k"}
     assert sorted(path.name for path in (folder / "out").iterdir()) == ["a.csv", "kept.txt"]
+
+
+# Four files that each take 1536 bytes of a tar: a header of 512 and their 700 bytes filled up to 1024.
+FOUR = {"a.csv": b"A" * 700, "b.csv": b"B" * 700, "c.csv": b"C" * 700, "d.csv": b"D" * 700}
+
+
+def third_header_broken():
+    raw = bytearray(tar_of(FOUR))
+    raw[1536 * 2 + 10] ^= 0xFF
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("packed, said", [
+    (tar_of(FOUR)[:1536 * 2], "it ends before its end"),
+    (tar_of(FOUR)[:1536 * 2 + 200], "it ends before its end"),
+    (tar_of(FOUR)[:1536 * 2 + 512 + 100], "it ends before its end"),
+    (tar_of(FOUR)[:1536 * 4], "it ends before its end"),
+    (third_header_broken(), "what follows 'b.csv' in it is no entry"),
+], ids=["cut between two entries", "cut inside the header of an entry", "cut inside the bytes of an entry",
+        "cut before its end mark", "a header that is not whole"])
+@pytest.mark.parametrize("name, pack", [("in.tar", bytes), ("in.tar.gz", gzip.compress), ("in.tar.bz2", bz2.compress),
+                                        ("in.tar.xz", lzma.compress)])
+def test_tar_that_is_cut_short_or_broken_in_the_middle_unpacks_nothing(tmp_path, name, pack, packed, said):
+    result, folder = ran(tmp_path, {name: pack(packed), "out/kept.txt": b"k"}, zipfile=name, directory="out")
+    assert (result.status, result.error) == ("failed", f"'{name}' is damaged: {said}; nothing is unpacked")
+    assert tree(folder / "out") == {"kept.txt": b"k"}
+
+
+def with_check(data):
+    return zstd.compress(data, options={zstd.CompressionParameter.checksum_flag: 1})
+
+
+@pytest.mark.parametrize("name, pack", [
+    ("in.tar.gz", gzip.compress), ("in.tar.bz2", bz2.compress), ("in.tar.xz", lzma.compress),
+    pytest.param("in.tar.zst", with_check, marks=needs_zstd),
+])
+def test_compressed_tar_with_one_bit_changed_is_never_unpacked_in_part(tmp_path, name, pack):
+    drawn = random.Random(7)
+    files = {f"f{number:02d}.csv": "".join(f"{number};{row};{drawn.random()}\n" for row in range(200)).encode()
+             for number in range(20)}
+    packed = pack(tar_of(files))
+    ended = set()
+    for trial in range(30):
+        raw = bytearray(packed)
+        raw[drawn.randrange(40, len(raw) - 40)] ^= 1 << drawn.randrange(8)
+        result, folder = ran(tmp_path / str(trial), {name: bytes(raw)}, zipfile=name, directory="out")
+        ended.add(result.status)
+        if result.status == "success":
+            assert tree(folder / "out") == files
+        else:
+            assert result.error.startswith(f"'{name}' is damaged: ") and result.error.endswith("; nothing is unpacked")
+            assert not (folder / "out").exists()
+    assert "failed" in ended
+
+
+def test_tar_with_one_byte_more_than_its_check_sum_allows_fails_the_job(tmp_path):
+    raw = bytearray(tar_of(FOUR, "w:gz"))
+    raw[-6] ^= 0xFF
+    result, folder = ran(tmp_path, {"in.tar.gz": bytes(raw), "out/kept.txt": b"k"}, zipfile="in.tar.gz", directory="out")
+    assert result.status == "failed"
+    assert result.error.startswith("'in.tar.gz' is damaged: CRC check failed") and result.error.endswith("; nothing is unpacked")
+    assert tree(folder / "out") == {"kept.txt": b"k"}
+
+
+def test_what_stands_after_the_end_of_a_tar_is_not_unpacked_and_is_said(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="src.v2")
+    joined = tar_of({"a.csv": b"a"}) + tar_of({"b.csv": b"b"})
+    for name, packed in (("in.tar", joined), ("in.tar.gz", gzip.compress(joined))):
+        result, folder = ran(tmp_path / name, {name: packed}, zipfile=name, directory="out")
+        assert result.status == "success", result.error
+        assert tree(folder / "out") == {"a.csv": b"a"}
+    assert [record.getMessage() for record in caplog.records] == [
+        f"[open] '{name}' goes on after its end, and what stands there is not unpacked: it may be more than one archive "
+        "joined" for name in ("in.tar", "in.tar.gz")]
+
+
+@pytest.mark.parametrize("name, packed", [
+    ("in.tar", tar_of({"a.csv": b"x"}, extra=[(member(".", size=1), b"y")])),
+    ("in.zip", zip_of({"a.csv": b"x"}, **{".": b"y"})),
+], ids=["tar", "zip"])
+def test_file_without_a_name_in_an_archive_fails_the_job(tmp_path, name, packed):
+    result, folder = ran(tmp_path, {name: packed, "out/kept.txt": b"k"}, zipfile=name, directory="out")
+    assert (result.status, result.error) == (
+        "failed", f"'{name}' is damaged: it holds a file without a name; nothing is unpacked")
+    assert tree(folder / "out") == {"kept.txt": b"k"}
+
+
+def test_tar_entry_with_a_time_no_clock_shows_is_unpacked_all_the_same(tmp_path):
+    packed = tar_of({}, extra=[(member("a.csv", size=1, mtime=float(2 ** 70)), b"x")])
+    result, folder = ran(tmp_path, {"in.tar": packed}, zipfile="in.tar", directory="out")
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == {"a.csv": b"x"}
+
+
+# ------------------------------------------------------------------
+# The files moved to their places, all of them or none
+# ------------------------------------------------------------------
+
+def test_failure_while_the_files_are_moved_puts_back_what_was_moved(tmp_path):
+    packed = zip_of({"a.csv": b"NEW", "new/n.csv": b"n", "deep/er/": None, "b/c.csv": b"c"})
+    result, folder = ran(tmp_path, {"in.zip": packed, "out/a.csv": b"of an earlier run", "out/b": b"a file named b"},
+                         zipfile="in.zip", directory="out")
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': file exists: 'out/b'; nothing is unpacked")
+    assert tree(folder / "out") == {"a.csv": b"of an earlier run", "b": b"a file named b"}
+    assert sorted(os.listdir(folder / "out")) == ["a.csv", "b"]
+
+
+def test_folder_that_may_not_be_written_to_fails_the_job_and_leaves_the_files_that_were_there(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root may write everywhere")
+    packed = zip_of({"a.csv": b"NEW", "sub/c.csv": b"c"})
+    folder = filled(tmp_path, {"in.zip": packed, "out/a.csv": b"of an earlier run", "out/sub/": None})
+    os.chmod(folder / "out/sub", 0o500)
+    try:
+        result = on_v2(job([unarchive(zipfile="in.zip", directory="out")], []), folder)
+    finally:
+        os.chmod(folder / "out/sub", 0o700)
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': permission denied: 'sub/c.csv'; nothing is unpacked")
+    assert tree(folder / "out") == {"a.csv": b"of an earlier run", "sub/": None}
+
+
+def test_disk_that_fills_up_while_the_archive_is_unpacked_fails_the_job_and_leaves_the_folder_as_it_was(tmp_path, monkeypatch):
+    monkeypatch.setattr(shutil, "copyfileobj", lambda *given: (_ for _ in ()).throw(OSError(errno.ENOSPC, "No space left on device")))
+    result, folder = ran(tmp_path, {"in.zip": zip_of(HELD), "out/kept.txt": b"k"}, zipfile="in.zip", directory="out")
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': no space left on device; nothing is unpacked")
+    assert tree(folder / "out") == {"kept.txt": b"k"} and os.listdir(folder / "out") == ["kept.txt"]
+
+
+def stopped_at(name, monkeypatch):
+    """Make the file of this name fail to land: the move from where it was unpacked to its place."""
+    really = os.replace
+
+    def replace(source, target):
+        if f"{os.sep}new{os.sep}" in str(source) and os.path.basename(str(target)) == name:
+            raise OSError(errno.EIO, "Input/output error", str(source))
+        return really(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def test_file_that_fails_to_land_where_one_was_leaves_the_one_that_was(tmp_path, monkeypatch):
+    stopped_at("c.csv", monkeypatch)
+    packed = zip_of({"a.csv": b"NEW A", "c.csv": b"NEW C"})
+    result, folder = ran(tmp_path, {"in.zip": packed, "out/a.csv": b"old a", "out/c.csv": b"old c"},
+                         zipfile="in.zip", directory="out")
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': input/output error: 'c.csv'; nothing is unpacked")
+    assert tree(folder / "out") == {"a.csv": b"old a", "c.csv": b"old c"}
+    assert sorted(os.listdir(folder / "out")) == ["a.csv", "c.csv"]
+
+
+def test_file_that_was_there_and_cannot_be_put_back_is_kept_where_it_waits_and_the_job_says_where(tmp_path, monkeypatch):
+    really = os.replace
+
+    def replace(source, target):
+        landing = f"{os.sep}new{os.sep}" in str(source) and os.path.basename(str(target)) == "c.csv"
+        going_back = f"{os.sep}old{os.sep}" in str(source) and os.path.basename(str(target)) == "a.csv"
+        if landing or going_back:
+            raise OSError(errno.EIO, "Input/output error", str(source))
+        return really(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+    packed = zip_of({"a.csv": b"NEW A", "c.csv": b"NEW C"})
+    result, folder = ran(tmp_path, {"in.zip": packed, "out/a.csv": b"old a", "out/c.csv": b"old c"},
+                         zipfile="in.zip", directory="out")
+    kept = f"out/.in.zip.open.v2tmp{os.getpid()}/old"
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': input/output error: 'c.csv'; and 'out' could not be put back "
+                  f"as it was (input/output error: '{kept}/0'): the files that were there and are not back are kept in "
+                  f"'{kept}'")
+    assert tree(folder / kept) == {"0": b"old a"}
+    assert sorted(os.listdir(folder / "out")) == [f".in.zip.open.v2tmp{os.getpid()}", "c.csv"]
+    assert (folder / "out/c.csv").read_bytes() == b"old c"
+    assert not (folder / kept).parent.joinpath("new").exists()
+
+
+def test_new_file_that_cannot_be_taken_away_again_is_said_and_nothing_else_is_left(tmp_path, monkeypatch):
+    stopped_at("c.csv", monkeypatch)
+    really = os.remove
+
+    def remove(path, *more, **kept):
+        if os.path.basename(str(path)) == "a.csv":
+            raise OSError(errno.EIO, "Input/output error", str(path))
+        return really(path, *more, **kept)
+
+    monkeypatch.setattr(os, "remove", remove)
+    packed = zip_of({"a.csv": b"NEW A", "c.csv": b"NEW C"})
+    result, folder = ran(tmp_path, {"in.zip": packed, "out/c.csv": b"old c"}, zipfile="in.zip", directory="out")
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'out': input/output error: 'c.csv'; and 'out' could not be put back "
+                  "as it was (input/output error: 'out/a.csv')")
+    assert tree(folder / "out") == {"a.csv": b"NEW A", "c.csv": b"old c"}
+    assert sorted(os.listdir(folder / "out")) == ["a.csv", "c.csv"]
+
+
+def test_reader_that_stopped_elsewhere_than_at_the_last_piece_read_is_read_there_again():
+    watched = file_unarchive._Watched(io.BytesIO(bytes(range(256)) * 8))
+    watched.seek(1024)
+    assert watched.read(4) == bytes(range(4)) and watched.tell() == 1028
+    assert watched.block_at(1024) == bytes(range(4))
+    assert watched.block_at(512) == (bytes(range(256)) * 2)
+    assert watched.block_at(2040) == bytes(range(248, 256))
+
+
+def test_folder_made_for_the_archive_is_taken_away_also_when_the_files_cannot_be_moved_back(tmp_path, monkeypatch):
+    stopped_at("c.csv", monkeypatch)
+    monkeypatch.setattr(os, "remove", lambda path, *more, **kept: (_ for _ in ()).throw(OSError(errno.EIO, "Input/output error", str(path))))
+    packed = zip_of({"a.csv": b"NEW A", "c.csv": b"NEW C"})
+    result, folder = ran(tmp_path, {"in.zip": packed}, zipfile="in.zip", directory="made/out")
+    assert (result.status, result.error) == (
+        "failed", "'in.zip' cannot be unpacked into 'made/out': input/output error: 'c.csv'; nothing is unpacked")
+    assert not (folder / "made").exists()
+
+
+def test_link_planted_where_the_archive_is_unpacked_before_its_files_are_moved_is_not_written_through(tmp_path):
+    folder = filled(tmp_path, {"in.zip": zip_of(HELD), "out/": None, "elsewhere/": None})
+    os.symlink(folder / "elsewhere", folder / "out" / f".in.zip.open.v2tmp{os.getpid()}")
+    result = on_v2(job([unarchive(zipfile="in.zip", directory="out")], []), folder)
+    assert result.status == "success", result.error
+    assert tree(folder / "out") == UNPACKED and tree(folder / "elsewhere") == {}
 
 
 def test_archive_that_gives_one_name_to_a_file_and_to_a_folder_fails_the_job_and_names_the_entry(tmp_path):

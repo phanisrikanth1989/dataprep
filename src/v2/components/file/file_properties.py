@@ -14,7 +14,7 @@ from ...errors import ConfigurationError
 from ...job.keys import Key
 from ...job.model import Column
 from ...rows import hidden, visible
-from ..base import DIE_ON_ERROR, Source
+from ..base import DIE_ON_ERROR, FAULTS, Source
 from ..registry import REGISTRY
 
 _CHUNK = 1 << 22
@@ -108,9 +108,8 @@ class FileProperties(Source):
         """The one row; no row when the file cannot be looked at and the job is to go on."""
         try:
             return [self._row()]
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc), " with no row"):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc, " with no row")
             return []
 
     def _row(self) -> Dict[str, Any]:

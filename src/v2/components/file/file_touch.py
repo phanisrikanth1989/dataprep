@@ -7,7 +7,7 @@ from typing import List
 
 from ...errors import ConfigurationError
 from ...job.keys import Key
-from ..base import DIE_ON_ERROR, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, Action, one_line
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -33,14 +33,13 @@ class FileTouch(Action):
     )
 
     def problems(self) -> List[str]:
-        return [] if self.config["filename"] else ["filename: there is no file named"]
+        return [] if self.config["filename"].strip() else ["filename: there is no file named"]
 
     def act(self) -> None:
         try:
             self._touch()
-        except ConfigurationError as exc:
-            if not self.goes_on_after(str(exc)):
-                raise
+        except FAULTS as exc:
+            self.fail_or_go_on(exc)
             self.global_map.update({f"{self.id}_NB_LINE": 1, f"{self.id}_NB_LINE_OK": 0, f"{self.id}_NB_LINE_REJECT": 1})
 
     def _touch(self) -> None:

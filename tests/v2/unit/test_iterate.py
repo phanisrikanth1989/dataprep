@@ -125,6 +125,30 @@ def test_what_a_source_made_in_one_pass_is_made_again_in_the_next(tmp_path):
     assert (lines(tmp_path / "a.csv"), lines(tmp_path / "b.csv")) == (["n", "1"], ["n", "2"])
 
 
+def test_what_a_source_made_is_not_kept_when_its_subjob_has_finished(tmp_path):
+    from src.v2.engine.context import RunContext
+    from src.v2.engine.runner import Runner
+    from src.v2.job.loader import load_job
+
+    kept = []
+    really = RunContext.cleanup
+
+    def cleanup(self):
+        really(self)
+        kept.append(dict(self.made))
+
+    made = job([("in", "once", {}), ("out", "save", {"path": str(tmp_path / "o.csv")})], [("r1", "in", "out", "flow")])
+    runner = Runner(load_job(made, registry=REGISTRY))
+    RunContext.cleanup = cleanup
+    try:
+        result = runner.run()
+    finally:
+        RunContext.cleanup = really
+    assert result.status == "success", result.error
+    # Asked after the subjob and after the run: nothing is held either time.
+    assert kept == [{}, {}]
+
+
 # ------------------------------------------------------------------
 # What is said and counted
 # ------------------------------------------------------------------
