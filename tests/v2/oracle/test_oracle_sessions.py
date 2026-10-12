@@ -57,6 +57,29 @@ def test_a_connect_string_of_its_own_opens_a_session(oracle_db, url):
         session.close()
 
 
+def test_a_name_of_tnsnames_is_looked_up_in_the_file_the_job_names(oracle_db, tmp_path):
+    """In either mode. Found when the tests were first run in thick mode: Oracle's own client looks in its own
+    folder and passes over the file a connection names, so such a job opened a session in thin mode and failed in
+    thick (ORA-12154)."""
+    there = (f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={oracle_db.host})(PORT={oracle_db.port}))"
+             f"(CONNECT_DATA=(SERVICE_NAME={oracle_db.service})))")
+    (tmp_path / "tnsnames.ora").write_text(
+        "# the names of the tests\nOTHER = (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=elsewhere.invalid)(PORT=1521))"
+        f"(CONNECT_DATA=(SERVICE_NAME=X)))\nV2_HERE, v2_too =\n  {there}\n")
+    config = block(oracle_db, connection_type="ORACLE_OCI", local_service_name="v2_here", use_tns_file=True,
+                   tns_file=str(tmp_path / "tnsnames.ora"))
+    session = oracle.opened(config, "c", "j")
+    try:
+        assert asked(session, "select 1 from dual") == [(1,)]
+        assert session.what == f"{oracle_db.user}@v2_here"
+    finally:
+        session.close()
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened({**config, "local_service_name": "NO_SUCH_NAME"}, "c", "j")
+    assert str(failed.value).startswith(f"no session was opened as {oracle_db.user}@NO_SUCH_NAME: ")
+    assert "NO_SUCH_NAME" in str(failed.value).split(": ", 1)[1] and "\n" not in str(failed.value)
+
+
 def test_a_wrong_password_is_said_without_the_password(oracle_db):
     with pytest.raises(DatabaseError) as failed:
         oracle.opened(block(oracle_db, password="not_the_password_7"), "c", "j")

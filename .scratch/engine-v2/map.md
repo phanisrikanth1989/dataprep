@@ -472,6 +472,11 @@ documentation.
   the input's scratch file is now in groups of 10,000 rows with each
   row's number in it, and a query of a hundred million rows holds 0.7
   GB.
+  [Oracle's own client (thick mode), tried](issues/129-oracles-own-client-tried.md)
+  -- on Oracle Linux 8 with Python 3.12: three faults that only the
+  client showed, fixed; every real test passes with it and without;
+  a database that demands Native Network Encryption takes v2 with it.
+  Slower with the client; Kerberos and wallets not built.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

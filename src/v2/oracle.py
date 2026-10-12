@@ -113,6 +113,12 @@ _INNER = "v2q"
 # What the driver says, before it sends anything, of a statement that is no insert, update, delete or merge and is
 # handed over for many rows the way those are.
 _NOT_FOR_MANY = "DPY-2040"
+# What the driver says, in its own mode, of a database that asks for what only Oracle's own client does: Native
+# Network Encryption, and a password kept the way Oracle 10 kept one.
+_ONLY_ITS_OWN_CLIENT = ("DPY-3001", "DPY-3015")
+# What Oracle's own client says (thick mode) of a query handed over for many rows: "not supported". Of a block it
+# says what the driver says above. Seen on 2026-10-13, Instant Client 23.26.
+_NO_QUERY_FOR_MANY = "DPI-1013"
 # What Oracle says of a block or a call that cannot be compiled: the statement's own fault, and no row's. The place
 # the driver gives with it is one in the statement's text, and no row. (The same from inside a block while it
 # runs, in text the block put together, has the lines of where it was raised, ORA-06512, and is its row's.)
@@ -278,12 +284,23 @@ def opened(
     given = arguments(config)
     what = f"{config['user']}@{_place(given)}"
     try:
+        if "config_dir" in given and not driver.is_thin_mode():
+            # Oracle's own client looks a name up in the tnsnames.ora of its own folder, and passes over the one a
+            # connection names (ORA-12154, seen on 2026-10-13). The driver's reader of that file works in either
+            # mode: the name is looked up with it, and the session opened with what the name stands for.
+            named = driver.ConnectParams(config_dir=given.pop("config_dir"))
+            named.parse_connect_string(given["dsn"])
+            given["dsn"] = named.get_connect_string()
         held = driver.connect(**given)
         held.module = MODULE
         held.action = job_name.encode("utf-8")[:_ACTION_BYTES].decode("utf-8", "ignore")
     except (driver.Error, OSError) as fault:
         # Of a host no one knows the driver hands on what the system said, and no error of its own.
-        raise DatabaseError(f"no session was opened as {what}: {said(fault)}") from None
+        why = said(fault)
+        if any(code in why for code in _ONLY_ITS_OWN_CLIENT):
+            why = (f"{why.rstrip('.')}. Only Oracle's own client does that: where it is installed, a job asks for it "
+                   'with "oracle_config": {"thick_mode": true}')
+        raise DatabaseError(f"no session was opened as {what}: {why}") from None
     client = "" if held.thin else ", with Oracle's own client"
     logger.info(in_ascii(f"[{opened_by}] session opened: {what} (Oracle {held.version}{client})"))
     return OracleSession(held, driver, opened_by, what, schema=config["schema_db"], **more)
@@ -345,14 +362,16 @@ class OracleSession(Session):
                 try:
                     cursor.executemany(statement, sent, batcherrors=True, arraydmlrowcounts=counts)
                 except self._driver.Error as fault:
-                    if start or _code(fault) != _NOT_FOR_MANY:
+                    if start or _code(fault) not in (_NOT_FOR_MANY, _NO_QUERY_FOR_MANY):
                         raise
-                    return self._in_turn(cursor, statement, rows, counts)
+                    return self._in_turn(cursor, statement, rows, counts, fault)
                 refused += [(start + error.offset, said(error.message)) for error in cursor.getbatcherrors()]
                 changed += list(cursor.getarraydmlrowcounts()) if counts else []
         return sorted(refused), changed
 
-    def _in_turn(self, cursor: Any, statement: str, rows: Any, counts: bool) -> Tuple[List[Tuple[int, str]], List[int]]:
+    def _in_turn(
+        self, cursor: Any, statement: str, rows: Any, counts: bool, why: Any
+    ) -> Tuple[List[Tuple[int, str]], List[int]]:
         """Run for each row a statement that is no insert, update, delete or merge: a block, a call, a query.
 
         The driver takes a block or a call for many rows at once and stops
@@ -363,6 +382,12 @@ class OracleSession(Session):
 
         A failure that leaves the session closed is no row's: it is raised,
         and nothing more is asked.
+
+        Args:
+            why: What the driver said of the statement handed over for
+                many rows. Oracle's own client says "not supported" of a
+                query; the same words of a statement that is no query are
+                that statement's own failure, and are raised as they are.
         """
         several = not isinstance(rows, int)
         total = rows.num_rows if several else rows
@@ -379,6 +404,8 @@ class OracleSession(Session):
                         raise
                     refused.append((at, said(fault)))
             return refused, [0] * total if counts else []
+        if _code(why) == _NO_QUERY_FOR_MANY:
+            raise why
         start = 0
         while start < total:
             try:
@@ -435,7 +462,13 @@ class OracleSession(Session):
         self.run(f"rollback to savepoint {name}")
 
     def in_transaction(self) -> bool:
-        return bool(self._held.transaction_in_progress)
+        try:
+            return bool(self._held.transaction_in_progress)
+        except self._driver.Error:
+            # Oracle's own client cannot say it of a session the database has closed (DPY-1001), where the thin
+            # driver still says what it knew. What waited on such a session is taken to have waited still: it is
+            # told as lost, and never dropped without a word.
+            return True
 
     def alive(self) -> bool:
         return bool(self._held.is_healthy())

@@ -205,9 +205,15 @@ class Held:
     def __init__(self, driver):
         self.driver, self.did, self.busy, self.healthy = driver, [], False, True
         self.module = self.action = None
+        # Whether it answers as Oracle's own client does (thick mode) where that differs.
+        self.thick = False
 
     @property
     def transaction_in_progress(self):
+        if self.thick and not self.healthy:
+            # Seen on 2026-10-13, Instant Client 23.26: of a session the database has closed the client cannot say
+            # it, where the thin driver still says what it knew.
+            raise Refused("DPY-1001: not connected to database\nDPI-1010: not connected")
         return self.busy
 
     def is_healthy(self):
@@ -265,6 +271,26 @@ def stand_in(version="26.0.1", **fails):
         driver.opened.append(Held(driver))
         return driver.opened[-1]
 
+    class ConnectParams:
+        """The driver's own reader of a tnsnames.ora, which works in either mode."""
+
+        def __init__(self, config_dir=None):
+            self.folder = config_dir
+
+        def parse_connect_string(self, name):
+            driver.looked_up.append((self.folder, name))
+            if name.upper() not in driver.names:
+                raise Refused(f'DPY-4000: unable to find "{name}" in {self.folder}/tnsnames.ora')
+            self.found = driver.names[name.upper()]
+
+        def get_connect_string(self):
+            return self.found
+
+    driver.ConnectParams, driver.looked_up = ConnectParams, []
+    driver.names = {"SALES": "(DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=db7)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=S)))"}
+    # In thin mode until Oracle's own client is loaded, as the real one.
+    driver.is_thin_mode = lambda: not driver.clients
+
     def init_oracle_client(**given):
         driver.clients.append(given)
         if "client" in fails:
@@ -305,6 +331,37 @@ def test_a_session_is_named_by_what_it_was_opened_with(driver):
                                password="x"), "c", "j").what == "app@//scan:1522/S"
 
 
+TNS = dict(connection_type="ORACLE_OCI", local_service_name="sales", user="app", password="x", use_tns_file=True,
+           tns_file="/etc/oracle/tnsnames.ora")
+
+
+def test_with_oracles_own_client_a_name_of_tnsnames_is_looked_up_in_the_file_the_job_names(driver):
+    """The client looks a name up in the tnsnames.ora of its own folder and passes over the one a connection
+    names (ORA-12154, seen on 2026-10-13). The driver's reader of the file works in either mode."""
+    session = oracle.opened(block(**TNS), "c", "j", {"thick_mode": True})
+    assert driver.looked_up == [("/etc/oracle", "sales")]
+    assert driver.asked == [{"user": "app", "password": "x", "dsn": driver.names["SALES"]}]
+    # It is still named by what the job wrote.
+    assert session.what == "app@sales"
+
+
+def test_with_oracles_own_client_a_name_no_file_knows_is_said_as_any_session_that_was_not_opened(driver):
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**{**TNS, "local_service_name": "NOPE"}), "c", "j", {"thick_mode": True})
+    assert str(failed.value) == 'no session was opened as app@NOPE: DPY-4000: unable to find "NOPE" in /etc/oracle/tnsnames.ora'
+    assert driver.asked == []
+
+
+def test_with_oracles_own_client_a_name_with_no_file_named_is_left_to_the_client_to_find(driver):
+    oracle.opened(block(**{**TNS, "use_tns_file": False}), "c", "j", {"thick_mode": True})
+    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales"}]
+
+
+def test_without_oracles_own_client_the_driver_is_handed_the_name_and_the_folder_as_before(driver):
+    oracle.opened(block(**TNS), "c", "j")
+    assert driver.looked_up == [] and driver.asked == [{"user": "app", "password": "x", "dsn": "sales", "config_dir": "/etc/oracle"}]
+
+
 def test_a_long_connect_string_is_cut_where_a_session_is_named(driver):
     long = "(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=node-one.example)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=two)))"
     session = oracle.opened(block(connection_type="ORACLE_RAC", rac_url=long, user="app", password="x"), "c", "j")
@@ -322,6 +379,29 @@ def test_a_session_that_is_not_opened_says_where_and_as_whom_and_never_the_passw
         oracle.opened(block(**SERVICE), "c", "j")
     assert str(failed.value) == ("no session was opened as app@db.example:1521/SALES: ORA-01017: invalid credential "
                                  "or not authorized; logon denied")
+
+
+@pytest.mark.parametrize("said_so", [
+    "DPY-6005: cannot connect to database (CONNECTION_ID=abc).\nDPY-3001: Native Network Encryption and Data Integrity is only "
+    "supported in python-oracledb thick mode",
+    "DPY-3015: password verifier type 0x939 is not supported by python-oracledb in thin mode",
+])
+def test_a_database_that_asks_for_what_only_oracles_own_client_does_is_said_with_how_a_job_asks_for_it(monkeypatch, said_so):
+    """Seen on 2026-10-13 against a database that demands Native Network Encryption: the driver names its own
+    mode, and nothing of the job's."""
+    monkeypatch.setitem(sys.modules, "oracledb", stand_in(connect=said_so))
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**SERVICE), "c", "j")
+    assert str(failed.value) == (
+        "no session was opened as app@db.example:1521/SALES: " + said_so.replace("\n", " ") + ". Only Oracle's own client does "
+        'that: where it is installed, a job asks for it with "oracle_config": {"thick_mode": true}')
+
+
+def test_any_other_session_that_was_not_opened_is_said_without_that(monkeypatch):
+    monkeypatch.setitem(sys.modules, "oracledb", stand_in(connect="ORA-12541: Cannot connect. No listener at host db1 port 1521."))
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**SERVICE), "c", "j")
+    assert str(failed.value) == "no session was opened as app@db.example:1521/SALES: ORA-12541: Cannot connect. No listener at host db1 port 1521."
 
 
 def test_a_host_that_cannot_be_found_is_said_as_any_other_session_that_was_not_opened(monkeypatch):
@@ -445,6 +525,32 @@ def test_whether_work_waits_and_whether_the_session_lives_are_asked_of_the_drive
     assert session.in_transaction() is True
     held.healthy = False
     assert session.alive() is False
+
+
+def test_work_is_taken_to_wait_on_a_session_of_oracles_own_client_that_the_database_closed(driver, session):
+    """Found when a session was ended from outside in thick mode: the client fails when it is asked whether a
+    transaction is open on it, and the engine, which asks that of a session it is about to close, failed with the
+    driver's own error in place of the word that the work is lost."""
+    held = driver.opened[0]
+    held.thick, held.busy, held.healthy = True, True, False
+    assert session.alive() is False
+    assert session.in_transaction() is True
+
+
+def test_work_that_waited_on_such_a_session_is_said_to_be_lost_when_it_is_closed(driver, session):
+    from src.v2.sessions import Sessions
+
+    sessions = Sessions()
+    session.shared = True
+    sessions.share(session)
+    sessions.working(session, "out")
+    held = driver.opened[0]
+    held.thick, held.busy = True, True
+    sessions.subjob_succeeded()
+    held.healthy = False
+    with pytest.raises(DatabaseError) as failed:
+        sessions.close("c")
+    assert str(failed.value) == "the database has closed the session of 'c': what out did on it was never stored, and is lost"
 
 
 @pytest.mark.parametrize("what", ["commit", "rollback", "close"])
@@ -757,6 +863,9 @@ def failing(message, offset):
 # statement which changes rows takes.
 NOT_FOR_MANY = ('DPY-2040: parameters "batcherrors" and "arraydmlrowcounts" may only be true when used with insert, '
                 "update, delete and merge statements")
+# What Oracle's own client says (thick mode) of a query handed over for many rows, with the two switches or without.
+# Seen on 2026-10-13, Instant Client 23.26; the session stays as it was.
+NO_QUERY_FOR_MANY = "DPI-1013: not supported"
 # What Oracle says of a block that cannot be compiled. The place the driver gives with it is one in the block's text.
 NOT_COMPILED = "ORA-06550: line 1, column 7: PLS-00201: identifier 'P' must be declared"
 
@@ -771,11 +880,13 @@ class Batching:
         dies: The row at which the database closes the session, as the real one was seen to be left on
             2026-10-12: that row is told the connection was closed, the session is healthy no more, and whatever
             is asked after it is told that nothing is connected.
+        thick: Whether it answers as Oracle's own client does (thick mode) where that differs: of a query handed
+            over for many rows it says "not supported", with the switches or without.
     """
 
-    def __init__(self, held, kind, fails=(), whole=None, dies=None):
+    def __init__(self, held, kind, fails=(), whole=None, dies=None, thick=False):
         self.held, self.kind, self.fails, self.whole, self.description = held, kind, set(fails), whole, None
-        self.refused, self.counts, self.dies = [], [], dies
+        self.refused, self.counts, self.dies, self.thick = [], [], dies, thick
 
     def _gone(self, first, size):
         """Raise what the driver says when the session is closed at one of the rows sent, or was before."""
@@ -798,6 +909,9 @@ class Batching:
         self.description = [types.SimpleNamespace(name="C")] if self.kind == "query" else None
 
     def executemany(self, statement, rows, batcherrors=False, arraydmlrowcounts=False):
+        if self.thick and self.kind == "query":
+            self.held.did.append(("refused for many", statement))
+            raise failing(NO_QUERY_FOR_MANY, 0)
         if (batcherrors or arraydmlrowcounts) and self.kind != "changes":
             raise failing(NOT_FOR_MANY, 0)
         if self.kind == "query":
@@ -891,6 +1005,29 @@ def test_a_query_for_each_row_is_run_row_by_row_since_the_driver_loses_the_sessi
     assert refused == [(1, "ORA-01722: invalid number")] and changed == [0, 0, 0]
     assert [did[2] for did in held.did if did[0] == "execute"] == [[10, "x"], [11, "y"], [12, "z"]]
     assert not sendings(held)
+
+
+def test_with_oracles_own_client_a_query_for_each_row_is_run_row_by_row_too(monkeypatch):
+    """Found when the real tests were first run in thick mode: the client says of such a query "not supported"
+    where the thin driver says DPY-2040, and the job failed with those two words."""
+    session, held = batching(monkeypatch, "query", fails=(1,), thick=True)
+    rows = pyarrow.table({"a": [10, 11, 12], "b": ["x", "y", "z"]})
+    refused, changed = session.many("select f(:1, :2) from dual", rows, counts=True)
+    assert refused == [(1, "ORA-01722: invalid number")] and changed == [0, 0, 0]
+    assert [did[2] for did in held.did if did[0] == "execute"] == [[10, "x"], [11, "y"], [12, "z"]]
+    # With no value of the row in it, too.
+    session, held = batching(monkeypatch, "query", thick=True)
+    assert session.many("select f from dual", 2, counts=True) == ([], [0, 0])
+    assert [did[1:] for did in held.did if did[0] == "execute"] == [("select f from dual", None)] * 2
+
+
+def test_what_oracles_own_client_does_not_support_of_a_statement_that_is_no_query_is_said_as_it_is(monkeypatch):
+    """Only of a query do those words mean "not for many rows". Of an insert they are the statement's own failure:
+    it is not run again some other way, where the rows it changed could not be counted."""
+    session, held = batching(monkeypatch, "changes", whole=failing(NO_QUERY_FOR_MANY, 0))
+    with pytest.raises(DatabaseError, match="^DPI-1013: not supported$"):
+        session.many("insert into t (n) values (:1)", pyarrow.table({"a": [1, 2, 3]}), counts=True)
+    assert len(sendings(held)) == 1 and not [did for did in held.did if did[0] == "execute"]
 
 
 def test_a_query_that_cannot_be_read_is_at_fault_as_a_whole_and_is_run_for_no_row(monkeypatch):

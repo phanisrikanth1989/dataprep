@@ -50,10 +50,21 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
   "oracle_config": {"thick_mode": true, "lib_dir": "/opt/oracle/instantclient"}
   ```
 
-  Oracle's own client is then loaded (it is needed where a database asks
-  for Native Network Encryption or Kerberos). A process uses one or the
-  other: the first job that opens a session decides. This was not tried
-  here: no client was at hand.
+  Oracle's own client is then loaded ("thick mode"; `lib_dir` may be
+  left out where the client is found by itself). A process uses one or
+  the other: the first job that opens a session decides.
+  - **A database that demands Native Network Encryption takes only
+    Oracle's own client.** Without it the session is refused, and the
+    failure says how a job asks for the client. Tried on 2026-10-13
+    against a database that demands AES256 and SHA256: every test of
+    the Oracle components passes with the client, and none can open a
+    session without it.
+  - **Every component does the same with the client as without**: the
+    same tests pass both ways (Oracle Linux 8, Python 3.12, Instant
+    Client 23.26, Oracle 23).
+  - A session opens with a user and a password in either mode.
+    Kerberos and a wallet that holds the password are not built, and
+    were not tried: they need a site that has them.
 - A session says in the database who it is: its module is `dataprep-v2`
   and its action the job's name (`v$session`).
 - **The connection block** is the same on every component that can open
@@ -64,7 +75,7 @@ ticket (`.scratch/engine-v2/issues/118-databases-the-decisions.md`).
   | `ORACLE_SID` | `host`, `port`, and a SID in `dbname` |
   | `ORACLE_SERVICE_NAME` | `host`, `port`, and a service name in `dbname` |
   | `ORACLE_RAC` | the connect string in `rac_url`: Oracle's own form, or a JDBC URL, whose `jdbc:oracle:thin:@` is taken off |
-  | `ORACLE_OCI` | the name `local_service_name` has in tnsnames.ora; with `use_tns_file`, the file `tns_file` names |
+  | `ORACLE_OCI` | the name `local_service_name` has in tnsnames.ora; with `use_tns_file`, the file `tns_file` names, in either mode (Oracle's own client would look only in its own folder, so v2 looks the name up in the named file itself) |
   | `ORACLE_WALLET` | refused: the wallet holds the user and the password, and only Oracle's own client reads it |
 
 - `user` and `password` are given by themselves. A `rac_url` that

@@ -9,6 +9,11 @@ The database is one that is there already when three variables say so
 ``V2_ORACLE_PASSWORD``), and otherwise a container that is started for the
 run (Docker, and the ``testcontainers`` package). Without ``-m oracle`` no
 test here runs and nothing is started.
+
+With ``V2_ORACLE_THICK=1`` every session of the run is one of Oracle's own
+client (python-oracledb's thick mode), which has to be installed;
+``V2_ORACLE_LIB_DIR`` names its folder where it is not found by itself. A
+process is in one mode or the other, so the whole run is.
 """
 import os
 import secrets
@@ -51,7 +56,10 @@ def _asked_for(config) -> bool:
 def oracle_db(request):
     if not _asked_for(request.config):
         pytest.skip("a real Oracle is used only when asked for: -m oracle")
-    pytest.importorskip("oracledb", reason="python-oracledb is not installed")
+    driver = pytest.importorskip("oracledb", reason="python-oracledb is not installed")
+    if os.environ.get("V2_ORACLE_THICK"):
+        folder = os.environ.get("V2_ORACLE_LIB_DIR")
+        driver.init_oracle_client(**({"lib_dir": folder} if folder else {}))
     where = os.environ.get("V2_ORACLE_DSN")
     if where:
         host, _, rest = where.partition(":")

@@ -23,6 +23,10 @@ PARTS = ["q", "Q", "n", "N", "'", "'", "'", "'", "!", "!", "[", "]", "(", ")", "
 # takes a q that ends a word for the end of that word, as the reader does (ORA-03046 names the plain text after
 # it), and takes no statement that has a word against a quote. Such statements are left out.
 WORD_THEN_Q = re.compile(r"[A-Za-z0-9_$#][nN]?[qQ]'")
+# A q before a quote whose mark would be a blank, a tab or a line break. Oracle takes no such statement (ORA-00911,
+# asked on 2026-10-13), and of one with no end the thin driver says so while Oracle's own client says nothing. Left
+# out too.
+Q_THEN_BLANK = re.compile(r"[qQ]'(?:\s|\Z)")
 
 
 def _state(text):
@@ -59,7 +63,7 @@ def test_the_reader_and_the_driver_agree_where_a_statement_is_itself(oracle_db):
         compared, differ = 0, []
         for soup in _small_statements():
             whole = "select " + soup
-            if WORD_THEN_Q.search(soup) or finds(whole + " ") is None:
+            if WORD_THEN_Q.search(soup) or Q_THEN_BLANK.search(soup) or finds(whole + " ") is None:
                 continue
             final = _state(whole)
             if final == "block":
