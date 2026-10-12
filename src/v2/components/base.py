@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Mapping, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 import polars as pl
 
@@ -47,6 +47,20 @@ DIE_ON_ERROR = Key(
     "die_on_error", type=bool, default=True,
     doc="Whether what it cannot do fails the job. When the job config says off, the job goes on with a warning, "
         "and why is in `<id>_ERROR_MESSAGE`.",
+)
+
+
+def _some(value: int) -> int:
+    if value < 1:
+        raise ValueError(f"a loop of at most {value} items is none; give 1 or more")
+    return value
+
+
+# For a component that starts a loop: the most items it may have.
+MAX_ITEMS = Key(
+    "max_items", type=int, default=100_000, convert=_some,
+    doc="The most items the loop may have. More than that fail the job before the first pass: a loop that long "
+        "is nearly always a mistake (a wrong folder, a whole table).",
 )
 
 
@@ -131,6 +145,10 @@ class Component:
     sees_hidden_columns: ClassVar[bool] = True
     # Whether the component's failure ends the whole job: nothing runs after it, no trigger fires (a die).
     stops_job: ClassVar[bool] = False
+    # Whether the component starts a loop: an iterate link may leave it. It hands its items to the engine with
+    # ``loop_over`` while it runs, and when its subjob has finished the engine runs what the link leads to
+    # once for each of them. It declares ``MAX_ITEMS`` among its keys.
+    loops: ClassVar[bool] = False
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
@@ -399,6 +417,23 @@ class Component:
             carries no number.
         """
         return described(found.row(0, named=True), self.run_context.sources) if found.height else ""
+
+    def loop_over(self, items: Iterable[Tuple[str, Dict[str, Any]]], count: Optional[int] = None) -> None:
+        """Hand the engine the items of this component's loop.
+
+        Args:
+            items: The items in order: how the log names each, and the
+                globalMap entries put for its pass. May be made as they are
+                asked for, so that a long list is never held whole.
+            count: How many there are; counted when not given, which holds
+                them all.
+        """
+        from ..engine.context import Items  # late: the engine reads the components' base
+
+        if count is None:
+            items = list(items)
+            count = len(items)
+        self.run_context.items[self.id] = Items(items, count, self.config["max_items"])
 
     def goes_on_after(self, fault: str, with_what: str = "") -> bool:
         """Whether the job goes on after a fault that would fail it.

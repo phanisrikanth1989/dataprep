@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import deque
 from graphlib import CycleError, TopologicalSorter
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .model import Job
 
@@ -22,6 +22,30 @@ def subjobs(job: Job) -> List[List[str]]:
     component.
     """
     return [_run_order(job, members) for members in _groups(job)]
+
+
+def bodies(job: Job) -> Dict[str, List[int]]:
+    """What each loop runs: the id of the component that starts it, to the subjobs of its body.
+
+    A body is the subjob the iterate link leads to and every subjob that
+    one sets off, by a trigger or by an iterate link of its own. The
+    subjobs are named by their place in ``subjobs(job)``, in that order.
+    """
+    plan = subjobs(job)
+    subjob_of = {component_id: index for index, members in enumerate(plan) for component_id in members}
+    after: Dict[int, List[int]] = {}
+    for link in list(job.triggers) + list(job.iterates):
+        after.setdefault(subjob_of[link.source], []).append(subjob_of[link.target])
+    found: Dict[str, List[int]] = {}
+    for link in job.iterates:
+        reached, waiting = set(), [subjob_of[link.target]]
+        while waiting:
+            index = waiting.pop()
+            if index not in reached:
+                reached.add(index)
+                waiting.extend(after.get(index, []))
+        found[link.source] = sorted(reached)
+    return found
 
 
 def loop(job: Job) -> Optional[List[str]]:

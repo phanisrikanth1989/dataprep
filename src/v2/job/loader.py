@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from ..components.registry import REGISTRY, Registry
-from .graph import loop, subjobs
+from .graph import bodies, loop, subjobs
 from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
-from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Job, Only, RunSettings, Trigger
+from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Iterate, Job, Only, RunSettings, Trigger
 from ..engine.references import JAVA_MARK, parsed
 from .refusal import Refusal, RefusalReport
 
@@ -153,6 +153,9 @@ FLOW_KEYS: Tuple[Key, ...] = (
     Key("type", default="flow", doc="flow, main, reject, filter, unique or duplicate."),
     Key("output", doc="The output port of the source, when the type does not say."),
     Key("input", kind=Kind.IGNORED, type=object, doc="Old v2 input port name; the flow name is used instead."),
+    Key("enable_parallel", type=bool, default=False,
+        doc="On an iterate link: Talend's switch for running passes side by side. v2 runs them one after another."),
+    Key("number_parallel", kind=Kind.IGNORED, type=object, doc="On an iterate link: how many passes Talend runs side by side."),
 )
 
 TRIGGER_KEYS: Tuple[Key, ...] = (
@@ -286,6 +289,8 @@ class _Loader:
         self.report = RefusalReport(job_name=str(raw.get("job_name") or raw.get("name") or ""))
         # Components that lost an incoming flow to a refusal elsewhere; their input count proves nothing.
         self._starved: set = set()
+        # Where each iterate link names its target in the job config, by the link's name: for a refusal.
+        self._iterate_ends: Dict[str, str] = {}
 
     def load(self) -> Job:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
@@ -312,6 +317,7 @@ class _Loader:
         if stuck:
             self.report.add("job", "flows", f"the flows form a loop through: {', '.join(stuck)}")
         else:
+            self._check_iterates(job)
             self._check_triggers(job)
         self.report.raise_if_refused()
         return job
@@ -482,14 +488,15 @@ class _Loader:
         if any(flow.name == fields["name"] for flow in job.flows):
             self.report.add("job", prefix + "name", f"the flow name '{fields['name']}' is used more than once")
             ok = False
-        if fields["type"] == "iterate":
-            self.report.add("job", prefix + "type", "iterate flows are not supported in v2")
-            ok = False
         if not ok:
             self._starved.add(fields["target"])
             return None
 
         source = job.components[fields["source"]]
+        if fields["type"] == "iterate":
+            # No flow: no rows go by it. It is kept apart, and the two ends are different subjobs.
+            self._iterate(fields, raw, prefix, job)
+            return None
         port = fields["output"]
         if port is None:
             port = source.cls.port_for(fields["type"], fields["name"], source.config)
@@ -534,6 +541,58 @@ class _Loader:
             condition=condition or None,
             order=fields["order"],
         )
+
+    def _iterate(self, fields: Dict[str, Any], raw: Dict[str, Any], prefix: str, job: Job) -> None:
+        """Keep an iterate link, or say why it cannot be one."""
+        source, target = job.components[fields["source"]], fields["target"]
+        ends = {end: (v1_name if v1_name in raw else end) for end, v1_name in (("source", "from"), ("target", "to"))}
+        if not source.cls.loops:
+            self.report.add(
+                "job", prefix + "type",
+                f"a {source.type} starts no loop: an iterate link leaves a component that makes a list of items",
+            )
+            return
+        already = next((link for link in job.iterates if link.source == source.id), None)
+        if already is not None:
+            self.report.add(
+                "job", prefix + ends["source"],
+                f"'{source.id}' has an iterate link already, to '{already.target}': a loop has one body",
+            )
+            return
+        taken = next((link for link in job.iterates if link.target == target), None)
+        if taken is not None:
+            self.report.add("job", prefix + ends["target"], f"'{target}' is the start of the loop of '{taken.source}' already")
+            return
+        job.iterates.append(Iterate(fields["name"], source.id, target, side_by_side=fields["enable_parallel"]))
+        self._iterate_ends[fields["name"]] = prefix + ends["target"]
+
+    def _check_iterates(self, job: Job) -> None:
+        """Refuse an iterate link that leads into the middle of a subjob, and triggers that cross a loop's edge."""
+        subjob_of = {component_id: index for index, members in enumerate(subjobs(job)) for component_id in members}
+        for link in job.iterates:
+            arriving = job.incoming(link.target)
+            if arriving:
+                self.report.add(
+                    "job", self._iterate_ends[link.name],
+                    f"an iterate link leads to the start of a subjob, and '{link.target}' takes rows from "
+                    f"'{arriving[0].source}'",
+                )
+        for started_by, body in bodies(job).items():
+            link = next(link for link in job.iterates if link.source == started_by)
+            for index, trigger in enumerate(job.triggers):
+                source, target = subjob_of[trigger.source], subjob_of[trigger.target]
+                if target == subjob_of[started_by] and source in body:
+                    self.report.add(
+                        "job", f"triggers[{index}]",
+                        f"'{trigger.target}' starts the loop that runs '{trigger.source}': a trigger from inside the "
+                        "loop cannot set it off again",
+                    )
+                elif target in body and source not in body:
+                    self.report.add(
+                        "job", f"triggers[{index}]",
+                        f"'{trigger.target}' is run by the loop of '{link.source}', once for each item: a trigger "
+                        f"from '{trigger.source}', which is not, cannot set it off",
+                    )
 
     def _check_triggers(self, job: Job) -> None:
         """Refuse triggers that stay inside one subjob and triggers that go round in a loop."""

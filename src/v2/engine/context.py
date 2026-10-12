@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import polars as pl
 
@@ -13,6 +14,22 @@ from .references import JAVA_MARK, parsed, value_of
 
 _TEMPLATE = re.compile(r"\$\{context\.(\w+)\}")
 _BARE = re.compile(r"\bcontext\.(\w+)\b")
+
+
+@dataclass
+class Items:
+    """The items of a loop, as the component that starts it hands them to the engine.
+
+    Attributes:
+        each: The items in order: how the log names each, and the globalMap
+            entries that are put for its pass.
+        count: How many there are.
+        cap: The most the loop may have (the component's ``max_items``).
+    """
+
+    each: Iterable[Tuple[str, Dict[str, Any]]]
+    count: int
+    cap: int
 
 
 class RunContext:
@@ -46,6 +63,9 @@ class RunContext:
         # The rows a source made rather than read, by its id: a source that is read again in the same
         # run hands on the same rows, also where they were drawn at random.
         self.made: Dict[str, Any] = {}
+        # The items of each loop whose component has run and whose passes the engine has not yet started,
+        # by the component's id.
+        self.items: Dict[str, Items] = {}
         # The texts of the config of each component of the subjob being run, by id: a component that puts
         # globalMap entries only when the subjob is done looks there for a reader it cannot serve.
         self.subjob_texts: Dict[str, str] = {}

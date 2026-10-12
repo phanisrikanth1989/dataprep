@@ -248,3 +248,74 @@ class Locked(Transform):
 
 
 REGISTRY.register(Locked)
+
+
+# ------------------------------------------------------------------
+# For loops
+# ------------------------------------------------------------------
+
+from src.v2.components.base import MAX_ITEMS, Action  # noqa: E402
+from src.v2.errors import ConfigurationError  # noqa: E402
+
+
+class Each(Action):
+    """Starts a loop over the values written in its config: each is `<id>_CURRENT_VALUE` in its pass."""
+
+    names = ("each",)
+    loops = True
+    keys = (Key("values", type=list, default=[]), Key("gives_up", type=bool, default=False),
+            Key("one_at_a_time", type=bool, default=False), MAX_ITEMS)
+
+    def act(self):
+        values = self.config["values"]
+        if self.config["gives_up"]:
+            # As a component that could not make its list and whose job is to go on all the same.
+            return
+        if self.config["one_at_a_time"]:
+            # As a component whose list is too long to hold: each item is made when its pass is due.
+            self.loop_over(self._made_when_due(values), count=len(values))
+            return
+        self.loop_over([(str(value), {f"{self.id}_CURRENT_VALUE": value}) for value in values])
+
+    def _made_when_due(self, values):
+        for value in values:
+            Note.said.append(f"made {value}")
+            yield str(value), {f"{self.id}_CURRENT_VALUE": value}
+
+
+class Note(Action):
+    """Notes what it was told to say, in the order that happened."""
+
+    names = ("note",)
+    keys = (Key("say", type=object, default=""),)
+    said = []
+
+    def act(self):
+        Note.said.append(self.config["say"])
+
+
+class Stop(Action):
+    """Ends the job, as a die does."""
+
+    names = ("stop",)
+    stops_job = True
+
+    def act(self):
+        raise ConfigurationError("stopped")
+
+
+class Once(Source):
+    """Hands on one row holding how many times it has been made in this run; kept as a source keeps what it makes."""
+
+    names = ("once",)
+    made = 0
+
+    def read(self):
+        if self.id not in self.run_context.made:
+            Once.made += 1
+            self.run_context.made[self.id] = pl.DataFrame({"n": [Once.made]})
+        return {"main": self.run_context.made[self.id].lazy()}
+
+
+for _cls in (Each, Note, Stop, Once):
+    REGISTRY.register(_cls)

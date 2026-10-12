@@ -37,6 +37,47 @@
   places, and columns that may not hold a missing value.
 
 
+## Loops
+
+An iterate link leads from a component that makes a list of items (a file
+list, say) to the start of what is run for each of them. It is no flow: no
+rows go by it, and its two ends are different subjobs.
+
+- When the subjob of the looping component has finished, the engine takes
+  its items one at a time, puts the item's entries in globalMap, and runs
+  the body: the subjob the link leads to, and whatever that sets off by
+  triggers. A pass is a run of the body. Its files are put in place when
+  it ends, as for any subjob: an output that is to hold the rows of every
+  pass appends.
+- The item is read in a config value as Talend writes it
+  (`((String)globalMap.get("tFileList_1_CURRENT_FILEPATH"))`): see
+  [A value looked up while the job runs](from-v1-to-v2.md#a-value-looked-up-while-the-job-runs).
+  The number of the pass is `<id>_CURRENT_ITERATION`, from 1. The entries
+  stay as the last pass left them when the loop is over.
+- One pass at a time, in the order of the items. Talend can run passes
+  side by side; v2 does not, and says so in the log when the job config
+  asks for it. Polars already uses every core inside a pass, and passes
+  side by side would share globalMap.
+- A pass that fails stops the loop: no later pass runs, and the looping
+  component has failed, with the item it stopped at. The error triggers
+  inside the body fire in that pass, and those of the looping component
+  after it. A die in a body ends the job.
+- No item, no pass: the log says so, and the triggers of the looping
+  component fire as after any loop.
+- A row count of a component in the body (`<id>_NB_LINE`) is, in
+  globalMap, that of the pass. The summary has the sum over the passes,
+  and under `loops`, for each looping component, its `items`, the
+  `passes` that were run, and the `failed_item` when one failed.
+- A loop may be in a loop.
+- A loop has a cap: `max_items` on the looping component, 100,000 when
+  not given. More items than that fail the job before the first pass.
+- Refused when the job loads: an iterate link from a component that makes
+  no list; two iterate links from one component, or to one; a link that
+  leads into the middle of a subjob; a trigger from outside a body into
+  it; a trigger from a body back to its own loop.
+- Not built: a run for picked rows (`run.only`) of a reader that a loop
+  runs is refused, since which pass's rows are meant has no answer yet.
+
 ## Types and missing values
 
 Declared types are `str`, `int`, `float`, `bool`, `datetime`, `date` and

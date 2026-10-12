@@ -111,6 +111,16 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   it, and without one it acts.) What it finds
   out it leaves in globalMap (`self.global_map[f"{self.id}_COUNT"]`); it
   raises to fail the job. It is not run when a job is only checked.
+- **A component that starts a loop** sets `loops = True`, declares
+  `MAX_ITEMS` among its keys, and hands its items to the engine while it
+  runs: `self.loop_over(items)`, each item being how the log names it and
+  the globalMap entries of its pass (`("b.csv", {f"{self.id}_CURRENT_FILE":
+  "b.csv"})`). The engine runs what the iterate link leads to once for
+  each, and puts `<id>_CURRENT_ITERATION` itself. A list too long to hold
+  is handed over as something that makes each item when its pass is due,
+  with `count=`. A component that hands over nothing (it could not make
+  its list, and the job is to go on) has no pass. See "Loops" in
+  [How a job runs](how-a-job-runs.md#loops).
 - Class attributes: `names`, `keys`, `outputs`, `min_inputs`, `max_inputs`
   (`None` = any number), `conforms`.
 - `outputs` maps each output port to the v1 flow types that leave by it.

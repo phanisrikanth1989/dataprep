@@ -69,6 +69,29 @@ class Flow:
 
 
 @dataclass(frozen=True)
+class Iterate:
+    """A link from a component that starts a loop to the start of what the loop runs.
+
+    It is no flow: no rows go by it. When the source's subjob has finished,
+    the target's subjob, and whatever that sets off by triggers, runs once
+    for each item the source made.
+
+    Attributes:
+        name: The link's name, as the job config has it.
+        source: Id of the component that starts the loop.
+        target: Id of the component the loop's body starts at.
+        side_by_side: Whether the job config asks for passes to run side by
+            side (Talend's "enable parallel execution"). v2 runs them one
+            after another and says so.
+    """
+
+    name: str
+    source: str
+    target: str
+    side_by_side: bool = False
+
+
+@dataclass(frozen=True)
 class Trigger:
     """A link that starts one subjob after another.
 
@@ -194,6 +217,7 @@ class Job:
         components: The components by id, in job-config order.
         flows: The flows, in job-config order.
         triggers: The triggers, in job-config order.
+        iterates: The iterate links, in job-config order.
         context_types: The declared type name of each context variable that
             has one.
         routines: Where routine modules are loaded from: v1's
@@ -211,6 +235,7 @@ class Job:
     components: Dict[str, ComponentSpec] = field(default_factory=dict)
     flows: List[Flow] = field(default_factory=list)
     triggers: List[Trigger] = field(default_factory=list)
+    iterates: List[Iterate] = field(default_factory=list)
 
     def incoming(self, component_id: str) -> List[Flow]:
         """The flows arriving at a component, in the order it takes its inputs.

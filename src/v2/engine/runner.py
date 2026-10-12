@@ -27,9 +27,9 @@ from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, So
                                one_line)
 from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place, temp_beside
-from ..job.graph import subjobs
+from ..job.graph import bodies, subjobs
 from ..job.keys import normalize_config, without_secrets
-from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
+from ..job.model import ComponentSpec, Iterate, Job, Only, RunSettings, Trigger
 from ..column_types import VIOLATION, conform
 from ..rows import first_of, shown, visible, without
 from .conditions import evaluate
@@ -66,6 +66,9 @@ class JobResult:
         global_map: globalMap entries at the end of the run.
         context: Context values at the end of the run.
         duration_s: Wall-clock seconds the run took.
+        loops: What each loop came to, by the id of the component that
+            starts it: its ``items``, the ``passes`` that were run, and the
+            ``failed_item`` when a pass failed. Empty for a job with no loop.
     """
 
     job_name: str
@@ -80,6 +83,7 @@ class JobResult:
     duration_s: float = 0.0
     only: Optional[Dict[str, Any]] = None
     trace: Optional[List[Dict[str, Any]]] = None
+    loops: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def summary(self) -> Dict[str, Any]:
         """How the run ended, as plain values: what the command prints last, and what a service sends back.
@@ -99,6 +103,8 @@ class JobResult:
             "counts": {component_id: dict(counted) for component_id, counted in self.counts.items()},
             "duration_s": round(self.duration_s, 3),
         }
+        if self.loops:
+            made["loops"] = {component_id: dict(told) for component_id, told in self.loops.items()}
         if self.only is not None:
             made["only"] = dict(self.only)
         if self.trace is not None:
@@ -182,6 +188,18 @@ class Runner:
         self.row_counts = row_counts
         self.counts: Dict[str, Dict[str, int]] = {}
         self.run_context.job_text = _job_text(job)
+        # The subjobs in the order they are found, which subjob each component is in, the triggers that leave
+        # each subjob, the iterate link that leaves a component, and the subjobs each loop runs.
+        self._plan = subjobs(job)
+        self._subjob_of = {component_id: index for index, members in enumerate(self._plan) for component_id in members}
+        self._leaving: Dict[int, List[Trigger]] = {}
+        for trigger in job.triggers:
+            self._leaving.setdefault(self._subjob_of[trigger.source], []).append(trigger)
+        self._iterates = {link.source: link for link in job.iterates}
+        self._bodies = bodies(job)
+        # What each loop came to, by the id of the component that starts it: its items, the passes run, and
+        # the item a pass failed at.
+        self.loops: Dict[str, Dict[str, Any]] = {}
         self._wanted = _wanted_stats(job, self.run_context.job_text)
         if row_counts:
             self._wanted = {component_id: list(_STATS) for component_id in job.components}
@@ -209,6 +227,7 @@ class Runner:
         result.trace = self.trace
         result.rows = dict(self.rows)
         result.counts = dict(self.counts)
+        result.loops = dict(self.loops)
         result.global_map = dict(self.run_context.global_map)
         result.context = dict(self.run_context.context)
         result.duration_s = time.perf_counter() - started
@@ -237,36 +256,120 @@ class Runner:
     # ------------------------------------------------------------------
 
     def _run_subjobs(self, result: JobResult) -> None:
-        plan = subjobs(self.job)
-        subjob_of = {component_id: index for index, members in enumerate(plan) for component_id in members}
-        leaving: Dict[int, List[Trigger]] = {}
-        triggered = set()
-        for trigger in self.job.triggers:
-            leaving.setdefault(subjob_of[trigger.source], []).append(trigger)
-            triggered.add(subjob_of[trigger.target])
+        plan = self._plan
+        started = {self._subjob_of[trigger.target] for trigger in self.job.triggers}
+        started |= {self._subjob_of[link.target] for link in self.job.iterates}
+        self._drain([index for index in range(len(plan)) if index not in started], result)
 
-        queue: Deque[int] = deque(index for index in range(len(plan)) if index not in triggered)
+    def _drain(self, starts: List[int], result: JobResult) -> str:
+        """Run subjobs and whatever each sets off, depth first: what a subjob sets off runs right after it.
+
+        A subjob runs once in a drain. The whole job is one drain, and so
+        is each pass of a loop over its body, which is how a body's subjobs
+        run again for the next item.
+
+        Args:
+            starts: The subjobs to start with, by their place in the plan.
+            result: Where failures are recorded.
+
+        Returns:
+            ``ok``; ``failed`` when a component failed in this drain; ``died``
+            when a die ended the job, and nothing more is to run anywhere.
+        """
+        plan, subjob_of = self._plan, self._subjob_of
+        queue: Deque[int] = deque(starts)
         done: Set[int] = set()
         set_off: Set[int] = set()
+        outcome = "ok"
         while queue:
             index = queue.popleft()
             if index in done:
                 continue
             done.add(index)
             failure = self._run_subjob(plan[index])
+            if failure is None:
+                failure, died = self._loops(plan[index], result)
+                if died:
+                    return "died"
             if failure is not None:
+                outcome = "failed"
                 self._record(result, failure.component_id, failure.reason)
                 failed = self.job.components.get(failure.component_id)
                 if failed is not None and failed.cls.stops_job:
                     # A die: the job ends here, as in v1 and Talend. No trigger fires and no subjob follows.
                     logger.info(f"[{self.job.name}] the job is stopped by {failure.component_id}")
-                    return
+                    return "died"
             try:
-                following = self._fired(plan[index], leaving.get(index, []), failure, subjob_of, done, set_off)
+                following = self._fired(plan[index], self._leaving.get(index, []), failure, subjob_of, done, set_off)
             except ConfigurationError as exc:
                 self._record(result, None, str(exc))
-                return
+                return "died"
             queue.extendleft(reversed(following))
+        return outcome
+
+    # ------------------------------------------------------------------
+    # Loops
+    # ------------------------------------------------------------------
+
+    def _loops(self, members: List[str], result: JobResult) -> Tuple[Optional[_Failed], bool]:
+        """Run the loops that the components of a finished subjob start.
+
+        Returns:
+            The failure of the first loop that failed, blamed on the
+            component that starts it; and whether a die ended the job.
+        """
+        for component_id in members:
+            link = self._iterates.get(component_id)
+            if link is None:
+                continue
+            failure, died = self._loop(link, result)
+            if failure is not None or died:
+                return failure, died
+        return None, False
+
+    def _loop(self, link: Iterate, result: JobResult) -> Tuple[Optional[_Failed], bool]:
+        """Run a loop's body once for each of its items, one pass after another.
+
+        Each item's entries are put in globalMap before its pass, with the
+        number of the pass as ``<id>_CURRENT_ITERATION``, and stay as the
+        last pass left them. A pass that fails stops the loop.
+        """
+        looping = link.source
+        items = self.run_context.items.pop(looping, None)
+        if items is None:
+            return None, False
+        told = self.loops.setdefault(looping, {"items": 0, "passes": 0})
+        told["items"] += items.count
+        if items.count > items.cap:
+            return _Failed(looping, f"{items.count} items, and a loop may have {items.cap} by `max_items`: none is run"), False
+        if link.side_by_side:
+            logger.info(f"[{looping}] the passes run one after another: v2 does not run them side by side")
+        if not items.count:
+            logger.info(f"[{looping}] no item: what it leads to is not run")
+            return None, False
+        global_map = self.run_context.global_map
+        start, body = self._subjob_of[link.target], self._bodies[looping]
+        began = time.perf_counter()
+        for number, (named, entries) in enumerate(items.each, start=1):
+            global_map.update(entries)
+            global_map[f"{looping}_CURRENT_ITERATION"] = number
+            for index in body:
+                for component_id in self._plan[index]:
+                    # What a source made for the pass before is not this pass's.
+                    self.run_context.made.pop(component_id, None)
+            logger.info(one_line(f"[{looping}] item {number} of {items.count}: {named}"))
+            told["passes"] += 1
+            before = len(result.failures)
+            outcome = self._drain([start], result)
+            if outcome == "died":
+                return None, True
+            if outcome == "failed":
+                told["failed_item"] = named
+                failed = next(iter(list(result.failures)[before:]), None) or result.failed_component
+                why = f"{failed} failed: {result.failures.get(failed, result.error)}"
+                return _Failed(looping, f"its loop stopped at item {number} of {items.count} ({named}): {why}"), False
+        logger.info(f"[{looping}] {items.count} items done in {time.perf_counter() - began:.2f}s")
+        return None, False
 
     def _fired(
         self,
@@ -498,7 +601,9 @@ class Runner:
         global_map = self.run_context.global_map
         for component_id in component_ids:
             counted = {stat: global_map[f"{component_id}_{stat}"] for stat in _STATS}
-            self.counts[component_id] = counted
+            # A subjob that a loop runs again adds to what it counted before: globalMap has this run's.
+            before = self.counts.get(component_id, {})
+            self.counts[component_id] = {stat: before.get(stat, 0) + counted[stat] for stat in _STATS}
             logger.info(ascii_only(
                 f"[{component_id}] NB_LINE:{counted['NB_LINE']} OK:{counted['NB_LINE_OK']} "
                 f"REJECT:{counted['NB_LINE_REJECT']}"
@@ -867,12 +972,12 @@ class Runner:
                     put_in_place(temp, write.path, write.append)
                 if component_id in state.filed:
                     state.filed[component_id]["written"] = True
+                # The summary has every row the output wrote; globalMap has what this run of its subjob wrote,
+                # which in a loop is this pass's.
                 self.rows[component_id] = self.rows.get(component_id, 0) + rows
-                self.run_context.global_map[f"{component_id}_NB_LINE"] = self.rows[component_id]
+                self.run_context.global_map[f"{component_id}_NB_LINE"] = rows
                 for stat in self._wanted.get(component_id, ()):
-                    self.run_context.global_map[f"{component_id}_{stat}"] = (
-                        0 if stat == "NB_LINE_REJECT" else self.rows[component_id]
-                    )
+                    self.run_context.global_map[f"{component_id}_{stat}"] = 0 if stat == "NB_LINE_REJECT" else rows
                 if write.finish is not None:
                     write.finish(rows)
                 logger.info(f"[{component_id}] wrote {rows} row(s) to {write.path}")

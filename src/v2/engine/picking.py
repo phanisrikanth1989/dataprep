@@ -13,6 +13,7 @@ import polars as pl
 
 from ..column_types import from_text
 from ..components.base import Source
+from ..job.graph import bodies, subjobs
 from ..job.model import Column, ComponentSpec, Job, Only
 from ..job.refusal import Refusal
 from ..rows import shown, visible
@@ -175,6 +176,15 @@ def source_problem(job: Job, only: Only) -> List[Refusal]:
         return [Refusal("job", "run.only.source", f"there is no component '{only.source}'; {listed}")]
     if not _reads(spec):
         return [Refusal("job", "run.only.source", f"'{only.source}' is not a reader; {listed}")]
+    plan = subjobs(job)
+    for started_by, body in bodies(job).items():
+        if any(only.source in plan[index] for index in body):
+            # Which pass's rows are meant has no answer yet.
+            return [Refusal(
+                "job", "run.only.source",
+                f"'{only.source}' is run by the loop of '{started_by}', once for each item: a run for picked rows of "
+                "such a reader is not built yet",
+            )]
     return []
 
 
