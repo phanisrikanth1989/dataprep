@@ -9,7 +9,7 @@ put in place.
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import Any, List, Optional
 from xml.parsers import expat
 
 import polars as pl
@@ -23,6 +23,8 @@ NOT_IN_XML = "[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x{FFFE}\\x{FFFF}]"
 NIL = ' xsi:nil="true"'
 NIL_NAMESPACE = ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 _NAME = re.compile(r"[A-Za-z_][\w.\-]*")
+# The working column that numbers the rows as they are written, for a message.
+_ROW = "__n"
 # A line end inside a value is written by its number: every row stays one line, and a carriage return is read
 # back as one (a parser turns a bare one into a line feed).
 _IN_TEXT = (["&", "<", ">", "\r", "\n"], ["&amp;", "&lt;", "&gt;", "&#13;", "&#10;"])
@@ -53,6 +55,48 @@ def declaration(encoding: str) -> str:
 def lines(parts: List[pl.LazyFrame]) -> pl.LazyFrame:
     """Frames of one text column each, one after another, as the lines of one file."""
     return pl.concat([part.select(pl.all().alias("line")) for part in parts], how="vertical")
+
+
+def plain(value: str) -> str:
+    """A text the job config gives, as it stands inside an element."""
+    for given, escaped in zip(*_IN_TEXT):
+        value = value.replace(given, escaped)
+    return value
+
+
+def quoted(value: str) -> str:
+    """A text the job config gives, as it stands inside the quotes of an attribute."""
+    for given, escaped in zip(*_IN_ATTRIBUTE):
+        value = value.replace(given, escaped)
+    return value
+
+
+def fail_on_what_xml_cannot_hold(component: Any, frame: pl.LazyFrame, texts: List[str]) -> None:
+    """Have a sink's subjob fail when a text column holds a character XML cannot hold, naming the first such row.
+
+    Args:
+        component: The sink.
+        frame: The rows it is handed.
+        texts: The text columns it writes.
+    """
+    if not texts:
+        return
+    numbered = frame.with_row_index(_ROW, offset=1)
+    wrong = {name: pl.col(name).str.contains(NOT_IN_XML).fill_null(False) for name in texts}
+    found = numbered.select(
+        *[pl.col(_ROW).filter(wrong[name]).first().alias(f"{_ROW}_{name}") for name in texts],
+        *[pl.col(name).filter(wrong[name]).first().alias(name) for name in texts],
+    )
+
+    def problem(result: pl.DataFrame) -> Optional[str]:
+        first = min(((result[f"{_ROW}_{name}"].item(), name) for name in texts
+                     if result[f"{_ROW}_{name}"].item() is not None), default=None)
+        if first is None:
+            return None
+        row, name = first
+        return f"column '{name}' of row {row} holds a character XML cannot hold: {result[name].item()!r}"
+
+    component.check(found, problem)
 
 
 def read_back(path: str, shown: str) -> None:

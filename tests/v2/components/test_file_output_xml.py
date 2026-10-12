@@ -7,7 +7,7 @@ from lxml import etree
 
 from src.v2 import load_job
 from src.v2.errors import JobRefusedError
-from tests.v2.components.kit import columns, flow, job, reader
+from tests.v2.components.kit import columns, flow, job, reader, writer
 
 from .test_file_actions_kit import filled, on_v2
 
@@ -275,6 +275,19 @@ def test_more_than_one_document_and_a_column_that_holds_none_fail_the_job(tmp_pa
 # ------------------------------------------------------------------
 # The file
 # ------------------------------------------------------------------
+
+def test_engine_is_told_whether_a_file_is_left_when_no_row_arrives(tmp_path):
+    # A later output of the same subjob, to which a file that is there is an error, finds one or none.
+    def run(folder, **config):
+        made = job([reader(SCHEMA, outputs=("row1", "row2")), writing(SCHEMA, **config),
+                    writer(SCHEMA, component_id="out2", path="out.xml", inputs=("row2",), file_exist_exception=True)],
+                   [flow("row1", "in", "out"), flow("row2", "in", "out2")])
+        return on_v2(made, filled(folder, {"in.csv": b""}))
+
+    result = run(tmp_path / "left")
+    assert result.status == "failed" and "File already exists" in result.error
+    assert run(tmp_path / "none", delete_empty_file=True).status == "success"
+
 
 def test_folder_is_made_unless_it_is_not_to_be_and_a_job_that_fails_leaves_the_file_that_was_there(tmp_path):
     result, _, folder = written_by(tmp_path / "made", filename="deep/er/out.xml")

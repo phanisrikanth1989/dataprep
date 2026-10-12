@@ -35,6 +35,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 
 | Component | Type in a job config | What is written of it |
 |---|---|---|
+| Advanced XML output (tAdvancedFileOutputXML) | `advanced_file_output_xml` | [Own rule: XML](own-rule/xml.md#advanced-xml-output) |
 | Aggregate row (tAggregateRow) | `aggregate_row` | [Differences from v1: Rows](differences-from-v1/rows.md#aggregate-row) |
 | Aggregate sorted row (tAggregateSortedRow) | `aggregate_sorted_row` | [Differences from v1: Rows](differences-from-v1/rows.md#aggregate-sorted-row) |
 | Change file encoding (tChangeFileEncoding) | `change_file_encoding` | [Own rule: File jobs](own-rule/file-jobs.md#change-file-encoding) |

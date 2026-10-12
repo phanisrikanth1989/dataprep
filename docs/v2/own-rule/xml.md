@@ -197,3 +197,117 @@ What the writers share:
   from a job made by hand, and what Talend itself exports there is
   another shape. An entry of `mapping` that names no column refuses the
   job and says so.
+
+## Advanced XML output
+
+- The rows are written to the file `filename` as one document whose
+  shape the job draws as a tree, in three tables:
+
+  | Table | Its elements are written |
+  |---|---|
+  | `root` | once |
+  | `group` | once for each run of rows that share its values |
+  | `loop` | once for each row |
+
+  A row of a table is one of four things, which `attribute` says:
+  `main`, the element the table is about; `branch`, any other element;
+  `attri`, an attribute of the element before it; `ns`, a namespace of
+  the element before it. An element is given by its full `path`
+  (`/sales/region/sale`), an attribute by its name, a namespace by its
+  prefix.
+
+  ```
+  root:  /sales              main
+         made                attri   value "by v2"
+  group: /sales/region       main
+         name                attri   column region
+  loop:  /sales/region/sale  main
+         id                  attri   column id
+         /sales/region/sale/who      column name
+  ```
+
+  ```
+  <?xml version="1.0" encoding="UTF-8"?>
+  <sales made="by v2">
+  <region name="north">
+  <sale id="1"><who>ann</who></sale>
+  <sale id="2"><who>bob</who></sale>
+  </region>
+  <region name="south">
+  <sale id="4"><who>cy</who></sale>
+  </region>
+  </sales>
+  ```
+
+- An element or an attribute holds the value of its `column`, written
+  as the delimited output writes it, or its fixed `value` where it
+  names no column. Where it names both, the column is written, as in
+  Talend. `trim` takes the white space around a column's value away.
+- An element stands in the element its path names: the last one
+  written with that path. Elements beside each other are written by
+  their `order`, a whole number; one with none has its place in the
+  tables for it (the first row of `root` is 1, and so on through
+  `group` and `loop`), as in Talend.
+- **Groups.** A group's element is opened where a value it holds is not
+  the row before's, and closed where the row after opens one. What it
+  holds is its own column, its attributes, and what stands in it beside
+  the rows. A second `main` in `group` is a group inside the first; it
+  starts anew when the outer one does. A missing value is a value of
+  its own. The rows of a group have to arrive together: a value that
+  comes back later starts a second group, so a job that cannot promise
+  that sorts first. (Talend looks at fewer of these values: an element
+  of a group that holds a column of its own is not asked for what
+  stands in it, and its group can then show the values of its first row
+  for rows that have others.)
+- What stands before the rows in the document has the values of the
+  first row, and what stands after them those of the last: a count that
+  runs with the rows ends as the total. (Talend writes both with the
+  first row's.)
+- **Nothing to write.** These three say what is done with it:
+
+  | Key | When not given | What it does |
+  |---|---|---|
+  | `create_empty_element` | on | Off: an element with nothing to say is left out |
+  | `add_empty_attribute` | off | On: an attribute whose column holds no value is written, `name=""` |
+  | `add_unmapped_attribute` | off | On: an attribute with no column and no fixed value is written, `name=""` |
+
+  An element has nothing to say where no column in it holds a value
+  (its own, its attributes', those of the elements in it) and nothing
+  in it is fixed. An empty text is a value: it is written, as
+  `<who></who>`. The loop element and the elements it stands in are
+  always written, so the document has one loop element for each row.
+  (Talend leaves out a row whose columns all hold nothing.)
+- **Namespaces.** A row with `ns` declares a prefix on the element
+  before it; its `value` is what the prefix stands for, and a row with
+  no prefix declares the namespace of names that have none. A name may
+  then carry the prefix (`s:sale`). A prefix that is declared on no
+  element at or above the name refuses the job. `xml:` needs no
+  declaring. A row with no `value` declares nothing, as in Talend.
+- No row gives the root with what stands in it up to the first group,
+  with nothing for a column's value. With `delete_empty_file` it gives
+  no file, and one of an earlier run is taken away.
+- With `file_valid`, one line follows the declaration: `<!DOCTYPE
+  dtd_name SYSTEM "dtd_systemid">` with `dtd_valid`, or else
+  `<?xml-stylesheet type="xsl_type" href="xsl_href"?>` with
+  `xsl_valid`. The line is written; nothing is checked against what it
+  names.
+- `create` makes the folder of the file when it is not there. It
+  leaves the path in `<id>_FILE_NAME`.
+- Tried here on three million rows of eleven columns, with a group and
+  elements before and after the rows: 0.65 million rows a second, a
+  document of 1,015 MB, the reading back included. (On a Mac; not yet
+  on the servers.)
+- Refused when on: `merge` (rows added to a document that is there),
+  `output_as_xsd`, `usestream`, `add_document_as_node` (a column that
+  holds a document put in as elements), `split` and
+  `advanced_separator`. `pretty_compact` and `generation_mode` are
+  taken and have no effect: the document is written a row a line, and
+  no tree is built whichever way Talend was to build it.
+- A table of bare names, as a job made by hand has it (`sales`, not
+  `/sales`, and `true` for an attribute), is read too: the first
+  element of a table is the one it is about, and the others stand in
+  it.
+- A converted job: the converter reads the three tables from a job
+  made by hand, and has not been tried on what Talend itself exports.
+  A table that names no element, or an element whose path leads
+  nowhere, refuses the job and says so.

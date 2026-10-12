@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import polars as pl
 
@@ -17,9 +17,6 @@ from .file_input_delimited import encoding
 from .file_output_delimited import _as_written
 
 logger = logging.getLogger(__name__)
-
-# The working column that numbers the rows as they are written, for a message.
-_ROW = "__n"
 
 
 def _name_of(what: str, may_be_none: bool = False) -> Callable[[str], str]:
@@ -169,7 +166,7 @@ class FileOutputXML(Sink):
             head = [xml_writer.declaration(config["encoding"])] + [
                 f"<{name}{marked if at == 0 else ''}>" for at, name in enumerate(roots)]
             foot = [f"</{name}>" for name in reversed(roots)]
-        self._no_character_xml_cannot_hold(frame, [name for name in read if types[name] == pl.String])
+        xml_writer.fail_on_what_xml_cannot_hold(self, frame, [name for name in read if types[name] == pl.String])
         parts = [pl.LazyFrame({"line": head}, schema={"line": pl.String}), body]
         if foot:
             parts.append(pl.LazyFrame({"line": foot}, schema={"line": pl.String}))
@@ -245,24 +242,3 @@ class FileOutputXML(Sink):
                 after.insert(0, pl.when(starts.shift(-1).fill_null(True)).then(pl.lit(f"\n</{element}>")).otherwise(pl.lit("")))
             line = pl.concat_str([*before, line, *after])
         return frame.select(line.alias("line")), names
-
-    def _no_character_xml_cannot_hold(self, frame: pl.LazyFrame, texts: List[str]) -> None:
-        """Have the subjob fail when a text holds a character XML cannot hold, naming the first such row."""
-        if not texts:
-            return
-        numbered = frame.with_row_index(_ROW, offset=1)
-        wrong = {name: pl.col(name).str.contains(xml_writer.NOT_IN_XML).fill_null(False) for name in texts}
-        found = numbered.select(
-            *[pl.col(_ROW).filter(wrong[name]).first().alias(f"{_ROW}_{name}") for name in texts],
-            *[pl.col(name).filter(wrong[name]).first().alias(name) for name in texts],
-        )
-
-        def problem(result: pl.DataFrame) -> Optional[str]:
-            first = min(((result[f"{_ROW}_{name}"].item(), name) for name in texts
-                         if result[f"{_ROW}_{name}"].item() is not None), default=None)
-            if first is None:
-                return None
-            row, name = first
-            return f"column '{name}' of row {row} holds a character XML cannot hold: {result[name].item()!r}"
-
-        self.check(found, problem)

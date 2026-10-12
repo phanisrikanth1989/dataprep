@@ -396,6 +396,9 @@ documentation.
   [The XML writer and the XML file output](issues/112-the-xml-writer-and-xml-file-output.md)
   -- a row is a line of text made by Polars; whatever a value holds is
   read back as it was; the file is read once before it is put in place.
+  [Advanced XML output](issues/113-advanced-xml-output.md) -- three
+  tables drawn as one tree, groups opened and closed as the rows pass;
+  a fixed value is no default, and missing is not empty.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -456,11 +459,11 @@ list are of the first destination, which is reached):
   passes side by side, going on after a failed item, one read of many
   files by a reader, `run.only` for a reader that a loop runs, and a
   clean-up when the job is stopped from outside.
-- XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md))
-  and not built: the reader with the XML file input first, then the
-  writer with the two outputs, then extract XML field, the multi-schema
-  input and XML map. Left for later there: a check against an XSD, a
-  predicate in the record path, `split`.
+- XML is decided ([XML: the decisions](issues/110-xml-the-decisions.md)).
+  Built: the reader with the XML file input, the writer with the two
+  outputs. To build: extract XML field, the multi-schema input and XML
+  map. Left for later there: a check against an XSD, a predicate in the
+  record path, `split`.
 - Database waits on
   [How current tools read and load databases](issues/92-how-current-tools-read-and-load-databases.md):
   which drivers, how rows go in and out without being held in memory,
