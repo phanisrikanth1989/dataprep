@@ -260,6 +260,10 @@ Fixed on 2026-10-12.
   after a word (`xq'...'`). Oracle takes the word, as v2's reader does.
   No statement Oracle accepts has a word against a quote, so nothing
   follows from it.
+- Oracle takes a colon after a bound value for the start of another:
+  `json_object('${context.k}' : 1)` fails (`ORA-01745`, or the driver's
+  `DPY-4010`). The word `value` in the colon's place works. Found while
+  the two readers were held side by side; it is in the docs now.
 
 ### Slips
 
@@ -271,7 +275,7 @@ Fixed on 2026-10-12.
 - **My first test of fault 3 made the stand-in end its transaction when
   the session died.** The real driver does not, so the fix looked as if
   it did nothing. The stand-in now answers as the driver was seen to.
-- Not every test was seen failing one by one: 21 of the 39 were. The
+- Not every test was seen failing one by one: 21 of the 40 were. The
   others hold what must stay as it is, or were written after the code;
   the mutation check holds those.
 - A session of Oracle's own client (thick mode) is now asked whether a
@@ -280,17 +284,18 @@ Fixed on 2026-10-12.
 
 ### How it was tested
 
-39 tests, one of them in place of the test that held the old decision:
-38 more.
+40 tests, one of them in place of the test that held the old decision:
+39 more.
 
 - 9 of the statement reader, 6 seen failing first.
 - 7 of the sessions, 4 seen failing first.
 - 4 of the Oracle session against the stand-in driver, 3 seen failing
   first.
 - 14 of the row on SQLite, 7 seen failing first.
-- 5 against the real Oracle. The first was seen failing; the others
-  were written after probes had shown each fault on the real database.
-- Gate: 8,396 passed, 105 modules at 95% or more. Real Oracle: 72
+- 6 against the real Oracle. The first was seen failing; four were
+  written after probes had shown each fault on the real database; one
+  holds what the docs say of JSON's colon.
+- Gate: 8,396 passed, 105 modules at 95% or more. Real Oracle: 73
   passed. Real SQL Server: 62 passed.
 
 ### Mutation check

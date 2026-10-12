@@ -121,6 +121,10 @@ statement does**:
   plain quotes, so that the value can be bound. Such a text is read as
   Oracle reads it: whatever its mark is, with a quote as its first
   character, and at the start of a line.
+- A value before JSON's colon is refused by Oracle
+  (`json_object('${context.k}' : 1)` fails with `ORA-01745` or
+  `DPY-4010`): a colon after a bound value is taken for the start of
+  another. Write the word: `json_object('${context.k}' value 1)`.
 - **A statement is read as its own database reads one.** For SQL Server
   a bound value is a mark (`?`) and texts are joined with `+`; a name
   may stand between square brackets (`[it's]`), a remark inside a

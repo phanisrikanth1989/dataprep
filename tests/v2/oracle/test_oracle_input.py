@@ -195,6 +195,17 @@ def test_a_value_in_a_remark_of_the_query_cannot_end_the_remark(oracle_db, wide,
     assert lines[1:] == ["2; pad "]
 
 
+def test_a_bound_value_before_jsons_colon_is_refused_by_oracle_and_before_the_word_value_it_is_not(oracle_db, tmp_path):
+    """What the docs say of it: a colon after a bound value is taken for the start of another."""
+    query = "select json_value(json_object('${context.k}' value 7), '$.key') as n from dual"
+    result, lines = reading(oracle_db, tmp_path, "n:str", query, context={"k": "key"})
+    assert result.status == "success", result.error
+    assert lines[1:] == ["7"]
+    result, _ = reading(oracle_db, tmp_path, "n:str", query.replace(" value 7", " : 7"), context={"k": "key"})
+    assert (result.status, result.failed_component) == ("failed", "in")
+    assert "DPY-4010" in result.error or "ORA-01745" in result.error
+
+
 def test_a_value_in_a_text_written_the_other_way_cannot_end_the_text(oracle_db, wide, tmp_path):
     # Found on the second pass: the text starts with a quote, and the reader took the mark and that quote for its
     # end. Sent as it was, this read a column the query never named.
