@@ -376,6 +376,9 @@ documentation.
   unpacked.
   [Sleep](issues/107-sleep.md) -- waits a checked number of seconds,
   alone or once for each pass of a loop.
+  [Prejob and postjob](issues/108-prejob-and-postjob.md) -- a job runs
+  in three parts; the clean-up runs after a failure and after a die, and
+  a set-up that failed keeps the job itself from running.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

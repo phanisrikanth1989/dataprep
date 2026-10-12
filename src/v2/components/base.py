@@ -43,6 +43,10 @@ COMMON_KEYS: Tuple[Key, ...] = (
     Key("component_type", kind=Kind.IGNORED, type=object, doc="v1's name for the component type; a label."),
 )
 
+# The parts of a job a component may mark the start of: its set-up, which runs before everything else, and its
+# clean-up, which runs after everything else whatever became of the job.
+BEFORE, AFTER = "before", "after"
+
 # For a component that asks ``fail_or_go_on``: the one switch between failing the job and going on.
 DIE_ON_ERROR = Key(
     "die_on_error", type=bool, default=True,
@@ -165,6 +169,9 @@ class Component:
     # ``loop_over`` while it runs, and when its subjob has finished the engine runs what the link leads to
     # once for each of them. It declares ``MAX_ITEMS`` among its keys.
     loops: ClassVar[bool] = False
+    # The part of the job the component marks the start of, ``BEFORE`` or ``AFTER``, for a prejob and a postjob;
+    # None for every other component, which belongs to the job itself.
+    part: ClassVar[Optional[str]] = None
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec

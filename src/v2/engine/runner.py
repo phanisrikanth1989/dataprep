@@ -23,8 +23,8 @@ from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional
 
 import polars as pl
 
-from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, Source, Tap, Write, ascii_only,
-                               one_line)
+from ..components.base import (AFTER, BEFORE, Action, CheckFailed, Component, Noticed, Sink, Source, Tap, Write,
+                               ascii_only, one_line)
 from ..errors import ConfigurationError, JobFailedError
 from ..files import cleared, put_in_place, temp_beside
 from ..job.graph import subjobs
@@ -257,29 +257,49 @@ class Runner:
     # ------------------------------------------------------------------
 
     def _run_subjobs(self, result: JobResult) -> None:
-        plan = self._plan
+        """Run the job in its three parts: what a prejob sets off, the job itself, what a postjob sets off.
+
+        The last part runs whatever became of the two before it: after a
+        failure, and after a die. The job itself is not run when its
+        set-up did not finish.
+        """
+        plan, components = self._plan, self.job.components
         started = {self._subjob_of[trigger.target] for trigger in self.job.triggers}
         started |= {self._subjob_of[link.target] for link in self.job.iterates}
-        self._drain([index for index in range(len(plan)) if index not in started], result)
+        parts: Dict[Optional[str], List[int]] = {BEFORE: [], None: [], AFTER: []}
+        for index in range(len(plan)):
+            if index not in started:
+                marked = next((components[member].cls.part for member in plan[index] if components[member].cls.part), None)
+                parts[marked].append(index)
+        # A subjob runs once, whichever part it is set off in.
+        done: Set[int] = set()
+        outcome = self._drain(parts[BEFORE], result, done)
+        if outcome == "ok":
+            self._drain(parts[None], result, done)
+        elif parts[None]:
+            logger.info(f"[{self.job.name}] the job itself is not run: what its prejob set off failed")
+        self._drain(parts[AFTER], result, done)
 
-    def _drain(self, starts: List[int], result: JobResult) -> str:
+    def _drain(self, starts: List[int], result: JobResult, done: Optional[Set[int]] = None) -> str:
         """Run subjobs and whatever each sets off, depth first: what a subjob sets off runs right after it.
 
-        A subjob runs once in a drain. The whole job is one drain, and so
-        is each pass of a loop over its body, which is how a body's subjobs
-        run again for the next item.
+        A subjob runs once in a drain. Each part of a job is one drain, and
+        so is each pass of a loop over its body, which is how a body's
+        subjobs run again for the next item.
 
         Args:
             starts: The subjobs to start with, by their place in the plan.
             result: Where failures are recorded.
+            done: The subjobs that have run and are not to run again; for
+                the parts of a job, which share them.
 
         Returns:
             ``ok``; ``failed`` when a component failed in this drain; ``died``
-            when a die ended the job, and nothing more is to run anywhere.
+            when a die ended the job, and nothing more of this part is to run.
         """
         plan, subjob_of = self._plan, self._subjob_of
         queue: Deque[int] = deque(starts)
-        done: Set[int] = set()
+        done = set() if done is None else done
         set_off: Set[int] = set()
         outcome = "ok"
         while queue:

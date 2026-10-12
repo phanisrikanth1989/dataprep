@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
+from ..components.base import BEFORE
 from ..components.registry import REGISTRY, Registry
 from .graph import bodies, loop, subjobs
 from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
@@ -523,6 +524,8 @@ class _Loader:
                 if not _was_refused(self.report, fields[end]):
                     self.report.add("job", prefix + spelling, f"there is no component '{fields[end]}'")
                 ok = False
+        if ok and not self._may_lead_to(fields["target"], prefix + ("to" if "to" in raw else "target"), job):
+            ok = False
         kind = _TRIGGER_KINDS[fields["type"]]
         condition = fields["condition"]
         if kind == "RunIf":
@@ -542,10 +545,22 @@ class _Loader:
             order=fields["order"],
         )
 
+    def _may_lead_to(self, target: str, where: str, job: Job) -> bool:
+        """Whether a trigger or an iterate link may lead to a component; said in the report when it may not."""
+        marked = job.components[target].cls
+        if marked.part is None:
+            return True
+        what = "set-up" if marked.part == BEFORE else "clean-up"
+        self.report.add(
+            "job", where, f"'{target}' is a {marked.names[0]}: it is where a job's {what} starts, and nothing leads to it")
+        return False
+
     def _iterate(self, fields: Dict[str, Any], raw: Dict[str, Any], prefix: str, job: Job) -> None:
         """Keep an iterate link, or say why it cannot be one."""
         source, target = job.components[fields["source"]], fields["target"]
         ends = {end: (v1_name if v1_name in raw else end) for end, v1_name in (("source", "from"), ("target", "to"))}
+        if not self._may_lead_to(target, prefix + ends["target"], job):
+            return
         if not source.cls.loops:
             self.report.add(
                 "job", prefix + "type",

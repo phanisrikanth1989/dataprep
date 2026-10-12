@@ -138,3 +138,32 @@ unpacked.
 - It waits a length of time, not for anything. For a file that is still
   being written, a file list's `min_age_seconds` leaves the file out
   until it has been still that long.
+
+## Prejob
+
+- Marks where a job's set-up starts: what its trigger leads to runs
+  before everything else in the job, wherever it is written. It does
+  nothing itself and has no key of its own.
+- When the set-up fails, the job itself is not run, and the log says so.
+  What a postjob sets off still runs. (Talend runs the job all the same,
+  and so does v1: a job run on a set-up that failed fails later and less
+  clearly. Airflow does as v2 does.)
+- Nothing leads to it: a trigger or an iterate link to it refuses the
+  job, and so does a flow. A job may have more than one; they run in the
+  order they are written.
+- How the three parts of a job run is in
+  [How a job runs](../how-a-job-runs.md#set-up-and-clean-up).
+
+## Postjob
+
+- Marks where a job's clean-up starts: what its trigger leads to runs
+  after everything else in the job. It does nothing itself and has no
+  key of its own.
+- The clean-up runs whatever became of the job: after a failure, and
+  after a die. So it does in Talend, and in every other tool that was
+  read. v1 runs it only after a job that succeeded, by choice; a
+  clean-up that runs only then is not one. A step meant for success
+  only stands behind the job's own subjob, on its OnSubjobOk trigger.
+- A clean-up that fails fails the job, and does not hide why the job
+  had failed before it.
+- Nothing leads to it, as for a prejob.

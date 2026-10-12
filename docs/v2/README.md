@@ -73,6 +73,8 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Pivot to columns delimited: an output (tPivotToColumnsDelimited) | `pivot_to_columns_delimited` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#pivot-to-columns-delimited) |
 | Positional input (tFileInputPositional) | `file_input_positional` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#positional-input) |
 | Positional output (tFileOutputPositional) | `file_output_positional` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#positional-output) |
+| Postjob (tPostjob) | `postjob` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#postjob) |
+| Prejob (tPrejob) | `prejob` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#prejob) |
 | Properties input: a properties or an ini file (tFileInputProperties) | `file_input_properties` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#properties-input) |
 | Python dataframe (tPythonDataFrame) | `python_dataframe` | [Differences from v1: Rows](differences-from-v1/rows.md#python-dataframe) |
 | Raw file input (tFileInputRaw) | `file_input_raw` | [Own rule: File jobs](own-rule/file-jobs.md#raw-file-input) |

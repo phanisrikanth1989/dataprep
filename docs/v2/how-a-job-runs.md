@@ -78,6 +78,35 @@ rows go by it, and its two ends are different subjobs.
 - Not built: a run for picked rows (`run.only`) of a reader that a loop
   runs is refused, since which pass's rows are meant has no answer yet.
 
+## Set-up and clean-up
+
+A job runs in three parts: what a prejob sets off, the job itself, and
+what a postjob sets off. The two components do nothing themselves: each
+marks where a part starts, and a trigger leads from it to the first
+subjob of that part.
+
+- The set-up runs first and the clean-up last, wherever the components
+  are written in the job config. A job with neither is the middle part
+  alone, as before.
+- The clean-up runs whatever became of the job: after a failure, and
+  after a die. That is what makes it a clean-up. A step meant only for a
+  job that succeeded belongs behind the job's own subjob, on its
+  OnSubjobOk trigger.
+- When the set-up fails or ends in a die, the job itself is not run: the
+  log says so. What it would have worked with is not there, and it would
+  fail later and less clearly. The clean-up still runs.
+- A clean-up that fails fails the job. When the job had failed before
+  it, the job's error stays the first one, and both are in `failures`.
+  A die in the clean-up ends the clean-up.
+- A subjob runs once, whichever part sets it off.
+- Refused when the job loads: a trigger or an iterate link that leads to
+  a prejob or a postjob. Nothing leads to where a part starts.
+- Not built: a clean-up when the job is stopped from outside (Ctrl-C,
+  a kill).
+
+Not as in v1 and not quite as in Talend:
+[Prejob and Postjob](own-rule/loops-and-job-control.md#prejob).
+
 ## Types and missing values
 
 Declared types are `str`, `int`, `float`, `bool`, `datetime`, `date` and
