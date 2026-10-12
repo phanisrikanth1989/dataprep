@@ -163,8 +163,9 @@ class Component:
         self.scopes: List[Scope] = []
         # The output ports a flow leaves by. The engine fills it in; a component may do less for a port nobody reads.
         self.wired: Set[str] = set()
-        # How many flows lead to the component. The engine fills it in.
+        # How many flows lead to the component, and their names in the job's order. The engine fills them in.
         self.fed = 0
+        self.arriving: List[str] = []
 
     def needs_rows(self) -> bool:
         """Whether this component must be handed real rows instead of a lazy frame."""
@@ -418,7 +419,12 @@ class Component:
         """
         return described(found.row(0, named=True), self.run_context.sources) if found.height else ""
 
-    def loop_over(self, items: Iterable[Tuple[str, Dict[str, Any]]], count: Optional[int] = None) -> None:
+    def loop_over(
+        self,
+        items: Iterable[Tuple[str, Dict[str, Any]]],
+        count: Optional[int] = None,
+        done: Optional[Callable[[], None]] = None,
+    ) -> None:
         """Hand the engine the items of this component's loop.
 
         Args:
@@ -427,13 +433,15 @@ class Component:
                 asked for, so that a long list is never held whole.
             count: How many there are; counted when not given, which holds
                 them all.
+            done: Called once when the items are needed no more, whatever
+                became of the loop: to put away what they are read from.
         """
         from ..engine.context import Items  # late: the engine reads the components' base
 
         if count is None:
             items = list(items)
             count = len(items)
-        self.run_context.items[self.id] = Items(items, count, self.config["max_items"])
+        self.run_context.items[self.id] = Items(items, count, self.config["max_items"], done)
 
     def goes_on_after(self, fault: str, with_what: str = "") -> bool:
         """Whether the job goes on after a fault that would fail it.

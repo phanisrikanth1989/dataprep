@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -25,11 +26,15 @@ class Items:
             entries that are put for its pass.
         count: How many there are.
         cap: The most the loop may have (the component's ``max_items``).
+        done: Called once when the items are needed no more: the loop is
+            over or has failed, or nothing looped over them. For what the
+            items are read from (a scratch file) to be put away.
     """
 
     each: Iterable[Tuple[str, Dict[str, Any]]]
     count: int
     cap: int
+    done: Optional[Callable[[], None]] = None
 
 
 class RunContext:
@@ -56,6 +61,9 @@ class RunContext:
         self.context: Dict[str, Any] = dict(context)
         self.context_types: Dict[str, str] = dict(context_types or {})
         self.global_map: Dict[str, Any] = {}
+        # A name of this run's own, for a scratch file that has to outlive the subjob that wrote it: two
+        # runs in one process, of one job even, never write the same.
+        self.token = uuid.uuid4().hex[:12]
         self.routines: Mapping[str, Mapping[str, Callable[..., Any]]] = routines or {}
         self._scratch: List[str] = []
         # The UTF-8 copies files in other encodings are read through: (file, encoding) to the copy.
@@ -181,6 +189,26 @@ class RunContext:
         os.close(handle)
         self._scratch.append(path)
         return path
+
+    def put_away(self, component_id: Optional[str] = None) -> Optional[Items]:
+        """Take the items of a loop out of the run, having told whoever made them that they are needed no more.
+
+        Args:
+            component_id: The component that starts the loop; None for every
+                loop whose items are still held, which is what the end of a
+                run asks for.
+
+        Returns:
+            The items of the one component, when it had handed any over.
+        """
+        if component_id is None:
+            for held in list(self.items):
+                self.put_away(held)
+            return None
+        items = self.items.pop(component_id, None)
+        if items is not None and items.done is not None:
+            items.done()
+        return items
 
     def cleanup(self) -> None:
         """Remove every scratch file handed out."""

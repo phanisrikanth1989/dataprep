@@ -62,6 +62,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Filter columns (tFilterColumns) | `filter_columns` | [Differences from v1: Rows](differences-from-v1/rows.md#filter-columns) |
 | Filter rows (tFilterRow) | `filter_rows` | [Differences from v1: Rows](differences-from-v1/rows.md#filter-rows) |
 | Fixed flow input: rows written in the job config (tFixedFlowInput) | `fixed_flow_input` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#fixed-flow-input) |
+| Flow to iterate (tFlowToIterate) | `flow_to_iterate` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#flow-to-iterate) |
 | Foreach (tForeach) | `foreach` | [Own rule: Loops and job control](own-rule/loops-and-job-control.md#foreach) |
 | Full-row input (tFileInputFullRow) | `file_input_full_row` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#full-row-input) |
 | Join (tJoin) | `join` | [Differences from v1: Rows](differences-from-v1/rows.md#join) |

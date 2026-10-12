@@ -118,7 +118,10 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   "b.csv"})`). The engine runs what the iterate link leads to once for
   each, and puts `<id>_CURRENT_ITERATION` itself. A list too long to hold
   is handed over as something that makes each item when its pass is due,
-  with `count=`. A component that hands over nothing (it could not make
+  with `count=`, and `done=` to put away what the items are read from
+  when the loop is over, however it ended (a scratch file named with
+  `self.run_context.token`, so that two runs never share one). A
+  component that hands over nothing (it could not make
   its list, and the job is to go on) has no pass. See "Loops" in
   [How a job runs](how-a-job-runs.md#loops).
 - Class attributes: `names`, `keys`, `outputs`, `min_inputs`, `max_inputs`

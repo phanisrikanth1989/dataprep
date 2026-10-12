@@ -363,6 +363,9 @@ documentation.
   [File list](issues/104-file-list.md) -- Talend's entries and its own
   mask form; by path unless asked otherwise; dot names, links out of the
   folder and unfinished files left out; a missing folder fails the job.
+  [Flow to iterate](issues/105-flow-to-iterate.md) -- a loop over the
+  rows of a flow, fed from a scratch file a piece at a time; values keep
+  their type.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

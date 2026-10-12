@@ -89,11 +89,24 @@ def test_looping_component_that_nothing_is_linked_to_just_runs():
     assert result.status == "success" and Note.said == []
 
 
-def test_items_may_be_made_one_at_a_time_as_their_passes_come():
+def test_items_may_be_made_one_at_a_time_as_their_passes_come_and_are_put_away_when_the_loop_is_over():
     result = run(looped(["a", "b"], one_at_a_time=True))
     assert result.status == "success", result.error
-    assert Note.said == ["made a", "a", "made b", "b"]
+    assert Note.said == ["made a", "a", "made b", "b", "put away"]
     assert result.summary()["loops"] == {"each": {"items": 2, "passes": 2}}
+
+
+def test_items_are_put_away_also_when_a_pass_fails_when_there_are_too_many_and_when_nothing_loops_over_them(tmp_path):
+    made = looped(["a", "b"], ("boom", "boom", {}), ("out", "save", {"path": str(tmp_path / "o.csv")}),
+                  flows=[("r1", "boom", "out", "flow")], triggers=[("OnSubjobOk", "note", "boom")], one_at_a_time=True)
+    assert run(made).status == "failed"
+    assert Note.said == ["made a", "a", "put away"]
+    Note.said.clear()
+    assert run(looped(["a", "b"], one_at_a_time=True, max_items=1)).status == "failed"
+    assert Note.said == ["put away"]
+    Note.said.clear()
+    assert run(job([("each", "each", {"values": ["a"], "one_at_a_time": True})], [])).status == "success"
+    assert Note.said == ["put away"]
 
 
 def test_loop_in_a_loop():

@@ -77,6 +77,31 @@ another, a pass that fails stops the loop, a cap on the items.
   order or `min_age_seconds` needs them, which a folder of very many
   files feels.
 
+## Flow to iterate
+
+- Starts a loop over the rows that reach it: what its iterate link
+  leads to runs once for each row, in the order the rows arrive.
+- In a pass the row is in globalMap, each value with the type it has (a
+  whole number is a number, a date a date) and a missing one as nothing.
+  With `default_map` on, as in a converted job, every column is there as
+  `<flow>.<column>`, `<flow>` being the name of the flow that leads to
+  the component: `row1.filepath`. With it off, `map_entries` says which
+  columns, and under which names (`key` the name, `value` the column).
+- `<id>_CURRENT_ITERATION` is the number of the pass, and `<id>_NB_LINE`
+  how many rows there were.
+- The rows are not held in memory, however many there are. They go to a
+  scratch file in the one pass of the subjob they come from. When that
+  subjob has finished, with its own files in place, the passes are fed
+  from the scratch file a piece at a time, and the file is removed when
+  the loop is over, however it ended. (Talend runs the body while the
+  rows are still being read; v1 takes every row into memory first.)
+- `max_items` is the most rows the loop may have (100,000 when not
+  given). A loop over every row of a large table is nearly always a
+  join written as a loop, and a join is what the engine is fast at.
+- A column `map_entries` names that the flow does not have refuses the
+  job when it loads, where the columns are declared, and fails it when
+  it runs otherwise.
+
 ## Foreach
 
 - Starts a loop over `values`: what its iterate link leads to runs once

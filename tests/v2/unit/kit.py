@@ -272,8 +272,9 @@ class Each(Action):
             # As a component that could not make its list and whose job is to go on all the same.
             return
         if self.config["one_at_a_time"]:
-            # As a component whose list is too long to hold: each item is made when its pass is due.
-            self.loop_over(self._made_when_due(values), count=len(values))
+            # As a component whose list is too long to hold: each item is made when its pass is due, from
+            # something that has to be put away when the loop is over.
+            self.loop_over(self._made_when_due(values), count=len(values), done=lambda: Note.said.append("put away"))
             return
         self.loop_over([(str(value), {f"{self.id}_CURRENT_VALUE": value}) for value in values])
 

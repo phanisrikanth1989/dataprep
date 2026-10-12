@@ -33,7 +33,7 @@ from ..job.model import ComponentSpec, Iterate, Job, Only, RunSettings, Trigger
 from ..column_types import VIOLATION, conform
 from ..rows import first_of, shown, visible, without
 from .conditions import evaluate
-from .context import RunContext
+from .context import Items, RunContext
 from .picking import MOST, check_only, columns_of, holds, in_words
 from .tracing import NOT_PICKED, captured, changes, counted
 
@@ -213,6 +213,8 @@ class Runner:
         try:
             self._run_subjobs(result)
         finally:
+            # Items nothing looped over: no link left their component, or the run was stopped.
+            self.run_context.put_away()
             self.run_context.cleanup()
         if result.failures:
             result.status = "failed"
@@ -335,9 +337,17 @@ class Runner:
         last pass left them. A pass that fails stops the loop.
         """
         looping = link.source
-        items = self.run_context.items.pop(looping, None)
+        items = self.run_context.items.get(looping)
         if items is None:
             return None, False
+        try:
+            return self._passes(link, items, result)
+        finally:
+            # Whatever became of the loop: what its items are read from is put away.
+            self.run_context.put_away(looping)
+
+    def _passes(self, link: Iterate, items: Items, result: JobResult) -> Tuple[Optional[_Failed], bool]:
+        looping = link.source
         told = self.loops.setdefault(looping, {"items": 0, "passes": 0})
         told["items"] += items.count
         if items.count > items.cap:
@@ -822,7 +832,8 @@ class Runner:
             raise ConfigurationError("; ".join(f"{refusal.key}: {refusal.reason}" for refusal in refusals))
         component = spec.cls(spec, config, self.run_context)
         component.wired = {flow.port for flow in self.job.outgoing(spec.id)}
-        component.fed = len(self.job.incoming(spec.id))
+        component.arriving = [flow.name for flow in self.job.incoming(spec.id)]
+        component.fed = len(component.arriving)
         return component
 
     def _ready(self, spec: ComponentSpec) -> Component:

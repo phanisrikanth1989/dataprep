@@ -18,13 +18,15 @@ MAY_COLLECT = {
     "file_input_positional.py": "the same footer count",
     "file_input_fullrow.py": "the same footer count",
     "file_input_excel.py": "there is no lazy Excel reader",
+    "flow_to_iterate.py": "the rows it wrote in the subjob's pass are read back a piece at a time, when their passes are due",
 }
 ROW_BY_ROW = re.compile(r"\.(map_elements|map_batches|map_rows|apply|iter_rows|rows)\(")
 # Components that are handed real rows by the engine and may walk them. The Excel output walks the rows it
 # wrote in the subjob's pass, when the pass is done: a workbook is made cell by cell.
 # Extract JSON fields reads a document out of every row, which only Python can do.
+# Flow to iterate hands each row it wrote to a pass of its loop: a row is what a pass is run for.
 HOLD_ROWS = {"context_load.py", "log_row.py", "python_dataframe.py", "file_input_excel.py", "file_output_excel.py",
-             "extract_json_fields.py"}
+             "extract_json_fields.py", "flow_to_iterate.py"}
 
 
 def code_lines(path):
