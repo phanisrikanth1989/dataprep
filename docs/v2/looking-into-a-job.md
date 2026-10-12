@@ -44,12 +44,12 @@ What becomes of the number on the way:
 
 | Step | The row that goes on |
 |---|---|
-| filter rows, filter columns, sort row, unique row, log row, map, unite | keeps its number |
+| filter rows, filter columns, sort row, unique row, log row, map, unite, replicate, sample row, replace, convert type, schema compliance check, extract delimited fields, extract positional fields, extract regex fields, warn, set global var | keeps its number |
 | join | keeps the main input's number; a lookup's is left behind |
-| normalize | every row made carries the number of the row it came from |
-| aggregate row | carries the lowest number of its group, and the message says "the first of 11,112 rows that were combined" (rows as they reached the aggregate: after a normalize, several of them come from one row of the source) |
+| normalize, split row, unpivot row, extract JSON fields | every row made carries the number of the row it came from |
+| aggregate row, aggregate sorted row, denormalize | carries the lowest number of its group, and the message says "the first of 11,112 rows that were combined" (rows as they reached the component: after a normalize, several of them come from one row of the source) |
 | Python dataframe | has none: what the code hands back is a table of its own making |
-| context load | hands no rows on |
+| context load, die | hand no rows on (a die's message names the row that reached it) |
 
 Which failures name their row: a reader that cannot read a row, a missing
 value in a column that may not hold one (after any component), text a map

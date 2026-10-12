@@ -46,3 +46,9 @@ Done on 2026-10-12. A page is for one thing a reader comes to do:
   v1 is no answer key for the components under `own-rule/`.
 - The pages generated from the code (`docs/v2/components/`, not kept in
   the repo) are as they were.
+
+Found on the way and put right in a commit of its own: the table of what
+becomes of a row's number named only the first sixteen components. It
+names the ones built since as well, each as its tests have it
+(`tests/v2/test_row_numbers.py`, `tests/v2/test_trace_of_every_component.py`,
+and the extract components' own tests).

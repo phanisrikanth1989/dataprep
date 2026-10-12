@@ -325,6 +325,9 @@ documentation.
   all or nothing, safe by default, the same output for the same input.
   [File touch](issues/88-file-touch.md) -- the first of them; made in one
   step only if nothing is there, never through a link.
+  [The v2 README taken apart](issues/89-the-v2-readme-taken-apart.md) --
+  a start page, five guide pages and a page for each family of
+  components; moved by script, checked line for line, kept so by tests.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
