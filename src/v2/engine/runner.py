@@ -69,6 +69,9 @@ class JobResult:
         loops: What each loop came to, by the id of the component that
             starts it: its ``items``, the ``passes`` that were run, and the
             ``failed_item`` when a pass failed. Empty for a job with no loop.
+        children: What the jobs this one ran came to, by the id of the
+            component that runs each: the child's ``job_name``, how many
+            ``runs`` of it there were, and the summary of the ``last``.
     """
 
     job_name: str
@@ -84,6 +87,7 @@ class JobResult:
     only: Optional[Dict[str, Any]] = None
     trace: Optional[List[Dict[str, Any]]] = None
     loops: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    children: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def summary(self) -> Dict[str, Any]:
         """How the run ended, as plain values: what the command prints last, and what a service sends back.
@@ -105,6 +109,8 @@ class JobResult:
         }
         if self.loops:
             made["loops"] = {component_id: dict(told) for component_id, told in self.loops.items()}
+        if self.children:
+            made["children"] = {component_id: dict(told) for component_id, told in self.children.items()}
         if self.only is not None:
             made["only"] = dict(self.only)
         if self.trace is not None:
@@ -199,6 +205,10 @@ class Runner:
         # What each loop came to, by the id of the component that starts it: its items, the passes run, and
         # the item a pass failed at.
         self.loops: Dict[str, Dict[str, Any]] = {}
+        # What each job this one ran came to, by the id of the component that runs it.
+        self.children: Dict[str, Dict[str, Any]] = {}
+        self.run_context.child_jobs = job.children
+        self.run_context.run_child = self._run_child
         self._wanted = _wanted_stats(job, self.run_context.job_text)
         if row_counts:
             self._wanted = {component_id: list(_STATS) for component_id in job.components}
@@ -229,10 +239,30 @@ class Runner:
         result.rows = dict(self.rows)
         result.counts = dict(self.counts)
         result.loops = dict(self.loops)
+        result.children = dict(self.children)
         result.global_map = dict(self.run_context.global_map)
         result.context = dict(self.run_context.context)
         result.duration_s = time.perf_counter() - started
         logger.info(f"[{self.job.name}] {result.status} in {result.duration_s:.2f}s")
+        return result
+
+    def _run_child(self, component_id: str, given: Mapping[str, Any]) -> JobResult:
+        """Run the job a component of this one runs, with the context values it is given.
+
+        The child runs in this process, as a run of its own: its context,
+        its globalMap and its scratch files are its own, and none of them
+        reaches this job. It is run as this job is: on the same Polars
+        engine, and with its rows counted when this job's are.
+        """
+        child = self.job.children[component_id]
+        settings = RunSettings(row_counts=True) if self.row_counts else RunSettings()
+        result = Runner(
+            dataclasses.replace(child, context={**child.context, **given}), engine=self.engine, settings=settings,
+            asked_for={"row_counts": True}, asked_by="as its parent has it",
+        ).run()
+        told = self.children.setdefault(component_id, {"job_name": child.name, "runs": 0})
+        told["runs"] += 1
+        told["last"] = result.summary()
         return result
 
     def _say_settings(self) -> None:

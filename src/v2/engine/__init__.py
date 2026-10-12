@@ -13,7 +13,7 @@ from ..errors import ConfigurationError, JobRefusedError
 from ..job.loader import caller_settings
 from ..job.loader import load_job as read_job
 from ..job.model import Job, RunSettings
-from ..job.refusal import RefusalReport
+from ..job.refusal import RefusalReport, of_child
 from .check import check_job
 from .picking import check_only, source_problem
 from .routines import load_routines
@@ -58,17 +58,26 @@ def load_job(
             with. Its report lists every problem found. Nothing has run.
     """
     job = read_job(source, context=context, registry=registry)
-    report = RefusalReport(job_name=job.name)
     with logging_from(log_level or job.run.log_level):
-        try:
-            job.routine_modules = dict(routines) if routines is not None else load_routines(job.routines)
-        except ConfigurationError as exc:
-            report.add("job", "python_config", str(exc))
-        else:
-            report = check_job(job)
+        report = _checked(job, routines)
     if report:
         raise JobRefusedError(report)
     return job
+
+
+def _checked(job: Job, routines: Optional[Routines]) -> RefusalReport:
+    """Load a job's routines and check it, and the same for every job it runs, each said under the step that runs it."""
+    report = RefusalReport(job_name=job.name)
+    try:
+        job.routine_modules = dict(routines) if routines is not None else load_routines(job.routines)
+    except ConfigurationError as exc:
+        report.add("job", "python_config", str(exc))
+    else:
+        report = check_job(job)
+    for component_id, child in job.children.items():
+        step = job.components[component_id].where
+        report.extend(of_child(step, child.name, refusal) for refusal in _checked(child, routines))
+    return report
 
 
 def run_job(

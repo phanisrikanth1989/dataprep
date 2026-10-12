@@ -38,7 +38,9 @@ either stream, so no line is lost on a server whose locale is not UTF-8.
 
 A summary of the run is the last thing written to standard output, as JSON
 (`status`, `error`, `failed_component`, `failures`, `rows` written by each
-output, `counts`, `duration_s`, and `loops` when the job has any). `--summary FILE` writes it to a file as
+output, `counts`, `duration_s`, `loops` when the job has any, and `children` when it runs other jobs: for
+each step that runs one, the child's name, how many times it ran, and the summary of its last run).
+`--summary FILE` writes it to a file as
 well, so that nothing has to pick it out of the log. The file is opened
 before the job runs: when it cannot be opened, nothing runs (exit code 2).
 It is empty while the job runs, so the summary of an earlier run is never

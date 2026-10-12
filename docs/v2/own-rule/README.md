@@ -26,4 +26,4 @@ What they share:
 | Page | What is on it |
 |---|---|
 | [File jobs](file-jobs.md) | File touch, File properties, Raw file input, Change file encoding, File archive, File unarchive |
-| [Loops and job control](loops-and-job-control.md) | File list, Flow to iterate, Foreach, Sleep, Prejob, Postjob |
+| [Loops and job control](loops-and-job-control.md) | File list, Flow to iterate, Foreach, Sleep, Prejob, Postjob, Run job |

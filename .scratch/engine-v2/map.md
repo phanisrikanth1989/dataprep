@@ -379,6 +379,10 @@ documentation.
   [Prejob and postjob](issues/108-prejob-and-postjob.md) -- a job runs
   in three parts; the clean-up runs after a failure and after a die, and
   a set-up that failed keeps the job itself from running.
+  [Run job](issues/109-run-job.md) -- the child is found, loaded and
+  checked with its parent and run in its process; it is given what it
+  declares, typed as it declares it; a job that would run itself is
+  refused.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

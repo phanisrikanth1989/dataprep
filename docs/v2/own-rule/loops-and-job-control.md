@@ -167,3 +167,55 @@ unpacked.
 - A clean-up that fails fails the job, and does not hide why the job
   had failed before it.
 - Nothing leads to it, as for a prejob.
+
+## Run job
+
+- Runs the job `process` names as one step of this job, and goes on
+  when it has ended. `process` is the job's name, without `.json` and
+  without a version.
+- The child's job config is looked for beside the parent's:
+  `<process>.json`, else the `<process>_<version>.json` of the highest
+  version (`child_0.10.json` before `child_0.2.json`), which is how a
+  converted job config is named. A parent that was not read from a file
+  says where in `engine_config.jobs_dir`.
+- The child is found, loaded and checked when the parent is. What is
+  wrong with it refuses the parent, and the report says it under the
+  step that runs it. A job that would run itself, at whatever remove,
+  is refused. (v1 looks for the child when its turn comes, and stops at
+  a depth of two.) So the name cannot come from the context, and
+  `use_dynamic_job` and `use_dynamic_context` refuse the job.
+- The child is given context values and nothing else.
+  - Each entry of `context_params` sets the child's context variable
+    `param_name` to `param_value`. The child has to declare the
+    variable: a name it does not have refuses the parent when it loads,
+    with the names it has. The value may be an item of globalMap, as in
+    a loop (`((String)globalMap.get("tFileList_1_CURRENT_FILEPATH"))`).
+  - `transmit_whole_context` gives the child every variable of the
+    parent that the child declares as well. A value given by name wins.
+  - A value arrives with the type the child declares for it. One that
+    is none of that type fails the job at the step.
+  - `context_name` is the context group the child reads. `Default`,
+    which a converted job has when the job named none, stands for the
+    child's own group when it has none of that name.
+- The child runs in the parent's process, as a run of its own: its
+  context, its globalMap and its scratch files are its own, and nothing
+  of them reaches the parent. It is run whole and as its parent is: on
+  the same Polars engine, with its rows counted when the parent's are;
+  what its own `run` block says is not looked at.
+- What comes back is how it ended: `<id>_CHILD_RETURN_CODE` is 0, or
+  the exit code of the die that ended the child, or 1; when it failed,
+  `<id>_CHILD_EXCEPTION_STACKTRACE` is why, in one line (v2 shows no
+  stack). The summary of the child's last run is in the parent's
+  summary under `children`, with how many times the step ran it.
+- A child that fails fails the parent at this step, with the child's
+  reason. With `die_on_child_error` off the parent goes on, with a
+  warning, and why is in `<id>_ERROR_MESSAGE` too. (v1 ends the whole
+  parent whatever the switch says.)
+- `propagate_child_result` refuses the job: v2 hands no rows from one
+  job to another in memory. The child writes a file and the parent
+  reads it.
+- A flow to it refuses the job: to run a child for each row, put a flow
+  to iterate before it. The keys that tune a JVM
+  (`use_independent_process`, `jvm_arguments` and the like) are taken
+  and have no effect, and so is `print_parameter`: the values given are
+  shown in no log.

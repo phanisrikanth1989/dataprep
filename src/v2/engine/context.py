@@ -68,6 +68,10 @@ class RunContext:
         self._scratch: List[str] = []
         # The UTF-8 copies files in other encodings are read through: (file, encoding) to the copy.
         self.utf8_copies: Dict[Tuple[str, str], str] = {}
+        # The jobs this one runs, by the id of the component that runs each, and what runs one of them with the
+        # context values it is given: the engine sets both.
+        self.child_jobs: Mapping[str, Any] = {}
+        self.run_child: Optional[Callable[[str, Mapping[str, Any]], Any]] = None
         # The rows a source made rather than read, by its id: a source that is read again in the same
         # subjob hands on the same rows, also where they were drawn at random. They go when the subjob
         # has finished, so that a file's worth of them is not held to the end of the run.

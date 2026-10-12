@@ -24,6 +24,12 @@ class Refusal:
     reason: str
 
 
+def of_child(step: str, child_name: str, refusal: Refusal) -> Refusal:
+    """A refusal found in a job that another job runs, as the parent's report has it: under the step that runs it."""
+    inside = "" if refusal.where == "job" else f": {refusal.where}"
+    return Refusal(f"{step}, its job '{child_name}'{inside}", refusal.key, refusal.reason)
+
+
 @dataclass
 class RefusalReport:
     """Everything in one job config that v2 refuses, gathered in one pass."""

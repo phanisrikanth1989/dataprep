@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
 if TYPE_CHECKING:
@@ -168,6 +169,40 @@ class Only:
     sheet: Optional[str] = None
 
 
+def typed(value: Any, type_name: str) -> Any:
+    """A value as a context variable of a declared type holds it; nothing and empty text stay as they are.
+
+    Raises:
+        ValueError: The value is none of that type.
+    """
+    kind = TYPE_NAMES.get(type_name, "str")
+    if value is None or value == "":
+        return value
+    if kind == "int":
+        if isinstance(value, bool):
+            raise ValueError(value)
+        return int(str(value).strip())
+    if kind == "float":
+        return float(str(value).strip())
+    if kind == "Decimal":
+        try:
+            return Decimal(str(value).strip())
+        except InvalidOperation:
+            raise ValueError(value) from None
+    if kind == "bool":
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("true", "1", "yes"):
+            return True
+        if text in ("false", "0", "no"):
+            return False
+        raise ValueError(value)
+    if kind == "str":
+        return str(value)
+    return value
+
+
 @dataclass
 class RunSettings:
     """How a job is run: what its ``run`` block, the command line or a caller asks for.
@@ -224,6 +259,10 @@ class Job:
             ``python_config`` block, or None.
         routine_modules: The loaded routine modules: name to functions.
         run: How the job config asks to be run (its ``run`` block).
+        children: The jobs it runs as steps of its own, each by the id of
+            the component that runs it. They are loaded with the job.
+        read_from: The file the job config was read from, when it was read
+            from one.
     """
 
     name: str
@@ -236,6 +275,8 @@ class Job:
     flows: List[Flow] = field(default_factory=list)
     triggers: List[Trigger] = field(default_factory=list)
     iterates: List[Iterate] = field(default_factory=list)
+    children: Dict[str, "Job"] = field(default_factory=dict)
+    read_from: Optional[str] = None
 
     def incoming(self, component_id: str) -> List[Flow]:
         """The flows arriving at a component, in the order it takes its inputs.

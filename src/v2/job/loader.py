@@ -7,9 +7,10 @@ into one refusal report and raised together, before anything runs.
 from __future__ import annotations
 
 import copy
+import glob
 import json
+import os
 import re
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
@@ -17,9 +18,10 @@ from ..components.base import BEFORE
 from ..components.registry import REGISTRY, Registry
 from .graph import bodies, loop, subjobs
 from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
-from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Iterate, Job, Only, RunSettings, Trigger
+from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Iterate, Job, Only, RunSettings, Trigger, typed
 from ..engine.references import JAVA_MARK, parsed
-from .refusal import Refusal, RefusalReport
+from .refusal import Refusal, RefusalReport, of_child
+from ..errors import JobRefusedError
 
 JAVA_PREFIX = JAVA_MARK
 JAVA_REASON = "Java expressions are not run by v2; rewrite it in Python"
@@ -209,7 +211,9 @@ def load_job(
         JobRefusedError: When the job config holds anything v2 will not run
             with. Its report lists every problem found.
     """
+    read_from = None
     if isinstance(source, (str, Path)):
+        read_from = os.path.abspath(source)
         with open(source, encoding="utf-8") as handle:
             raw = json.load(handle)
         if not isinstance(raw, dict):
@@ -218,7 +222,7 @@ def load_job(
             report.raise_if_refused()
     else:
         raw = copy.deepcopy(dict(source))
-    return _Loader(raw, dict(context or {}), registry).load()
+    return _Loader(raw, dict(context or {}), registry, read_from=read_from).load()
 
 
 def run_settings(block: Optional[Dict[str, Any]], written: Any = None) -> Tuple[RunSettings, List[Refusal]]:
@@ -283,10 +287,21 @@ def caller_settings(asked: Optional[Mapping[str, Any]]) -> Tuple[RunSettings, Li
 class _Loader:
     """Reads one job config, collecting refusals as it goes."""
 
-    def __init__(self, raw: Dict[str, Any], overrides: Dict[str, Any], registry: Registry) -> None:
+    def __init__(
+        self,
+        raw: Dict[str, Any],
+        overrides: Dict[str, Any],
+        registry: Registry,
+        read_from: Optional[str] = None,
+        running: Tuple[str, ...] = (),
+    ) -> None:
         self.raw = {key: value for key, value in raw.items() if not key.startswith("_")}
         self.overrides = overrides
         self.registry = registry
+        # The file this job config was read from, and the files of the jobs that run it, the first of them first:
+        # a job that is among them would run itself.
+        self.read_from = read_from
+        self.running = running
         self.report = RefusalReport(job_name=str(raw.get("job_name") or raw.get("name") or ""))
         # Components that lost an incoming flow to a refusal elsewhere; their input count proves nothing.
         self._starved: set = set()
@@ -296,7 +311,7 @@ class _Loader:
     def load(self) -> Job:
         top, refusals = normalize_config(self.raw, JOB_KEYS, "job")
         self.report.extend(refusals)
-        job = Job(name=top.get("name") or "")
+        job = Job(name=top.get("name") or "", read_from=self.read_from)
         job.run, refusals = run_settings(top.get("run"), self.raw.get("run"))
         self.report.extend(refusals)
         job.context, job.context_types = self._context(top)
@@ -313,6 +328,7 @@ class _Loader:
             if trigger is not None:
                 job.triggers.append(trigger)
         job.routines = top.get("python_config")
+        self._children(job)
         self._check_input_counts(job)
         stuck = loop(job)
         if stuck:
@@ -331,13 +347,7 @@ class _Loader:
         """The context values, converted to their declared types, and those types."""
         declared = top.get("context") or {}
         group_name = top.get("default_context")
-        if group_name is not None and isinstance(declared.get(group_name), dict):
-            # v1's shape: default_context names the group to use, whatever its variables are called.
-            grouped = True
-        else:
-            grouped = bool(declared) and all(
-                isinstance(value, dict) and not _is_entry(value) for value in declared.values()
-            )
+        grouped = _groups(declared, group_name) is not None
         if grouped:
             if group_name is None:
                 group_name = "Default" if "Default" in declared else next(iter(declared))
@@ -359,8 +369,8 @@ class _Loader:
 
         for name, type_name in types.items():
             try:
-                values[name] = _typed(values[name], type_name)
-            except (ValueError, InvalidOperation):
+                values[name] = typed(values[name], type_name)
+            except ValueError:
                 self.report.add("job", f"context.{name}", f"{values[name]!r} is not a valid {type_name}")
         return values, types
 
@@ -463,6 +473,100 @@ class _Loader:
                 )
             )
         return columns
+
+    # ------------------------------------------------------------------
+    # The jobs this one runs
+    # ------------------------------------------------------------------
+
+    def _children(self, job: Job) -> None:
+        """Find and load the job of every component that runs one: a child is known when its parent loads.
+
+        What is wrong with a child refuses the parent, and is said under
+        the component that runs it.
+        """
+        for spec in job.components.values():
+            process = spec.config.get("process")
+            if not spec.cls.runs_job or not isinstance(process, str) or not process:
+                continue
+            if has_context_reference(process):
+                self.report.add(spec.where, "process", f"the job to run has to be known when the parent loads, and "
+                                                       f"'{process}' is known only when it runs")
+                continue
+            path = self._child_file(spec, process)
+            if path is None:
+                continue
+            read = (*self.running, self.read_from) if self.read_from else self.running
+            if os.path.realpath(path) in [os.path.realpath(known) for known in read]:
+                chain = " -> ".join(os.path.basename(known) for known in (*read, path))
+                self.report.add(spec.where, "process", f"the job would run itself: {chain}")
+                continue
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    raw = json.load(handle)
+                if not isinstance(raw, dict):
+                    raise ValueError(f"expected an object, found {type(raw).__name__}")
+            except (OSError, ValueError) as exc:
+                self.report.add(spec.where, "process", f"'{os.path.basename(path)}' is no job config that can be read: {exc}")
+                continue
+            name = str(raw.get("job_name") or raw.get("name") or process)
+            if not self._child_group(spec, raw, name):
+                continue
+            try:
+                child = _Loader(raw, {}, self.registry, read_from=path, running=read).load()
+            except JobRefusedError as refused:
+                self.report.extend(of_child(spec.where, name, refusal) for refusal in refused.report)
+                continue
+            for at, given in enumerate(spec.config.get("context_params") or []):
+                wanted = given.get("param_name")
+                if isinstance(wanted, str) and wanted not in child.context:
+                    has = f"it has: {', '.join(child.context)}" if child.context else "it has none"
+                    self.report.add(spec.where, f"context_params[{at}].param_name",
+                                    f"the job '{child.name}' has no context variable '{wanted}'; {has}")
+            job.children[spec.id] = child
+
+    def _child_file(self, spec: ComponentSpec, process: str) -> Optional[str]:
+        """The job config of a child: `<process>.json` beside the parent, else the highest `<process>_<version>.json`."""
+        settings = self.raw.get("engine_config")
+        folder = os.path.dirname(self.read_from) if self.read_from else None
+        if folder is None and isinstance(settings, dict) and settings.get("jobs_dir"):
+            folder = os.path.abspath(str(settings["jobs_dir"]))
+        if folder is None:
+            self.report.add(spec.where, "process", f"the job config was not read from a file, so there is no folder to "
+                                                   f"look for '{process}' in: name one in `engine_config.jobs_dir`")
+            return None
+        exact = os.path.join(folder, f"{process}.json")
+        if os.path.isfile(exact):
+            return exact
+        # A converted job config is named after its job and the job's version, and a run job names the job alone.
+        versions = []
+        for path in glob.glob(os.path.join(glob.escape(folder), glob.escape(f"{process}_") + "*.json")):
+            version = os.path.basename(path)[len(process) + 1:-len(".json")]
+            if re.fullmatch(r"\d+(\.\d+)*", version):
+                versions.append((tuple(int(part) for part in version.split(".")), path))
+        if not versions:
+            self.report.add(spec.where, "process", f"there is no job config for '{process}' in '{folder}': neither "
+                                                   f"{process}.json nor a {process}_<version>.json")
+            return None
+        return max(versions)[1]
+
+    def _child_group(self, spec: ComponentSpec, raw: Dict[str, Any], name: str) -> bool:
+        """Have a child read the context group its parent names for it; said in the report when it has no such group."""
+        wanted = spec.config.get("context_name")
+        groups = _groups(raw.get("context"), raw.get("default_context"))
+        if not isinstance(wanted, str) or not wanted:
+            return True
+        if has_context_reference(wanted):
+            self.report.add(spec.where, "context_name", f"the child's context group has to be known when the parent loads, "
+                                                        f"and '{wanted}' is known only when it runs")
+            return False
+        if groups is not None and wanted in groups:
+            raw["default_context"] = wanted
+        elif wanted != "Default":
+            # `Default` is what the converter writes when the job named no group: the child then has its own.
+            has = f"it has: {', '.join(groups)}" if groups else "its context is not in groups"
+            self.report.add(spec.where, "context_name", f"the job '{name}' has no context group '{wanted}'; {has}")
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Flows and triggers
@@ -658,36 +762,21 @@ class _Loader:
 # Helpers
 # ------------------------------------------------------------------
 
+def _groups(declared: Any, group_name: Any) -> Optional[Dict[str, Any]]:
+    """The context groups of a job config by their names; None when its context is not in groups."""
+    if not isinstance(declared, dict) or not declared:
+        return None
+    if group_name is not None and isinstance(declared.get(group_name), dict):
+        # v1's shape: default_context names the group to use, whatever its variables are called.
+        return declared
+    if all(isinstance(value, dict) and not _is_entry(value) for value in declared.values()):
+        return declared
+    return None
+
+
 def _is_entry(value: Dict[str, Any]) -> bool:
     """Whether a context object is one variable (``{"value": ..., "type": ...}``) and not a group of them."""
     return "value" in value and set(value) <= {"value", "type"} and not isinstance(value["value"], dict)
-
-
-def _typed(value: Any, type_name: str) -> Any:
-    """Convert a context value to its declared type."""
-    kind = TYPE_NAMES.get(type_name, "str")
-    if value is None or value == "":
-        return value
-    if kind == "int":
-        if isinstance(value, bool):
-            raise ValueError(value)
-        return int(str(value).strip())
-    if kind == "float":
-        return float(str(value).strip())
-    if kind == "Decimal":
-        return Decimal(str(value).strip())
-    if kind == "bool":
-        if isinstance(value, bool):
-            return value
-        text = str(value).strip().lower()
-        if text in ("true", "1", "yes"):
-            return True
-        if text in ("false", "0", "no"):
-            return False
-        raise ValueError(value)
-    if kind == "str":
-        return str(value)
-    return value
 
 
 def _java_paths(value: Any, path: str = "") -> List[str]:

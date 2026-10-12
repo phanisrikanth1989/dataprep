@@ -172,6 +172,9 @@ class Component:
     # The part of the job the component marks the start of, ``BEFORE`` or ``AFTER``, for a prejob and a postjob;
     # None for every other component, which belongs to the job itself.
     part: ClassVar[Optional[str]] = None
+    # Whether the component runs another job as a step of this one: the job its `process` names, found, loaded
+    # and checked together with this one, and its `context_params` the values it is given.
+    runs_job: ClassVar[bool] = False
 
     def __init__(self, spec: "ComponentSpec", config: Dict[str, Any], run_context: "RunContext") -> None:
         self.spec = spec
