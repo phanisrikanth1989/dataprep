@@ -142,6 +142,34 @@ def test_a_statement_after_another_on_one_session_is_not_said_to_have_stored_any
     assert "stored what waited" not in caplog.text
 
 
+@pytest.mark.parametrize("query", ["select count(*) from emp", "update emp set name = 'x' where id = 99",
+                                   "delete from emp where 1 = 0"])
+def test_a_statement_that_changed_no_row_leaves_nothing_waiting(emp, query):
+    """The place that was marked for it counts as an open transaction in the database. It is no work to store."""
+    result = run(once(query, with_commit=False))
+    assert result.status == "success", result.error
+    assert emp.sessions[0].pending == []
+
+
+def test_what_a_block_changed_cannot_be_seen_and_counts_as_work_that_waits(emp, monkeypatch):
+    from src.v2.components.database.oracle_row import _BLOCK
+    plain = SqliteSession.run
+    # The stand-in has no PL/SQL: in place of a block it runs a statement that changes no row.
+    monkeypatch.setattr(SqliteSession, "run", lambda self, statement, binds=None: plain(
+        self, "delete from emp where 1 = 0" if _BLOCK.match(statement) else statement, binds))
+    for block in ("BEGIN do_it; END;", "  declare n number; begin null; end;", "/* a remark */ call do_it()", "-- why\nbegin null; end;"):
+        result = run(once(block, with_commit=False))
+        assert (result.status, result.failed_component) == ("failed", CONN), block
+
+
+def test_a_statement_that_changed_no_row_takes_nothing_of_an_earlier_statements_work_with_it(emp):
+    components = [connection(schema_db=""), row("delete from emp where id = 1", component_id="first"),
+                  row("delete from emp where id = 99")]
+    result = run(job(components, [], triggers=after(CONN, "first", "r")))
+    assert (result.status, result.failed_component) == ("failed", CONN)
+    assert "what first did on the session" in result.error
+
+
 def test_a_statement_that_defines_is_run_on_a_session_nothing_waits_on(emp):
     result = run(once("create table made (a)", with_commit=False))
     assert result.status == "success", result.error

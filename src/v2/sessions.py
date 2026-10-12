@@ -100,6 +100,18 @@ def taken(columns: List["Column"], fields: List[Field], advice: Mapping[str, str
     return from_text
 
 
+class CallFailed(DatabaseError):
+    """One call of several that were sent together failed.
+
+    Attributes:
+        at: Which of them, from 0.
+    """
+
+    def __init__(self, at: int, reason: str) -> None:
+        super().__init__(reason)
+        self.at = at
+
+
 class Unstored(Exception):
     """What a component did could not be stored when its subjob had succeeded.
 
@@ -186,6 +198,26 @@ class Session:
             The rows that were refused, each as its place in the batch and
             what the database said; and, when asked for, how many rows of
             the table each row of the batch changed.
+        """
+        raise NotImplementedError
+
+    def call(self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str]) -> Dict[int, List[Any]]:
+        """Run a block that calls a procedure once for each row of values, in one round trip.
+
+        Args:
+            block: The block, with `:1`, `:2`... where the values of a row
+                go, in their order.
+            rows: For each call, its values by place; None at a place that
+                only hands a value out.
+            outs: Each place that hands a value out, from 0, and the kind
+                of value it hands out: ``number``, ``text``, ``date``,
+                ``datetime`` or ``large text``.
+
+        Returns:
+            For each such place, the value every call handed out.
+
+        Raises:
+            CallFailed: A call failed; the ones before it are done.
         """
         raise NotImplementedError
 
@@ -291,6 +323,18 @@ class Sessions:
         for held in (session.in_subjob, session.pending):
             if component_id not in held:
                 held.append(component_id)
+
+    def changed_nothing(self, session: Session, component_id: str) -> None:
+        """Take back the word that a component changed something: its statement turned out to change no row.
+
+        A database counts the place that was marked for it as an open
+        transaction all the same. Without this a query, or an update that
+        found no row, would be work that waits for a commit.
+        """
+        if component_id in session.in_subjob:
+            session.in_subjob.remove(component_id)
+        if component_id in session.pending and component_id not in session.before_subjob:
+            session.pending.remove(component_id)
 
     def commit(self, connection_id: str, close: bool = False) -> List[str]:
         """Store what was done on a shared session. Returns the ids of the components whose work it was."""

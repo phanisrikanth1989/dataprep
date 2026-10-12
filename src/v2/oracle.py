@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, 
 from .column_types import DEFAULT_DECIMAL_SCALE
 from .errors import DatabaseError
 from .job.keys import Key, Kind
-from .sessions import DATE, NUMBER, OTHER, TEXT, ZONED, Field, Session
+from .sessions import DATE, NUMBER, OTHER, TEXT, ZONED, CallFailed, Field, Session
 
 if TYPE_CHECKING:
     from .components.base import Component
@@ -117,6 +117,8 @@ ADVICE = {
 }
 # The name the query has inside the one that converts its columns.
 _INNER = "v2q"
+# The most characters a procedure hands out as text: what PL/SQL's own text holds.
+_TEXT_OUT = 32767
 # A number as text: the same digits in every session, whatever its language says a decimal point is.
 _NUMBER_AS_TEXT = "'TM9', 'nls_numeric_characters=" + "''.,''" + "'"
 
@@ -331,6 +333,25 @@ class OracleSession(Session):
             cursor.executemany(statement, rows, batcherrors=True, arraydmlrowcounts=counts)
             refused = [(error.offset, said(error.message)) for error in cursor.getbatcherrors()]
             return sorted(refused), list(cursor.getarraydmlrowcounts()) if counts else []
+
+    def call(self, block: str, rows: List[Tuple[Any, ...]], outs: Mapping[int, str]) -> Dict[int, List[Any]]:
+        import decimal
+
+        driver = self._driver
+        # A number comes out as every digit it has: left to itself the driver makes it a float.
+        kinds = {"number": decimal.Decimal, "text": _TEXT_OUT, "date": driver.DB_TYPE_DATE,
+                 "datetime": driver.DB_TYPE_TIMESTAMP, "large text": driver.DB_TYPE_CLOB}
+        width = len(rows[0]) if rows else 0
+        with self._held.cursor() as cursor:
+            try:
+                if width:
+                    cursor.setinputsizes(*[kinds[outs[place]] if place in outs else None for place in range(width)])
+                    cursor.executemany(block, rows)
+                else:
+                    cursor.executemany(block, len(rows))
+                return {place: [cursor.bindvars[place].getvalue(at) for at in range(len(rows))] for place in outs}
+            except driver.Error as fault:
+                raise CallFailed(getattr(fault.args[0], "offset", 0) or 0, said(fault)) from None
 
     def is_missing(self, fault: DatabaseError) -> bool:
         return str(fault).startswith("ORA-00942")

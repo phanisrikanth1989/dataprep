@@ -305,6 +305,36 @@ def test_work_that_cannot_be_taken_back_is_said_and_stops_nothing(path, caplog):
     assert session.pending == ["out"]
 
 
+def test_a_component_may_take_back_the_word_that_it_changed_something(path):
+    """Its statement changed no row. The place marked for it is an open transaction to the database all the same."""
+    sessions = Sessions()
+    session = SqliteSession(path, "conn")
+    sessions.share(session)
+    sessions.working(session, "reads")
+    session.run("select n from t")
+    sessions.changed_nothing(session, "reads")
+    assert session.in_transaction() and session.pending == [] and session.in_subjob == []
+    sessions.subjob_succeeded()
+    assert sessions.close("conn") is True
+
+
+def test_taking_the_word_back_leaves_what_others_did_and_what_the_same_component_did_before(path):
+    sessions = Sessions()
+    session = SqliteSession(path, "conn")
+    sessions.share(session)
+    worked(sessions, session, "out", 1)
+    sessions.working(session, "reads")
+    sessions.changed_nothing(session, "reads")
+    assert session.pending == ["out"] and session.in_subjob == ["out"]
+    sessions.subjob_succeeded()
+    # In a later subjob the one that did store-worthy work says it changed nothing this time: its earlier work waits.
+    sessions.working(session, "out")
+    sessions.changed_nothing(session, "out")
+    assert session.pending == ["out"] and session.in_subjob == []
+    sessions.changed_nothing(session, "never worked")
+    assert session.pending == ["out"]
+
+
 # ------------------------------------------------------------------
 # Opening a shared session again
 # ------------------------------------------------------------------

@@ -27,6 +27,8 @@ _MARK = "v2_row"
 _BATCH = 10_000
 _TEXT = re.compile(r'"((?:[^"\\]|\\.)*)"')
 _NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)")
+# A statement whose doing cannot be told from the number of rows it says it changed: a block of PL/SQL, a call.
+_BLOCK = re.compile(r"(?:\s+|--[^\n]*\n?|/\*.*?\*/)*(?:begin|declare|call)\b", re.IGNORECASE | re.DOTALL)
 
 
 def _true(text: str) -> bool:
@@ -175,6 +177,10 @@ class OracleRow(Action, Transform):
             sessions.working(session, self.id)
         text, binds = session.bound(made)
         changed = session.run(text, binds)
+        if not changed and not made.defines and not _BLOCK.match(text):
+            # A query, or a statement that found no row: nothing of it waits to be stored. What a block of
+            # PL/SQL changed cannot be seen, and counts.
+            sessions.changed_nothing(session, self.id)
         if waited and not session.in_transaction():
             logger.warning(one_line(
                 f"[{self.id}] the statement stored what waited on the session by itself: the work of "

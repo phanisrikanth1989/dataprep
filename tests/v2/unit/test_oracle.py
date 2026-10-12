@@ -652,3 +652,70 @@ def test_a_table_that_is_not_there_and_a_name_that_is_taken_are_told_by_oracles_
     taken = DatabaseError("ORA-00955: name is already used by an existing object")
     assert (session.is_missing(missing), session.is_missing(taken)) == (True, False)
     assert (session.is_there_already(taken), session.is_there_already(missing)) == (True, False)
+
+
+# ------------------------------------------------------------------
+# Calling a procedure for many rows
+# ------------------------------------------------------------------
+
+class Var:
+    def __init__(self, values):
+        self.values = values
+
+    def getvalue(self, at):
+        return self.values[at]
+
+
+def calling(monkeypatch, out=None, fails=None):
+    made = stand_in()
+    made.DB_TYPE_DATE, made.DB_TYPE_TIMESTAMP, made.DB_TYPE_CLOB = "a date", "a timestamp", "a clob"
+    seen = {}
+
+    def setinputsizes(self, *sizes):
+        seen["sizes"] = sizes
+
+    def executemany(self, block, rows, **more):
+        seen["sent"] = (block, rows)
+        if fails:
+            raise fails
+        self.bindvars = [Var(values) for values in (out or [])]
+
+    monkeypatch.setattr(Cursor, "setinputsizes", setinputsizes, raising=False)
+    monkeypatch.setattr(Cursor, "executemany", executemany, raising=False)
+    monkeypatch.setitem(sys.modules, "oracledb", made)
+    return made, seen
+
+
+def test_a_procedure_is_called_for_each_row_and_what_comes_out_is_read_by_place(monkeypatch):
+    import decimal
+    made, seen = calling(monkeypatch, out=[[1, 2], ["a", "b"], [decimal.Decimal("2.01"), None], ["x", "y"], [None, None],
+                                           [None, None], ["big", "bigger"]])
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    rows = [(1, "a", None, "x", None, None, None), (2, "b", None, "y", None, None, None)]
+    outs = {2: "number", 3: "text", 4: "date", 5: "datetime", 6: "large text"}
+    got = session.call("begin p(:1, :2, :3, :4, :5, :6, :7); end;", rows, outs)
+    assert got == {2: [decimal.Decimal("2.01"), None], 3: ["x", "y"], 4: [None, None], 5: [None, None], 6: ["big", "bigger"]}
+    # A number is asked for with every digit, text with all the room PL/SQL has, and nothing is said of what only goes in.
+    assert seen["sizes"] == (None, None, decimal.Decimal, 32767, "a date", "a timestamp", "a clob")
+    assert seen["sent"] == ("begin p(:1, :2, :3, :4, :5, :6, :7); end;", rows)
+    assert made.opened[0].did[-1] == "cursor closed"
+
+
+def test_a_procedure_with_no_value_is_called_as_many_times_as_there_are_rows(monkeypatch):
+    made, seen = calling(monkeypatch)
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    assert session.call("begin p; end;", [(), (), ()], {}) == {}
+    assert seen == {"sent": ("begin p; end;", 3)}
+
+
+def test_a_call_that_fails_says_which_one_in_the_databases_words(monkeypatch):
+    from src.v2.sessions import CallFailed
+    fault = Refused("ORA-20001: thirteen is not taken\nORA-06512: at \"A.P\", line 3\nHelp: https://x")
+    fault.args = (types.SimpleNamespace(offset=1),)
+    monkeypatch.setattr(Refused, "__str__", lambda self: "ORA-20001: thirteen is not taken\nORA-06512: at \"A.P\", line 3\nHelp: https://x")
+    calling(monkeypatch, fails=fault)
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    with pytest.raises(CallFailed) as failed:
+        session.call("begin p(:1); end;", [(1,), (13,)], {})
+    assert failed.value.at == 1
+    assert str(failed.value) == 'ORA-20001: thirteen is not taken ORA-06512: at "A.P", line 3'

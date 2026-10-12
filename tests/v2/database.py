@@ -11,7 +11,7 @@ import sqlite3
 from typing import Any, List, Mapping, Optional, Tuple
 
 from src.v2.errors import DatabaseError
-from src.v2.sessions import NUMBER, OTHER, TEXT, ZONED, Field, Session
+from src.v2.sessions import NUMBER, OTHER, TEXT, ZONED, CallFailed, Field, Session
 from src.v2.statements import DEFINES
 
 # What SQLite runs without a transaction of its own being opened for it first.
@@ -55,7 +55,8 @@ class SqliteSession(Session):
         except sqlite3.Error as fault:
             raise DatabaseError(str(fault)) from None
         self.did.append(statement)
-        return done.rowcount
+        # A query changed no row. (SQLite says -1 of one; Oracle says 0.)
+        return max(done.rowcount, 0)
 
     def commit(self) -> None:
         self.did.append("commit")
@@ -107,6 +108,26 @@ class SqliteSession(Session):
                 # The statement itself cannot be run (no such table): it fails for every row, as in Oracle.
                 raise DatabaseError(str(fault)) from None
         return refused, changed if counts else []
+
+    # SQLite has no procedures: a test says what one of a name does, as a function of the values handed in
+    # that hands back the values out, by place.
+    procedures: dict = {}
+
+    def call(self, block, rows, outs):
+        self.asked.append(block)
+        self.did.append(("call", block, len(rows)))
+        name = re.search(r"([\w.$#]+)\s*(?:\(|;)", block.split(":=")[-1]).group(1)
+        handed = {place: [] for place in outs}
+        for at, row in enumerate(rows):
+            try:
+                out = self.procedures[name](*row)
+            except KeyError:
+                raise CallFailed(at, f"no procedure {name}") from None
+            except Exception as fault:  # noqa: BLE001 -- whatever the stand-in procedure raises is its failure
+                raise CallFailed(at, str(fault)) from None
+            for place in outs:
+                handed[place].append(out.get(place))
+        return handed
 
     def is_missing(self, fault):
         return "no such table" in str(fault)

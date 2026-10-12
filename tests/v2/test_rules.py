@@ -27,8 +27,10 @@ ROW_BY_ROW = re.compile(r"\.(map_elements|map_batches|map_rows|apply|iter_rows|r
 # wrote in the subjob's pass, when the pass is done: a workbook is made cell by cell.
 # Extract JSON fields and extract XML field read a document out of every row, which only Python can do.
 # Flow to iterate hands each row it wrote to a pass of its loop: a row is what a pass is run for.
+# The Oracle stored procedure is called with the values of each row, and hands values back for each: the driver
+# takes a batch of calls as a list of rows.
 HOLD_ROWS = {"context_load.py", "log_row.py", "python_dataframe.py", "file_input_excel.py", "file_output_excel.py",
-             "extract_json_fields.py", "extract_xml_field.py", "flow_to_iterate.py"}
+             "extract_json_fields.py", "extract_xml_field.py", "flow_to_iterate.py", "oracle_sp.py"}
 
 
 def code_lines(path):

@@ -330,12 +330,55 @@ statement does**:
   commit that follows by a flow stores what the statement did.
 - With `die_on_error` off a statement the database refuses is said in a
   warning and in `<id>_ERROR_MESSAGE`, and the job goes on.
+- A query, or a statement that found no row to change, leaves nothing
+  waiting for a commit. What a block of PL/SQL changed cannot be seen,
+  and counts as work that waits.
 - It leaves the statement in `<id>_QUERY` as it was sent, with the
   names of its values and no value. `use_nb_line` names the entry that
   takes the number of rows it changed: `<id>_NB_LINE_INSERTED`,
   `_NB_LINE_UPDATED` or `_NB_LINE_DELETED`.
 - Refused when on: `propagate_record_set` (a query's rows are read with
   an input). A `Blob`, `Clob`, `Bytes` or `Time` for a mark is refused.
+
+## Oracle stored procedure
+
+- Calls the procedure or function `sp_name`: a name, with its package or
+  schema before a dot.
+- **Set off by a trigger, it calls it once**, with nothing handed in.
+  **With a flow leading to it, it calls it once for each row**, 10,000
+  calls in one round trip. The rows are held in memory meanwhile.
+- `sp_args` names the arguments in the procedure's own order:
+
+  | `type` | What happens |
+  |---|---|
+  | `IN` | the value of the row's column `column` is handed in |
+  | `OUT` | what comes out goes into the column `column` |
+  | `INOUT` | both |
+
+  With `is_function`, what the function returns goes into
+  `return_column`.
+- The rows go on with what came out in their columns. With no flow to
+  it and one from it, it hands on one row.
+- **A number comes out with every digit it has** and is rounded to its
+  column's places; a date into a `date` column is its day. `dbtype`
+  says what a value that comes out is when the column's own type does
+  not: `DECIMAL`, `NUMERIC`, `DATE`, `TIMESTAMP`, `CLOB`. A true/false
+  is handed in as 1 or 0: PL/SQL's own true/false is no number.
+- **A call counts as work that waits.** What a procedure changed cannot
+  be seen from outside, so on the session of a connection a commit
+  component has to follow, or the connection has `auto_commit`; with a
+  session of its own the engine stores when the subjob is done. A
+  procedure that commits by itself stores what waited on the session
+  too, and a warning then says whose work that was.
+- A call that fails fails the job, with Oracle's words and the row
+  (`line 2 of in.csv`). The calls before it in the same subjob are
+  rolled back with it.
+- `nls_language` and `nls_territory` set the session's before the first
+  call, when they are not `NONE`.
+- Refused when the job loads: a `RECORDSET` argument (a cursor that a
+  procedure hands out is not read; read its rows with an input), a
+  STRUCT or an ARRAY (`is_custom`), and a `BLOB`, an `XMLTYPE` or a
+  `TIMESTAMP_WITH_TIMEZONE` that comes out.
 
 ## What refuses the job
 
