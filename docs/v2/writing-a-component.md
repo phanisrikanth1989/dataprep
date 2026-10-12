@@ -174,6 +174,9 @@ Key("uncompress", kind=Kind.REFUSED, type=bool, reason="compressed files are not
   and integers written as text (`"true"`, `"5"`) are accepted. `convert=`
   post-processes a value and refuses it by raising `ValueError`. It is not
   applied to `default`: write the default as the value the component sees.
+- `secret=True` for a value nobody is to see (a password): the engine writes
+  it as `***` where it shows a config (the debug log), and a refusal of the
+  value does not quote it. A component never logs such a value itself.
 - `label`, `tstatcatcher_stats`, `execution_mode`, `chunk_size` are accepted
   on every component already.
 - Context references (`${context.x}`, `context.x`) in `str`/`int`/`bool`

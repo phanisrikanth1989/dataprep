@@ -150,3 +150,20 @@ def test_nothing_is_put_together_for_debug_lines_when_the_level_is_info(caplog, 
     # The same run at DEBUG does all three: the spies see what INFO was spared.
     lines, _ = debug_lines(caplog, added(tmp_path))
     assert lines and {"plan", "config", "text"} <= set(asked)
+
+
+def test_debug_does_not_show_a_value_its_key_declares_a_secret(caplog, tmp_path):
+    components = [("in", "rows", {"data": {"n": [1]}}), ("add", "locked", {"password": "${context.word}", "hint": "plain"}),
+                  ("out", "save", {"path": str(tmp_path / "o.csv")})]
+    flows = [("r1", "in", "add", "flow"), ("r2", "add", "out", "flow")]
+    lines, result = debug_lines(caplog, job(components, flows, context={"word": "s3cret"}))
+    assert result.status == "success"
+    assert '[add] config: {"password": "***", "hint": "plain"}' in lines
+    assert not [line for line in lines if "s3cret" in line]
+
+
+def test_debug_shows_that_a_secret_was_not_given(caplog, tmp_path):
+    components = [("in", "rows", {"data": {"n": [1]}}), ("add", "locked", {}), ("out", "save", {"path": str(tmp_path / "o.csv")})]
+    flows = [("r1", "in", "add", "flow"), ("r2", "add", "out", "flow")]
+    lines, _ = debug_lines(caplog, job(components, flows))
+    assert '[add] config: {"password": "", "hint": ""}' in lines

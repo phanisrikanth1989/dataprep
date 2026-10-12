@@ -410,3 +410,12 @@ def test_column_talend_declares_an_object_is_held_as_text(written):
     job["components"][0]["schema"]["output"] = [{"name": "content", "type": written}]
     job["components"][1]["schema"] = {"input": [], "output": []}
     assert load(job).components["in_1"].schema[0].type == "str"
+
+
+def test_refusal_of_a_secret_value_does_not_show_it():
+    from src.v2.job.keys import normalize_config
+    keys = (Key("password", secret=True), Key("pin", type=int, secret=True, convert=lambda value: 1 / 0 if value else value))
+    _, found = normalize_config({"password": 12345, "pin": "four"}, keys, "component x")
+    assert [(refusal.key, refusal.reason) for refusal in found] == [
+        ("password", "the value does not fit the key; it is a secret and is not shown"),
+        ("pin", "the value does not fit the key; it is a secret and is not shown")]

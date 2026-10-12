@@ -28,7 +28,7 @@ from ..components.base import (Action, CheckFailed, Component, Noticed, Sink, So
 from ..errors import ConfigurationError, JobFailedError
 from ..files import put_in_place, temp_beside
 from ..job.graph import subjobs
-from ..job.keys import normalize_config
+from ..job.keys import normalize_config, without_secrets
 from ..job.model import ComponentSpec, Job, Only, RunSettings, Trigger
 from ..column_types import VIOLATION, conform
 from ..rows import first_of, shown, visible, without
@@ -511,7 +511,8 @@ class Runner:
             try:
                 component = self._ready(spec)
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(ascii_only(f"[{component_id}] config: {json.dumps(component.config, default=str)}"))
+                    shown_config = without_secrets(component.config, type(component).all_keys())
+                    logger.debug(ascii_only(f"[{component_id}] config: {json.dumps(shown_config, default=str)}"))
                 inputs = {flow.name: frames[flow.name] for flow in self.job.incoming(component_id)}
                 traced = self.trace is not None and self._traced(component, list(inputs), state)
                 held: Dict[str, pl.DataFrame] = {}

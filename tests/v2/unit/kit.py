@@ -235,3 +235,16 @@ def run(job_config, **kwargs):
 
 def lines(path):
     return Path(path).read_text().splitlines()
+
+
+class Locked(Transform):
+    """Hands its rows on; has a key whose value is a secret."""
+
+    names = ("locked",)
+    keys = (Key("password", default="", secret=True), Key("hint", default=""))
+
+    def build(self, inputs):
+        return {"main": next(iter(inputs.values()))}
+
+
+REGISTRY.register(Locked)

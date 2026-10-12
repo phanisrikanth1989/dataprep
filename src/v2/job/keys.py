@@ -59,6 +59,9 @@ class Key:
         fields: Declared keys of an object value.
         item_convert: Called with each list item before it is checked, so a
             shorthand form can be expanded.
+        secret: Whether the value is one nobody is to see (a password). It is
+            then written as ``***`` wherever a config is shown, and a
+            refusal of it does not quote it.
     """
 
     name: str
@@ -76,11 +79,18 @@ class Key:
     items: Optional[Tuple["Key", ...]] = None
     fields: Optional[Tuple["Key", ...]] = None
     item_convert: Optional[Callable[[Any], Any]] = None
+    secret: bool = False
 
     @property
     def spellings(self) -> Tuple[str, ...]:
         """Every spelling a job config may use for this key."""
         return (self.name,) + tuple(self.aliases)
+
+
+def without_secrets(config: Dict[str, Any], keys: Sequence[Key]) -> Dict[str, Any]:
+    """A config as it may be shown, in a log say: a secret that was given is ``***``."""
+    secrets = {key.name for key in keys if key.secret}
+    return {name: "***" if name in secrets and value not in (None, "") else value for name, value in config.items()}
 
 
 def has_context_reference(value: Any) -> bool:
@@ -167,6 +177,9 @@ def normalize_config(
 # Internals
 # ------------------------------------------------------------------
 
+_SECRET_REASON = "the value does not fit the key; it is a secret and is not shown"
+
+
 def _unknown_reason(raw_name: str, by_spelling: Dict[str, Key]) -> str:
     close = difflib.get_close_matches(raw_name, list(by_spelling), n=1, cutoff=0.75)
     if close:
@@ -198,7 +211,7 @@ def _check_value(
     try:
         value = _coerce(key, value)
     except ValueError as exc:
-        refusals.append(Refusal(where, path, str(exc)))
+        refusals.append(Refusal(where, path, _SECRET_REASON if key.secret else str(exc)))
         return copy.deepcopy(key.default)
     if value is None:
         return copy.deepcopy(key.default)
@@ -213,7 +226,7 @@ def _check_value(
         try:
             value = key.convert(value)
         except ValueError as exc:
-            refusals.append(Refusal(where, path, str(exc)))
+            refusals.append(Refusal(where, path, _SECRET_REASON if key.secret else str(exc)))
             return copy.deepcopy(key.default)
 
     if key.choices is not None and value not in key.choices:
