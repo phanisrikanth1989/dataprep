@@ -328,6 +328,12 @@ documentation.
   [The v2 README taken apart](issues/89-the-v2-readme-taken-apart.md) --
   a start page, five guide pages and a page for each family of
   components; moved by script, checked line for line, kept so by tests.
+  [File jobs: what current practice says](issues/93-file-jobs-what-current-practice-says.md)
+  -- Talend's names and archive layout kept, its silent losses not; all
+  or nothing; an archive's kind told from what it holds; no links.
+  [File properties](issues/94-file-properties.md) -- the schema says
+  which properties are wanted; `exists` among them makes a missing file
+  a row.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -380,10 +386,9 @@ documentation.
 For the thirty more components of 2026-10-12 (the paragraphs after this
 list are of the first destination, which is reached):
 
-- File jobs: file properties, raw file input, change file encoding, file
-  archive and file unarchive are still to be designed, each from Talend's
-  definition (for the names a converted job uses) and from what is safe
-  and usual today for archives, checksums and encodings.
+- File jobs: raw file input, change file encoding, file archive and file
+  unarchive are still to be built, to
+  [File jobs: what current practice says](issues/93-file-jobs-what-current-practice-says.md).
 - Loops and job control wait on
   [How current tools loop and run child jobs](issues/90-how-current-tools-loop-and-run-child-jobs.md).
   The engine has no way yet to run a subjob once for each item. In
