@@ -73,8 +73,14 @@ def as_utf8(path: str, encoding: str, run_context: "RunContext", exact: bool = F
     return copy
 
 
-def to_encoding(written: str, encoding: str) -> bytes:
+def to_encoding(written: str, encoding: str, by_number: bool = False) -> bytes:
     """Put a UTF-8 file Polars wrote in the job's encoding, where it is.
+
+    Args:
+        written: The file.
+        encoding: The job's encoding.
+        by_number: Whether a character the encoding cannot write is written
+            by its number, as XML has it (`&#8364;`), where the file is XML.
 
     Returns:
         The byte order mark the file now starts with; empty for an encoding
@@ -82,14 +88,14 @@ def to_encoding(written: str, encoding: str) -> bytes:
 
     Raises:
         UnicodeEncodeError: When the text holds a character the encoding
-            cannot write.
+            cannot write, and it is not written by its number.
     """
     name = codec_name(encoding)
     if name in ("utf-8", "utf_8") or (_agrees_on_ascii(name) and _is_ascii(written)):
         return b""
     converted = written + ".enc"
     try:
-        _convert(written, converted, name)
+        _convert(written, converted, name, "xmlcharrefreplace" if by_number else "strict")
         os.replace(converted, written)
     except BaseException:
         _remove(converted)
@@ -268,9 +274,9 @@ def _replace(written: str, path: str) -> None:
         shutil.copyfile(written, path)
 
 
-def _convert(source_path: str, target_path: str, name: str) -> None:
+def _convert(source_path: str, target_path: str, name: str, lacking: str = "strict") -> None:
     decoder = codecs.getincrementaldecoder("utf-8")()
-    encoder = codecs.getincrementalencoder(name)()
+    encoder = codecs.getincrementalencoder(name)(lacking)
     with open(source_path, "rb") as source, open(target_path, "wb") as target:
         while chunk := source.read(_CHUNK):
             target.write(encoder.encode(decoder.decode(chunk)))

@@ -40,6 +40,30 @@ What the readers share:
   whose default every converted job carries: a UTF-8 document that says
   so is then read wrongly, without an error.)
 
+What the writers share:
+
+- **No tree is built.** The text of a row is made by Polars and written
+  as one line, so memory does not follow the size of the output, and
+  nothing of Python is in the pass. (Talend's default builds the whole
+  document in memory.)
+- **Whatever a value holds is read back as it was.** `&`, `<` and `>`
+  are escaped, and so are the quote and the tab in an attribute. A line
+  end inside a value is written by its number (`&#10;`, `&#13;`): a row
+  stays one line, and a carriage return is read back as one, where a
+  parser turns a bare one into a line feed.
+- **A character the encoding lacks is written by its number** (`&#8364;`
+  for a euro sign in ISO-8859-1), so nothing is lost and the write does
+  not fail. The declaration names the job's `encoding`.
+- **A character XML cannot hold fails the job** and names the column and
+  the row: a control character such as `\x01`. (Talend writes it, and
+  leaves a file no parser reads.)
+- **A name that is no name refuses the job**: a tag with a blank in it, a
+  column whose name starts with a digit. (Talend checks none.)
+- **The file is read once before it is put in place**, as a reader would
+  read it. A document that is not well formed fails the job and leaves
+  the file that was there. A writer written by hand earns that check; it
+  takes about as long again as the writing.
+
 ## XML file input
 
 - One row for each record that `loop_query` finds in the file
@@ -111,3 +135,65 @@ What the readers share:
   engine reads them). `use_separator` on refuses the job.
 - Not built: a condition in the record path; a check of each record
   against an XSD.
+
+## XML file output
+
+- The rows are written to the file `filename` as one document: its
+  declaration, the `root_tags` one inside the other in the order given
+  (`root` when none is given), and a `row_tag` element for each row, on
+  a line of its own. (v1 writes the first root tag only.)
+
+  ```
+  <?xml version="1.0" encoding="UTF-8"?>
+  <orders>
+  <order id="1"><name>ann</name><amount>10.50</amount></order>
+  </orders>
+  ```
+
+- A column is an element in the row, named after the column. An entry
+  of `mapping` makes it an attribute of the row (`as_attribute`) or
+  gives it another name (`label`, v2's own key). Attributes and elements
+  each keep the order of the columns. A value is written as the
+  delimited output writes it: a date by its pattern, a decimal with its
+  places.
+- `missing` (v2's own key) says what is written for a value that is
+  missing:
+
+  | `missing` | An element | An attribute |
+  |---|---|---|
+  | `empty` (when not given) | `<name></name>` | `name=""` |
+  | `omit` | nothing | nothing |
+  | `nil` | `<name xsi:nil="true"/>` | nothing |
+
+  `empty` is what the readers of a converted job were built against.
+  `omit` is the one a reader can tell from empty text, and the better
+  choice for a job written anew.
+- With `use_dynamic_grouping`, the rows that follow each other with the
+  same value in a `group_by` column stand in one element. It is named
+  after the column and holds the value in the attribute `label` (`name`
+  when not given, as in Talend); the column is then not in the row. A
+  second entry makes groups inside the groups; an inner group starts
+  anew when its outer one does. The rows of a group have to arrive
+  together: a value that comes back later starts a second group. A job
+  that cannot promise that sorts first.
+- No row gives a document with nothing in its root. With
+  `delete_empty_file` it gives no file, and one of an earlier run is
+  taken away.
+- `create` makes the folder of the file when it is not there, as in
+  Talend. (v1 reads the key as leave to write over a file.)
+- With `input_is_document`, the column `document_col` holds a whole
+  document and the file is that document, under the job's own
+  declaration; `trim` takes the white space around it away. There has
+  to be one row: Talend writes every row's document into the one file,
+  which is a document only when there is one.
+- It leaves the path in `<id>_FILE_NAME`.
+- Tried here on three million rows of eleven columns: 0.6 million rows
+  a second, a document of 990 MB, the reading back included. (On a Mac;
+  not yet on the servers.)
+- Refused when on: `split` (a file every so many rows), and
+  `advanced_separator` (numbers written with separators of the job's
+  own). `flushonrow` and `flushonrow_num` are taken and have no effect.
+- A converted job: the converter reads the output's table of columns
+  from a job made by hand, and what Talend itself exports there is
+  another shape. An entry of `mapping` that names no column refuses the
+  job and says so.
