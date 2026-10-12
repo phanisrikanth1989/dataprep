@@ -20,6 +20,7 @@ MAY_COLLECT = {
     "file_input_excel.py": "there is no lazy Excel reader",
     "flow_to_iterate.py": "the rows it wrote in the subjob's pass are read back a piece at a time, when their passes are due",
     "file_input_xml.py": "the line of one record is looked up in its scratch file, when a failure names the record",
+    "file_input_msxml.py": "the same look-up of one record's line",
 }
 ROW_BY_ROW = re.compile(r"\.(map_elements|map_batches|map_rows|apply|iter_rows|rows)\(")
 # Components that are handed real rows by the engine and may walk them. The Excel output walks the rows it

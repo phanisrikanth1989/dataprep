@@ -154,7 +154,9 @@ def unreadable(parsed: pl.Expr, text: pl.Expr, column: Column) -> pl.Expr:
     wrong = parsed.is_null() & (stripped != "")
     if column.type in ("datetime", "date"):
         wrong = wrong & ~stripped.is_in(_NOT_A_DATE)
-    return wrong
+    # Text that is not there at all (a node a document does not have) is missing, and not unreadable. The answer
+    # is yes or no, never unknown: a row with an unknown answer is neither read nor turned away, and is lost.
+    return wrong.fill_null(False)
 
 
 def finish_value(parsed: pl.Expr, text: pl.Expr, column: Column) -> pl.Expr:

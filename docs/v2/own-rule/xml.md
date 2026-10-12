@@ -136,6 +136,82 @@ What the writers share:
 - Not built: a condition in the record path; a check of each record
   against an XSD.
 
+## Multi-schema XML input
+
+- Reads a document that holds records of several kinds, and hands each
+  kind on by a flow of its own. The document is gone through once for
+  all of them.
+
+  ```
+  <shop>
+   <order id="1">
+    <head><who>ann</who></head>
+    <line><sku>A</sku></line>
+    <line><sku>B</sku></line>
+   </order>
+  </shop>
+
+  root_loop_query: /shop/order
+  schemas:
+    flow heads, loop_path head, columns order, who,  mapping "../@id,who"
+    flow lines, loop_path line, columns order, sku,  mapping "../@id,sku"
+
+  heads: 1;ann          lines: 1;A
+                               1;B
+  ```
+
+- `root_loop_query` is the names from the root down to the elements the
+  records stand in. Each entry of `schemas` is one kind of record:
+
+  | Key | What it says |
+  |---|---|
+  | `flow` | the flow its rows leave by (v2's own key) |
+  | `loop_path` | its records, by names from an element the root loop query finds: `line`, `lines/line` |
+  | `columns` | the columns of the flow, written as a schema's columns are (v2's own key) |
+  | `mapping` | the path of each column's value, from the record |
+  | `create_empty_row` | whether a record with no value at all gives a row; off when not given |
+
+- `mapping` is a text of paths with commas between, one for each
+  column in their order, as Talend writes it (`"../@id","sku"`; the
+  quotes may be left out, and a comma inside brackets or quotes is part
+  of its path). It may also be a list of paths, or a list of entries
+  that name their `column`, as for the XML file input. A column with no
+  path is the child of its own name.
+- One entry alone needs no `flow`, and may leave its columns to the
+  component's own schema. That is the shape a converted job has.
+- A value is what the XML file input makes of it, and a path may climb
+  as there (`../@id`, `../head/who`). `trim_all` takes the white space
+  around every value away, and is on when not given, as in Talend.
+- Each flow has its records in the order of the document. Talend hands
+  the rows of all kinds on one by one in that order; a flow here is a
+  set of rows of its own, so `ignore_order` is taken and has no effect.
+- A record of one flow may hold the records of another (`order`, and
+  `order/line`): the inner ones are read when each ends and are still
+  there when the outer one is read.
+- Memory follows the largest record, or the element above it that a
+  column climbs to, as for the XML file input; where one flow's record
+  holds another's, the outer one. The rows wait in scratch files.
+  Tried here on a document of 100 MB with two kinds, 124,000 records
+  that hold 497,000 others: 4.5 s, 22 MB a second, the same as one
+  kind. (On a Mac; not yet on the servers.)
+- There is no reject output, as in Talend. A row whose value is none of
+  its column's type fails the job and names the record
+  (`record 3 of in.xml (lines), near line 6`); with `die_on_error` off
+  it is dropped, and a warning says how many were and names the first.
+  A document that cannot be read fails the job, or gives no row at all.
+- A row's number is the place of its record among the records of every
+  kind. `<id>_NB_LINE` counts the rows of all the flows, and the path
+  is left in `<id>_FILENAME`. A run for a few rows names them by
+  `records`; rows picked by what a column holds are for a reader with
+  one kind of record.
+- A flow nobody reads is not looked for in the document.
+- A converted job: Talend's table has four items a row (the schema of
+  the flow, the loop path, the mapping, the empty rows), and the
+  converter reads three and writes one schema for the component. A
+  converted job with one kind of record loads as it is. One with
+  several is refused, and says what each entry needs: its `flow`, and
+  its `columns`.
+
 ## Extract XML field
 
 - The column `xmlfield` holds an XML document (the first column, when

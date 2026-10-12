@@ -307,6 +307,18 @@ def test_document_is_gone_through_once_also_where_the_engine_reads_the_source_tw
     assert len(reads) > 1 and walks == [1]
 
 
+def test_record_whose_number_or_date_is_not_there_is_a_row_with_that_value_missing(tmp_path):
+    # Nothing at all where a number is to be: no text to misread, and no row to lose.
+    document = (b"<orders><order><sku>A</sku></order><order><sku>B</sku><qty>2</qty><day>2024-01-31</day><ok>true</ok>"
+                b"<price>1.5</price></order><order><qty/></order><order/></orders>")
+    made = read_to_file("sku:str, qty:int, day:datetime@%Y-%m-%d, ok:bool, price:Decimal#2", rejects=True,
+                        loop_query="/orders/order", paths={})
+    result, written, _ = ran(tmp_path, made, document)
+    assert result.status == "success", result.error
+    assert written["out.csv"] == "sku;qty;day;ok;price\nA;;;;\nB;2;2024-01-31;true;1.50\n;;;;\n;;;;\n"
+    assert written["bad.csv"].splitlines()[1:] == []
+
+
 def test_document_deeper_than_the_parser_allows_fails_and_names_the_key_that_lifts_it(tmp_path):
     deep = ("<orders>" + "<a>" * 300 + "<order><sku>A</sku></order>" + "</a>" * 300 + "</orders>").encode()
     result, written, _ = ran(tmp_path / "held", read_to_file("sku:str", loop_query="//order"), deep)

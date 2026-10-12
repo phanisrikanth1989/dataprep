@@ -52,6 +52,15 @@ def test_empty_or_blank_number_is_missing_not_unreadable():
         assert bad == [False, False], type_name
 
 
+def test_text_that_is_not_there_at_all_is_missing_and_not_unreadable():
+    # A reader of XML has no text for a node that is not there. "Unknown" for an answer would lose the row: it
+    # is then neither among the rows that were read nor among those that were not.
+    for type_name in ("int", "float", "datetime", "date", "Decimal", "bool", "str"):
+        values, bad = read([None, "", None], Column("v", type_name))
+        assert bad == [False, False, False], type_name
+        assert values[0] is values[2] and values[0] in (None, False), type_name
+
+
 @pytest.mark.parametrize("text", ["abc", "1,000", "0x1A", "null", "NA", "None", "NaN", "inf"])
 def test_int_marks_what_it_cannot_read(text):
     values, bad = read([text], Column("v", "int"))

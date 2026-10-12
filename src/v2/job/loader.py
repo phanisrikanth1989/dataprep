@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from ..components.base import BEFORE
 from ..components.registry import REGISTRY, Registry
+from .columns import COLUMN_KEYS, column_of, not_empty
 from .graph import bodies, loop, subjobs
 from .keys import EXPRESSION, Key, Kind, has_context_reference, normalize_config
 from .model import TYPE_NAMES, Column, ComponentSpec, Flow, Iterate, Job, Only, RunSettings, Trigger, typed
@@ -37,12 +38,6 @@ _TRIGGER_KINDS = {
     "on_failure": "OnSubjobError",
     "conditional": "RunIf",
 }
-
-
-def _not_empty(value: str) -> str:
-    if not value.strip():
-        raise ValueError("must not be empty")
-    return value
 
 
 def _some(value: list) -> list:
@@ -86,7 +81,7 @@ def _values(value: Dict[str, Any]) -> Dict[str, List[Any]]:
 
 
 ONLY_KEYS: Tuple[Key, ...] = (
-    Key("source", required=True, convert=_not_empty, doc="Id of the reader whose rows are picked."),
+    Key("source", required=True, convert=not_empty, doc="Id of the reader whose rows are picked."),
     Key("where", type=dict, default=None, nullable=True, convert=_values,
         doc="Column name to the value, or the values, a picked row holds in it."),
     Key("lines", type=list, default=None, nullable=True, convert=_numbers,
@@ -111,7 +106,7 @@ RUN_KEYS: Tuple[Key, ...] = (
 )
 
 JOB_KEYS: Tuple[Key, ...] = (
-    Key("name", required=True, aliases=("job_name",), convert=_not_empty, doc="The job's name."),
+    Key("name", required=True, aliases=("job_name",), convert=not_empty, doc="The job's name."),
     Key("context", type=dict, default={}, doc="Context variables, flat or grouped by context name."),
     Key("default_context", doc="The context group to use when the context is grouped."),
     Key("components", type=list, required=True, convert=_some, doc="The components."),
@@ -136,8 +131,8 @@ JOB_KEYS: Tuple[Key, ...] = (
 )
 
 COMPONENT_KEYS: Tuple[Key, ...] = (
-    Key("id", required=True, convert=_not_empty, doc="The component's id, unique in the job."),
-    Key("type", required=True, convert=_not_empty, doc="The component type."),
+    Key("id", required=True, convert=not_empty, doc="The component's id, unique in the job."),
+    Key("type", required=True, convert=not_empty, doc="The component type."),
     Key("config", type=dict, default={}, doc="The component's config."),
     Key("schema", type=object, default=None, doc="Declared columns: {input: [...], output: [...]}."),
     Key("inputs", type=list, default=[],
@@ -150,7 +145,7 @@ COMPONENT_KEYS: Tuple[Key, ...] = (
 )
 
 FLOW_KEYS: Tuple[Key, ...] = (
-    Key("name", required=True, convert=_not_empty, doc="The flow's name, unique in the job."),
+    Key("name", required=True, convert=not_empty, doc="The flow's name, unique in the job."),
     Key("source", required=True, aliases=("from",), doc="Id of the component the rows come from."),
     Key("target", required=True, aliases=("to",), doc="Id of the component the rows go to."),
     Key("type", default="flow", doc="flow, main, reject, filter, unique or duplicate."),
@@ -169,26 +164,6 @@ TRIGGER_KEYS: Tuple[Key, ...] = (
     Key("condition", type=EXPRESSION, doc="The condition a RunIf trigger fires on."),
     Key("order", type=int, default=0, aliases=("output_id",),
         doc="Where the trigger comes among those leaving the same subjob; lower first."),
-)
-
-
-def _places(value: int) -> Optional[int]:
-    """Declared decimal places; a negative number is Talend's way to say none are declared."""
-    return value if value >= 0 else None
-
-
-COLUMN_KEYS: Tuple[Key, ...] = (
-    Key("name", required=True, convert=_not_empty, doc="The column name."),
-    Key("type", default="str", choices=tuple(TYPE_NAMES), doc="The column type."),
-    Key("nullable", type=bool, default=True, doc="Whether missing values are allowed."),
-    Key("key", type=bool, default=False, doc="Whether the column is part of the key."),
-    Key("length", type=int, doc="Declared length."),
-    Key("precision", type=int, convert=_places,
-        doc="Declared number of decimal places. A negative number, as Talend writes for none, means none."),
-    Key("date_pattern", aliases=("pattern",), doc="strftime pattern for dates."),
-    Key("default", kind=Kind.IGNORED, type=object, doc="Talend default value."),
-    Key("comment", kind=Kind.IGNORED, type=object, doc="Free-form comment."),
-    Key("original_type", kind=Kind.IGNORED, type=object, doc="The Talend type."),
 )
 
 
@@ -461,17 +436,7 @@ class _Loader:
             self.report.extend(refusals)
             if refusals:
                 continue
-            columns.append(
-                Column(
-                    name=fields["name"],
-                    type=TYPE_NAMES[fields["type"]],
-                    nullable=fields["nullable"],
-                    key=fields["key"],
-                    length=fields["length"],
-                    precision=fields["precision"],
-                    date_pattern=fields["date_pattern"] or None,
-                )
-            )
+            columns.append(column_of(fields))
         return columns
 
     # ------------------------------------------------------------------

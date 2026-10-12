@@ -63,6 +63,53 @@ _MAPPING = (
 )
 
 
+def typed_rows(component: Source, frame: pl.LazyFrame, columns: List[Column]) -> Dict[str, pl.LazyFrame]:
+    """The values of a reader of XML read as their columns declare them, and the rows whose values are none of that type.
+
+    Args:
+        component: The reader. With its `die_on_error` on, such a row fails
+            its subjob; with it off, the row is among the rejects, and is
+            told of in the log where no flow takes them.
+        frame: The rows, every value as the text that was read.
+        columns: The columns, as they are declared.
+
+    Returns:
+        The rows that could be read under `main`, the others under `reject`.
+    """
+    names = [column.name for column in columns]
+    carried = [name for name in frame.collect_schema().names() if name not in names]
+    typed = [column for column in columns if column.type != "str"]
+    none = pl.LazyFrame(schema={name: pl.String for name in names + ["errorCode", "errorMessage"]})
+    if not typed:
+        return {"main": frame, "reject": none}
+    frame = frame.with_columns([parse_text(pl.col(column.name), column).alias(_VALUE + column.name) for column in typed])
+    cases = [
+        (unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column),
+         pl.format(unreadable_text(column), pl.col(column.name)))
+        for column in typed
+    ]
+    held = {column.name: column for column in typed}
+    values = [
+        finish_value(pl.col(_VALUE + name), pl.col(name), held[name]).alias(name) if name in held else pl.col(name)
+        for name in names
+    ]
+    message = pl.coalesce([pl.when(wrong).then(text) for wrong, text in cases])
+    flagged = frame.with_columns(pl.any_horizontal([wrong for wrong, _ in cases]).alias(_BAD))
+    reason = {"errorCode": pl.lit("TYPE_CONVERSION").alias("errorCode"), "errorMessage": message.alias("errorMessage")}
+    # A data column with one of the two names gives its place to the reason, as in the other readers.
+    reject = flagged.filter(pl.col(_BAD)).select(
+        *[reason.get(name, pl.col(name)) for name in names],
+        *[expr for name, expr in reason.items() if name not in names],
+        *carried,
+    )
+    if component.config["die_on_error"]:
+        component.check(reject.select(pl.len().alias("rows"), first_reason(), *first_of(reject)),
+                        lambda found: fatal(found, component.where(found)))
+    else:
+        flagged = component.tell_dropped(flagged, pl.col(_BAD), message)
+    return {"main": flagged.filter(~pl.col(_BAD)).select(values + carried), "reject": reject}
+
+
 @REGISTRY.register
 class FileInputXML(Source):
     """Read an XML document and hand on one row for each record `loop_query` finds in it.
@@ -270,38 +317,7 @@ class FileInputXML(Source):
         return files
 
     def _typed(self, frame: pl.LazyFrame, columns: List[Column]) -> Dict[str, pl.LazyFrame]:
-        """The values read as their columns declare them, and the rows whose values are none of that type."""
-        names = [column.name for column in columns]
-        carried = [name for name in frame.collect_schema().names() if name not in names]
-        typed = [column for column in columns if column.type != "str"]
-        if not typed:
-            return {"main": frame, "reject": self._no_rejects(columns)}
-        frame = frame.with_columns([parse_text(pl.col(column.name), column).alias(_VALUE + column.name) for column in typed])
-        cases = [
-            (unreadable(pl.col(_VALUE + column.name), pl.col(column.name), column),
-             pl.format(unreadable_text(column), pl.col(column.name)))
-            for column in typed
-        ]
-        held = {column.name: column for column in typed}
-        values = [
-            finish_value(pl.col(_VALUE + name), pl.col(name), held[name]).alias(name) if name in held else pl.col(name)
-            for name in names
-        ]
-        message = pl.coalesce([pl.when(wrong).then(text) for wrong, text in cases])
-        flagged = frame.with_columns(pl.any_horizontal([wrong for wrong, _ in cases]).alias(_BAD))
-        reason = {"errorCode": pl.lit("TYPE_CONVERSION").alias("errorCode"), "errorMessage": message.alias("errorMessage")}
-        # A data column with one of the two names gives its place to the reason, as in the other readers.
-        reject = flagged.filter(pl.col(_BAD)).select(
-            *[reason.get(name, pl.col(name)) for name in names],
-            *[expr for name, expr in reason.items() if name not in names],
-            *carried,
-        )
-        if self.config["die_on_error"]:
-            self.check(reject.select(pl.len().alias("rows"), first_reason(), *first_of(reject)),
-                       lambda found: fatal(found, self.where(found)))
-        else:
-            flagged = self.tell_dropped(flagged, pl.col(_BAD), message)
-        return {"main": flagged.filter(~pl.col(_BAD)).select(values + carried), "reject": reject}
+        return typed_rows(self, frame, columns)
 
     # ------------------------------------------------------------------
     # Where a row is

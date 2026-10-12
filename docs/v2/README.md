@@ -72,6 +72,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | JSON input (tFileInputJSON) | `file_input_json` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#json-input) |
 | Log row (tLogRow) | `log_row` | [Differences from v1: Rows](differences-from-v1/rows.md#log-row) |
 | Map (tMap) | `map` | [Differences from v1: Rows](differences-from-v1/rows.md#map) |
+| Multi-schema XML input (tFileInputMSXML) | `file_input_msxml` | [Own rule: XML](own-rule/xml.md#multi-schema-xml-input) |
 | Normalize (tNormalize) | `normalize` | [Differences from v1: Rows](differences-from-v1/rows.md#normalize) |
 | Pivot to columns delimited: an output (tPivotToColumnsDelimited) | `pivot_to_columns_delimited` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#pivot-to-columns-delimited) |
 | Positional input (tFileInputPositional) | `file_input_positional` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#positional-input) |

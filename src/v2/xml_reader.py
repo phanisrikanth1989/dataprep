@@ -311,8 +311,144 @@ def _says_its_encoding(head: bytes) -> bool:
 # Records
 # ------------------------------------------------------------------
 
+class Several:
+    """The records of several kinds in one document, gone through once.
+
+    For each record, in the order they are whole: its kind, the line its
+    start tag is on, and its values as text. A record is whole when it
+    ends, or when the element above it that a column climbs to does. What
+    has been read is let go of, unless it stands in an element that
+    another kind still has to read.
+
+    Args:
+        source: The document, open for reading bytes.
+        kinds: For each kind of record: the path that finds its records,
+            and the paths that find its values, in the order of the values.
+        encoding: How the document is written when it does not say so itself.
+        large_values: Whether a value may be larger than 10 MB and the
+            document deeper than 256 levels.
+        limit: The most records to read, of all kinds; None for all.
+
+    Attributes:
+        many: For each kind and each of its columns whose path found more
+            than one node in a record: in how many records, and the number
+            of the first. The first node is the value.
+
+    Raises:
+        Fault: While it is gone through: the document uses an entity, or a
+            column climbs above the document.
+        lxml.etree.XMLSyntaxError: While it is gone through: the document
+            is not well formed.
+    """
+
+    def __init__(
+        self,
+        source: Any,
+        kinds: List[Tuple[RecordPath, List[ColumnPath]]],
+        encoding: Optional[str] = None,
+        large_values: bool = False,
+        limit: Optional[int] = None,
+    ) -> None:
+        needs_lxml()
+        self.source, self.kinds = source, kinds
+        self.encoding, self.large_values, self.limit = encoding, large_values, limit
+        self.many: Dict[Tuple[int, str], Tuple[int, int]] = {}
+        self._made = 0
+        # For each column that only climbs and goes down: the element it last climbed to, and what it found there.
+        self._above: List[List[Tuple[Any, Any]]] = [[(None, None)] * len(columns) for _, columns in kinds]
+
+    def __iter__(self) -> Iterator[Tuple[int, int, List[Optional[str]]]]:
+        # For each kind: its record path, how far its columns climb, and its snapshot: what has to be whole
+        # before its rows are made.
+        read: List[Tuple[RecordPath, int, Tuple[str, ...]]] = []
+        tags = set()
+        for record, columns in self.kinds:
+            steps = record.steps
+            climb = max((column.climb for column in columns), default=0)
+            if climb:
+                highest = max(columns, key=lambda column: column.climb)
+                if record.anywhere:
+                    raise Fault(
+                        f"the column '{highest.name}' climbs above its record, and '{record.written}' may be at any "
+                        "depth: with //, a column reads its record and the attributes of what is above it")
+                if climb >= len(steps):
+                    raise Fault(
+                        f"the column '{highest.name}' climbs {climb} levels above its record, and '{record.written}' is "
+                        f"{len(steps)} deep")
+            above = steps[:len(steps) - climb]
+            read.append((record, climb, above))
+            tags |= {_tag(steps[-1], record.strict), _tag(above[-1], record.strict)}
+        if self.limit == 0 or not read:
+            return
+        strict = read[0][0].strict
+        # Whether what one kind waits for may stand in what another does: only then is it asked, before an
+        # element is let go of, whether something above it is still to be read.
+        snapshots = [(above, record.anywhere) for record, _, above in read]
+        nested = any(_may_hold(outer, inner) for outer in snapshots for inner in snapshots)
+        head = self.source.read(256)
+        self.source.seek(0)
+        walker = etree.iterparse(
+            self.source, events=("start-ns", "end"), tag=sorted(tags),
+            encoding=None if _says_its_encoding(head) else self.encoding, **settings(self.large_values),
+        )
+        walker.resolvers.add(_refusing())
+        spaced = False
+        waiting: List[List[Any]] = [[] for _ in read]
+        for event, node in walker:
+            if event == "start-ns":
+                # From here on a name may be in a namespace.
+                spaced = True
+                continue
+            done = False
+            for kind, (record, climb, above) in enumerate(read):
+                if _is_at(node, record.steps, record.anywhere, strict):
+                    if climb:
+                        waiting[kind].append(node)
+                        continue
+                    prepared(node, strict, spaced)
+                    yield self._row(kind, node)
+                    done = True
+                    if self._made == self.limit:
+                        return
+                elif climb and _is_at(node, above, False, strict):
+                    prepared(node, strict, spaced)
+                    for held in waiting[kind]:
+                        yield self._row(kind, held)
+                        if self._made == self.limit:
+                            return
+                    waiting[kind].clear()
+                    done = True
+            # What stands in an element that is still to be read stays until that one has been read too.
+            if done and not (nested and _held_above(node, snapshots, strict)):
+                _free(node)
+
+    def _row(self, kind: int, node: Any) -> Tuple[int, int, List[Optional[str]]]:
+        self._made += 1
+        values: List[Optional[str]] = []
+        record, columns = self.kinds[kind]
+        strict, above = record.strict, self._above[kind]
+        for at, column in enumerate(columns):
+            if column.up:
+                # Found once for all the records under the element it climbs to.
+                top = node
+                for _ in range(column.up):
+                    top = top.getparent()
+                if above[at][0] is not top:
+                    above[at] = (top, value(column.find_from_above(top), column.as_node, strict))
+                found, several = above[at][1]
+            else:
+                found, several = value(column.find(node), column.as_node, strict)
+            if several:
+                records, first = self.many.get((kind, column.name), (0, self._made))
+                self.many[(kind, column.name)] = (records + 1, first)
+            values.append(found)
+        return kind, node.sourceline, values
+
+
 class Records:
     """The records of a document, one after another: for each, the line its start tag is on and its values as text.
+
+    One kind of record: see `Several`, which this is the case of one of.
 
     Args:
         source: The document, open for reading bytes.
@@ -345,86 +481,28 @@ class Records:
         limit: Optional[int] = None,
         namespaces: Optional[Mapping[str, str]] = None,
     ) -> None:
-        needs_lxml()
-        self.source, self.record, self.columns = source, record, columns
-        self.encoding, self.large_values, self.limit = encoding, large_values, limit
-        self.many: Dict[str, Tuple[int, int]] = {}
-        self._made = 0
-        # For each column that only climbs and goes down: the element it last climbed to, and what it found there.
-        self._above: List[Tuple[Any, Any]] = [(None, None)] * len(columns)
+        self._all = Several(source, [(record, columns)], encoding, large_values, limit)
+
+    @property
+    def many(self) -> Dict[str, Tuple[int, int]]:
+        return {name: told for (_, name), told in self._all.many.items()}
 
     def __iter__(self) -> Iterator[Tuple[int, List[Optional[str]]]]:
-        record, steps = self.record, self.record.steps
-        climb = max((column.climb for column in self.columns), default=0)
-        if climb:
-            highest = max(self.columns, key=lambda column: column.climb)
-            if record.anywhere:
-                raise Fault(
-                    f"the column '{highest.name}' climbs above its record, and '{record.written}' may be at any depth: "
-                    "with //, a column reads its record and the attributes of what is above it")
-            if climb >= len(steps):
-                raise Fault(
-                    f"the column '{highest.name}' climbs {climb} levels above its record, and '{record.written}' is "
-                    f"{len(steps)} deep")
-        if self.limit == 0:
-            return
-        # The snapshot: what has to be whole before rows are made, and is freed when they are.
-        above = steps[:len(steps) - climb]
-        tags = {_tag(steps[-1], record.strict), _tag(above[-1], record.strict)}
-        head = self.source.read(256)
-        self.source.seek(0)
-        walker = etree.iterparse(
-            self.source, events=("start-ns", "end"), tag=sorted(tags),
-            encoding=None if _says_its_encoding(head) else self.encoding, **settings(self.large_values),
-        )
-        walker.resolvers.add(_refusing())
-        spaced = False
-        waiting: List[Any] = []
-        for event, node in walker:
-            if event == "start-ns":
-                # From here on a name may be in a namespace.
-                spaced = True
-                continue
-            if _is_at(node, steps, record.anywhere, record.strict):
-                if climb:
-                    waiting.append(node)
-                    continue
-                prepared(node, record.strict, spaced)
-                yield self._row(node)
-                # A record inside a record stays until the outer one has been read too.
-                if not record.anywhere or not _inside_a_record(node, steps, record.strict):
-                    _free(node)
-                if self._made == self.limit:
-                    return
-            elif climb and _is_at(node, above, False, record.strict):
-                prepared(node, record.strict, spaced)
-                for held in waiting:
-                    yield self._row(held)
-                    if self._made == self.limit:
-                        return
-                waiting.clear()
-                _free(node)
+        for _, line, values in self._all:
+            yield line, values
 
-    def _row(self, node: Any) -> Tuple[int, List[Optional[str]]]:
-        self._made += 1
-        values: List[Optional[str]] = []
-        strict, above = self.record.strict, self._above
-        for at, column in enumerate(self.columns):
-            if column.up:
-                # Found once for all the records under the element it climbs to.
-                top = node
-                for _ in range(column.up):
-                    top = top.getparent()
-                if above[at][0] is not top:
-                    above[at] = (top, value(column.find_from_above(top), column.as_node, strict))
-                found, several = above[at][1]
-            else:
-                found, several = value(column.find(node), column.as_node, strict)
-            if several:
-                records, first = self.many.get(column.name, (0, self._made))
-                self.many[column.name] = (records + 1, first)
-            values.append(found)
-        return node.sourceline, values
+
+def _may_hold(outer: Tuple[Tuple[str, ...], bool], inner: Tuple[Tuple[str, ...], bool]) -> bool:
+    """Whether an element at one path may stand in an element at another."""
+    (above, above_anywhere), (below, below_anywhere) = outer, inner
+    if above_anywhere or below_anywhere:
+        return True
+    return len(above) < len(below) and all("*" in (one, other) or one == other for one, other in zip(above, below))
+
+
+def _held_above(node: Any, snapshots: List[Tuple[Tuple[str, ...], bool]], strict: bool) -> bool:
+    """Whether an element stands in one that some kind of record still waits for."""
+    return any(_is_at(above, steps, anywhere, strict) for above in node.iterancestors() for steps, anywhere in snapshots)
 
 
 def _tag(step: str, strict: bool) -> str:
@@ -443,10 +521,6 @@ def _is_at(node: Any, steps: Tuple[str, ...], anywhere: bool, strict: bool) -> b
             return False
         node = node.getparent()
     return anywhere or node is None
-
-
-def _inside_a_record(node: Any, steps: Tuple[str, ...], strict: bool) -> bool:
-    return any(_is_at(above, steps, True, strict) for above in node.iterancestors())
 
 
 def _free(element: Any) -> None:
