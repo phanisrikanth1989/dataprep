@@ -231,7 +231,9 @@ statement does**:
 - `trim_all_column` strips every text column of surrounding blanks, and
   `trim_column` the columns it names.
 - `use_cursor` with `cursor_size` says how many rows a round trip
-  brings; without it, 50,000.
+  brings; without it, 50,000. The scratch file is laid out the same
+  whatever that number is. (Talend's own, a thousand, took about 40%
+  longer than 50,000 for ten million rows: more round trips.)
 - The rows come in the order the database hands them: with an `ORDER BY`
   in the query, in that order, as Oracle works such a query out today.
   (The query is given to Oracle inside another that converts its
@@ -240,6 +242,8 @@ statement does**:
   row as `row 3 of the result of <id>`.
 - Scratch space is needed for about the size of the rows (they are kept
   compressed), in the folder `V2_TEMP_DIR` names.
+- **How fast, and how much memory**: under
+  [Speed and memory](#speed-and-memory-as-measured-on-one-machine).
 
 ## Oracle output
 
@@ -491,6 +495,44 @@ statement does**:
   `use_existing_clt_file` and `input_into_table_clause` (a control file
   of SQL*Loader's), a `record_format` other than `DEFAULT`, and a
   `fields_terminator` other than `OTHER`.
+
+## Speed and memory, as measured on one machine
+
+On 2026-10-12, on one Mac (10 cores, 16 GB), against Oracle 23 Free in a
+container on the same machine, with rows of eight columns (about 105
+bytes a row as CSV). **It says how the components behave, and nothing of
+any server**: a database over a network answers slower, and a real
+Oracle has more than the two processor threads Oracle Free takes.
+"Memory" is what the job's process held of its own.
+
+| What | Rows | Time | Rows a second | Memory |
+|---|---|---|---|---|
+| input, a query to a CSV file | 10 million (1 GB) | 12 s | 840,000 | 0.4 GB |
+| the same | 100 million (10.7 GB) | 151 s | 660,000 | 0.7 GB |
+| output, insert | 10 million | 22 s | 440,000 | 0.8 GB |
+| the same | 30 million | 78 s | 380,000 | 0.7 GB |
+| output, update by key | 1 million | 4.9 s | 200,000 | 0.5 GB |
+| output, insert or update | 1 million | 4.7 s | 210,000 | 0.5 GB |
+| output, delete by key | 1 million | 11 s | 90,000 | 0.5 GB |
+| bulk exec | 30 million | 76 s | 390,000 | 0.7 GB |
+| row, an insert for each row | 100,000 | 0.5 s | 185,000 | 0.1 GB |
+| row, a block for each row | 100,000 | 1.1 s | 90,000 | 0.1 GB |
+| row, a query for each row | 20,000 | 4.9 s | 4,100 | 0.1 GB |
+| stored procedure for each row | 100,000 | 0.6 s | 175,000 | 0.1 GB |
+
+- **Reading and storing cost about what the driver alone costs.** The
+  driver by itself fetched the ten million rows in 6.7 s and inserted a
+  million in 2.4 s; the output's whole job for that million took 2.4 to
+  2.7 s. A delete is slow in Oracle itself: the driver alone took 11.8
+  s for the same million.
+- **Memory stays where it is as the rows grow.** The input held 0.6 GB
+  at thirty million rows and 0.7 GB at a hundred million; the output
+  0.8 GB at ten million and 0.7 GB at thirty million.
+- A query for each row, and an insert that reads its own table, cost a
+  round trip a row: a quarter of a millisecond here, and whatever the
+  network takes elsewhere.
+- Not measured: the SQL Server input after this (it shares the reading
+  with the Oracle input), anything on RHEL, and files beyond these.
 
 ## What refuses the job
 

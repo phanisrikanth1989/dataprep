@@ -466,6 +466,12 @@ documentation.
   second pass found those fixes hold, and seven faults more: a text
   written `q'...'` that a value could end, and work lost with a session
   the database closed, which now fails the job.
+  [A database input's memory grew with its rows](issues/128-a-database-inputs-memory-grew-with-its-rows.md)
+  -- the Oracle components measured for the first time: as fast as the
+  driver is (840,000 rows a second read, 440,000 stored, on this Mac);
+  the input's scratch file is now in groups of 10,000 rows with each
+  row's number in it, and a query of a hundred million rows holds 0.7
+  GB.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

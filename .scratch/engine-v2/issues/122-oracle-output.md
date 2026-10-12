@@ -106,7 +106,9 @@ All were run again, and were caught.
 - **Two outputs with a session each are two commits.** When the second
   commit fails the first stands, and the failure says so. One
   connection component and one commit is all or nothing.
-- Speed and memory at the dev's sizes were not measured.
+- Speed and memory at the dev's sizes were not measured. (Measured
+  since, up to thirty million rows: see
+  [A database input's memory grew with its rows](128-a-database-inputs-memory-grew-with-its-rows.md).)
 - Not built: a direct path load (it commits by itself), a check of the
   rows against the table's columns before they are sent, the reject
   flow.

@@ -66,6 +66,135 @@ def test_the_rows_of_the_query_as_the_columns_the_job_declares(emp, tmp_path, ki
     assert result.rows == {"out": 3}
 
 
+def scratch_files(monkeypatch):
+    """Each scratch file a database input hands to Polars, as it is then: what Polars was asked beside it, its
+    rows, how many rows each of its groups holds, and how each column is packed."""
+    import polars as pl
+    from pyarrow import parquet
+
+    from src.v2.components.database import reading
+
+    seen = []
+
+    def scanned(path, **asked):
+        described = parquet.ParquetFile(path).metadata
+        # How each column of the first group is packed, by the column's name.
+        packed = {described.row_group(0).column(at).path_in_schema: described.row_group(0).column(at).encodings
+                  for at in range(described.num_columns)} if described.num_row_groups else {}
+        seen.append((asked, parquet.read_table(path), [described.row_group(at).num_rows for at in range(described.num_row_groups)],
+                     packed))
+        return scan(path, **asked)
+
+    scan = pl.scan_parquet
+    monkeypatch.setattr(reading.pl, "scan_parquet", scanned)
+    return seen
+
+
+def test_each_rows_number_rests_in_the_scratch_file_and_polars_is_not_asked_to_number_them(emp, tmp_path, monkeypatch, caplog):
+    """Polars 1.44 holds about twice as much when it numbers the rows of a Parquet file as it scans one: 1.1 GB
+    for ten million rows where 0.5 GB does without. Measured on 2026-10-12."""
+    from src.v2.rows import row_column
+
+    seen = scratch_files(monkeypatch)
+    # A row a round trip: the numbers go on from one batch to the next.
+    out, made = to_file(tmp_path, use_cursor=True, cursor_size=1)
+    with caplog.at_level(logging.DEBUG, logger="src.v2"):
+        result = run(made)
+    assert result.status == "success", result.error
+    assert lines(out) == ["id;name;amt", "1;ann ;1.50", "2;;2.26", "3; bob;"]
+    asked, held, groups, packed = seen[0]
+    assert asked == {}
+    # Neither as it scans the file nor after: the plan Polars runs numbers no row.
+    (plan,) = [record.getMessage() for record in caplog.records if "plan of output out" in record.getMessage()]
+    assert "Parquet SCAN" in plan and "ROW_INDEX" not in plan and "ROW INDEX" not in plan
+    assert held.schema.names == [row_column("in"), "id", "name", "amt"]
+    assert (str(held.schema.types[0]), held.column(0).to_pylist()) == ("uint32", [1, 2, 3])
+    # The numbers are packed as steps, which takes next to nothing; the other columns keep their dictionaries.
+    assert "DELTA_BINARY_PACKED" in packed[row_column("in")] and "RLE_DICTIONARY" not in packed[row_column("in")]
+    assert "RLE_DICTIONARY" in packed["name"] and "RLE_DICTIONARY" in packed["id"]
+
+
+@pytest.mark.parametrize("sizes, size, groups", [
+    ([3], 2, [2, 1]), ([1, 1, 1], 2, [2, 1]), ([5], 2, [2, 2, 1]), ([3, 1, 0, 5], 2, [2, 2, 2, 2, 1]), ([2, 2], 2, [2, 2]),
+    ([7], 1, [1] * 7), ([1, 2], 10, [3]), ([], 2, []), ([0, 0], 2, []),
+])
+def test_rows_that_come_in_batches_of_any_size_are_handed_on_in_groups_of_one_size_and_in_their_order(sizes, size, groups):
+    import pyarrow
+
+    from src.v2.components.database.reading import _groups
+
+    numbers = iter(range(1, 1000))
+    batches = [pyarrow.table({"n": pyarrow.array([next(numbers) for _ in range(rows)], type=pyarrow.int64())}) for rows in sizes]
+    made = list(_groups(iter(batches), size))
+    assert [group.num_rows for group in made] == groups
+    assert [value for group in made for value in group.column("n").to_pylist()] == list(range(1, sum(sizes) + 1))
+
+
+def test_a_group_that_is_full_is_handed_on_before_more_rows_are_asked_for():
+    import pyarrow
+
+    from src.v2.components.database.reading import _groups
+
+    asked = []
+
+    def batches():
+        for at in range(3):
+            asked.append(at)
+            yield pyarrow.table({"n": pyarrow.array([at, at], type=pyarrow.int64())})
+
+    made = _groups(batches(), 2)
+    assert next(made).num_rows == 2 and asked == [0]
+
+
+def test_a_query_that_hands_back_no_row_leaves_a_scratch_file_of_no_group_that_reads_as_no_rows(emp, tmp_path, monkeypatch):
+    seen = scratch_files(monkeypatch)
+    out, made = to_file(tmp_path, query="select id, name, amt from emp where id > 99")
+    result = run(made)
+    assert result.status == "success", result.error
+    assert lines(out) == ["id;name;amt"] and result.rows == {"out": 0}
+    _, held, groups, _ = seen[0]
+    assert groups == [] and held.num_rows == 0
+
+
+@pytest.mark.parametrize("a_round_trip", [1, 2, 3, 50])
+def test_the_scratch_file_is_laid_out_the_engines_way_whatever_a_round_trip_brings(emp, tmp_path, monkeypatch, a_round_trip):
+    """A thousand rows a round trip, as Talend has it, made a group of the file for every thousand rows, and writing
+    ten million rows took 24 seconds where 14 do. Many rows a round trip made groups of that many, and the engine's
+    pass holds several groups at a time: 1.5 GB for thirty million rows where 0.6 GB does. Measured on 2026-10-12."""
+    from src.v2.components.database import reading
+
+    monkeypatch.setattr(reading, "_GROUP", 2)
+    seen = scratch_files(monkeypatch)
+    out, made = to_file(tmp_path, use_cursor=True, cursor_size=a_round_trip)
+    result = run(made)
+    assert result.status == "success", result.error
+    assert lines(out) == ["id;name;amt", "1;ann ;1.50", "2;;2.26", "3; bob;"]
+    _, held, groups, _ = seen[0]
+    assert groups == [2, 1] and held.column(0).to_pylist() == [1, 2, 3]
+
+
+def test_a_row_far_into_the_result_is_named_by_its_own_number(on_sqlite, tmp_path, monkeypatch):
+    """The numbers are written packed (each as its step from the one before) and read back by Polars: held here
+    across twelve groups of the file, of ten thousand rows each. (With fifty thousand the engine's pass over thirty
+    million rows held 1.5 GB where it holds 0.6 GB; measured on 2026-10-12.)"""
+    seen = scratch_files(monkeypatch)
+    held = sqlite3.connect(on_sqlite.path)
+    held.execute("create table long (id, joined)")
+    held.executemany("insert into long values (?, ?)", [(at, "not a day" if at == 100_001 else "2024-01-31")
+                                                         for at in range(1, 120_001)])
+    held.commit()
+    held.close()
+    out, made = to_file(tmp_path, "id:int, joined:datetime@%Y-%m-%d", query="select id, joined from long order by id")
+    result = run(made)
+    assert (result.status, result.failed_component) == ("failed", "in")
+    assert "not a day" in result.error and result.error.endswith("row 100001 of the result of in")
+    assert seen[0][2] == [10_000] * 12
+    made["components"][1]["config"]["die_on_error"] = False
+    result = run(made)
+    assert result.status == "success", result.error
+    assert len(lines(out)) == 120_000 and lines(out)[100_000] == "100000;2024-01-31" and lines(out)[100_001] == "100002;2024-01-31"
+
+
 def test_the_query_is_run_once_and_the_session_is_left_as_it_was(emp, tmp_path):
     out, made = to_file(tmp_path)
     run(made)

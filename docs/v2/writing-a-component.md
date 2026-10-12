@@ -144,7 +144,16 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   that is what marks the place a failure of the subjob goes back to, and
   what a failure names. It calls the driver when it is built or when the
   pass has run (`ready`), never in the pass: rows cross through a
-  scratch file. A sink whose rows go to a table hands the engine a
+  scratch file. **A source's scratch file that the pass reads is
+  Parquet in groups of 10,000 rows, with each row's number written in
+  it** (`src/v2/components/database/reading.py`). Polars 1.44 reads the
+  groups of such a file ahead of what writes the rows out and holds
+  them, so the fewer rows a group has the less it holds (1.5 GB for
+  thirty million rows at 50,000 a group, 0.6 GB at 10,000), and it
+  holds about twice as much when it is asked to number the rows as it
+  scans (`scan_parquet(row_index_name=...)`). The measurements are in
+  `.scratch/engine-v2/issues/128-a-database-inputs-memory-grew-with-its-rows.md`.
+  A sink whose rows go to a table hands the engine a
   `Write` with `scratch` set to a scratch file of the run
   (`self.run_context.temp_path(...)`): the pass writes the rows there,
   `ready` stores them from it and returns how many it stored, nothing is

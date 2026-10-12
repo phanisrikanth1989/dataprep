@@ -207,7 +207,9 @@ On this Mac, the server under emulation:
   seconds, with 158 MB at the most. At 2 million it was 157 MB.
 - As a whole job (query to CSV file) the same rows took 14 seconds and
   858 MB. That growth is the engine's pass, as for any reader, and was
-  told before.
+  told before. (**That was wrong**, as
+  [A database input's memory grew with its rows](128-a-database-inputs-memory-grew-with-its-rows.md)
+  found: it was the layout of the scratch file, now changed.)
 
 **For the user's eye**
 

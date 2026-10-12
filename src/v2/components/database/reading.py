@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any, ClassVar, Dict, List, Tuple
+from typing import Any, ClassVar, Dict, Iterable, Iterator, List, Tuple
 
 import polars as pl
 
@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 
 # Rows a round trip, when the job says nothing: enough for the network to matter little, few enough to hold.
 _BATCH = 50_000
+# Rows a group of the scratch file, whatever a round trip brings. Polars reads the file's groups ahead of what
+# writes the rows out, and holds what it has read: the fewer rows a group has, the less. A query of thirty million
+# rows written to a CSV file held 1.5 GB with 50,000 rows a group, 0.6 GB with 10,000 and 0.4 GB with 5,000, in the
+# same time. Fewer still buys little and costs a file of very many groups: a group for every thousand rows
+# (Talend's cursor size) made writing ten million rows take 24 seconds where 14 do. Measured on 2026-10-12, polars
+# 1.44.2.
+_GROUP = 10_000
 
 
 def _size(value: Any) -> int:
@@ -27,6 +34,24 @@ def _size(value: Any) -> int:
     if rows < 1:
         raise ValueError(f"{rows} rows cannot be fetched at a time; give 1 or more")
     return rows
+
+
+def _groups(batches: Iterable[Any], size: int) -> Iterator[Any]:
+    """The rows of Arrow tables of any size, in their order, as tables of `size` rows; the last holds what is left."""
+    import pyarrow
+
+    held: List[Any] = []
+    waiting = 0
+    for batch in batches:
+        held.append(batch)
+        waiting += batch.num_rows
+        while waiting >= size:
+            whole = pyarrow.concat_tables(held) if len(held) > 1 else held[0]
+            yield whole.slice(0, size)
+            waiting -= size
+            held = [whole.slice(size)] if waiting else []
+    if waiting:
+        yield pyarrow.concat_tables(held) if len(held) > 1 else held[0]
 
 
 def _trims(value: List[Any]) -> Dict[str, bool]:
@@ -65,10 +90,11 @@ class DatabaseInput(Source):
     """The rows of one query, as the columns the job declares.
 
     The query is run once. Its rows are written to a scratch file a batch
-    at a time, the session is done with, and the engine reads the file:
-    however often it reads a source again (for a second attempt, to find
-    a row at fault, for a run of a few rows), the database is asked once,
-    and the rows are the ones it handed back that once.
+    at a time, each with its number, the session is done with, and the
+    engine reads the file: however often it reads a source again (for a
+    second attempt, to find a row at fault, for a run of a few rows), the
+    database is asked once, and the rows are the ones it handed back that
+    once.
 
     Columns are taken by their place. Each is made the type the job
     declares by the database, or the way the database itself would make
@@ -99,7 +125,9 @@ class DatabaseInput(Source):
         if self.id not in made:
             made[self.id] = self._spooled()
         path, from_text = made[self.id]
-        frame = pl.scan_parquet(path, row_index_name=self.row_number, row_index_offset=1)
+        # Each row's number is in the file. Polars is not asked to number the rows as it scans: on 1.44 its pass
+        # then holds about twice as much (1.1 GB for ten million rows where half a GB does).
+        frame = pl.scan_parquet(path)
         frame = self.picked(frame)
         # A true/false was asked of the database as 0 or 1; the engine makes it true or false, as any number in
         # such a column.
@@ -150,11 +178,17 @@ class DatabaseInput(Source):
             query, types = session.typed(text, self.schema, fields)
             path = self.run_context.temp_path(".parquet")
             rows = 0
-            schema = pyarrow.schema([pyarrow.field(name, kind) for name, kind in zip(names, types)])
-            with parquet.ParquetWriter(path, schema, compression="zstd", compression_level=1) as scratch:
-                for batch in session.batches(query, binds, types, size):
-                    scratch.write_table(batch.rename_columns(names))
-                    rows += batch.num_rows
+            index = pl.get_index_type()
+            numbered = pyarrow.field(self.row_number, pl.int_range(0, 0, dtype=index, eager=True).to_arrow().type)
+            schema = pyarrow.schema([numbered] + [pyarrow.field(name, kind) for name, kind in zip(names, types)])
+            # The numbers go one up at a time: packed as the step from the one before, they take next to nothing.
+            # (A column that is packed so can hold no dictionary; the others keep theirs.)
+            with parquet.ParquetWriter(path, schema, compression="zstd", compression_level=1, use_dictionary=names,
+                                       column_encoding={self.row_number: "DELTA_BINARY_PACKED"}) as scratch:
+                for group in _groups(session.batches(query, binds, types, size), _GROUP):
+                    numbers = pl.int_range(rows + 1, rows + group.num_rows + 1, dtype=index, eager=True).to_arrow()
+                    scratch.write_table(group.rename_columns(names).add_column(0, numbered, numbers))
+                    rows += group.num_rows
         finally:
             if own:
                 session.close()

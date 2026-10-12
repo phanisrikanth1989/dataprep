@@ -101,5 +101,7 @@ All were run again, and were caught.
   docs say that much and no more.
 - An `XMLTYPE`, a `RAW`, a `BLOB` and a `LONG` column refuse the job.
   The query has to turn them into text.
+- (Measured since, up to a hundred million rows: see
+  [A database input's memory grew with its rows](128-a-database-inputs-memory-grew-with-its-rows.md).)
 - Memory and speed at the dev's sizes were not measured: Oracle Free
   holds 12 GB at most.
