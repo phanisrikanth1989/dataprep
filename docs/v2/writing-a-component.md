@@ -14,14 +14,17 @@ for the words used here (config key, alias, refusal report, answer key).
    Python loop over rows. If Polars cannot express a config key natively,
    declare the key **refused** with the reason. The only components that run
    user Python are the Python components. One exception is allowed and has
-   to be said in the component's docstring and in the README: a source whose
+   to be said in the component's docstring and on its page (see "Done
+   means"): a source whose
    format Polars cannot scan (the JSON input, asked by JSONPath) reads its
    file in Python and hands Polars the table.
 3. **v1 is the answer key.** For the same job config and input files, the
    output files must equal v1's byte for byte. Read the v1 component
    (`src/v1/engine/components/...`) before writing a line, and remember that
    v1's base class also acts on every component's output (see "What the
-   engine does for you").
+   engine does for you"). The exception is the components on the pages
+   of `docs/v2/own-rule/`: v1 is no answer key for them, and what their
+   page says is what they are held to.
 4. **Keep row order.** v1 keeps input order through every component. Pass
    `maintain_order=True` (or the join's `maintain_order="left"`) wherever
    Polars would otherwise be free to reorder.
@@ -371,7 +374,7 @@ A source:
   the reader first holds the column, before it trims or types text, so that
   a key is shown as close to the source as the reader has it. A column
   Polars parses itself is copied as parsed (`7` for `007`), and a positional
-  field without its padding; the README says so;
+  field without its padding; its page says so;
 - implements `locate(number)`: the words a person looking for the record
   would use, ending in the path as the job gives it. `line 7 of in.csv`,
   `row 3 of sheet 'Q1' of book.xlsx`, `record 2 ($.orders[1]) of in.json`.
@@ -523,6 +526,10 @@ is one) and assert v2 accepts every key in it (Java expressions aside).
 ## Done means
 
 - one file, declared keys with v1 aliases, docstrings;
+- its entry on a page of `docs/v2/differences-from-v1/` (every deliberate
+  difference from v1), or of `docs/v2/own-rule/` for a component v1 is no
+  answer key for, and its row in the table of `docs/v2/README.md`
+  (`tests/v2/unit/test_docs.py` holds both to be there);
 - the row numbers kept, by the table in "Row numbers", and a test of it;
 - rows it drops for a fault told in the log (`tell_dropped`), and a test of
   it in `tests/v2/test_dropped_rows.py`;

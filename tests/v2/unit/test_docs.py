@@ -1,4 +1,7 @@
-"""Component doc pages are generated from the declared config keys."""
+"""Component doc pages are generated from the declared config keys; the pages written by hand hang together."""
+import re
+from pathlib import Path
+
 from scripts.gen_v2_docs import generate, page
 from src.v2.components.base import Transform
 from src.v2.components.registry import REGISTRY
@@ -42,3 +45,47 @@ def test_every_registered_component_gets_a_page_and_an_index_row(tmp_path):
     for name in names:
         assert f"[{name}]({name}.md)" in written["README.md"]
         assert (tmp_path / f"{name}.md").read_text().startswith(f"# {name}\n")
+
+
+# ------------------------------------------------------------------
+# The pages written by hand
+# ------------------------------------------------------------------
+
+DOCS = Path(__file__).resolve().parents[3] / "docs" / "v2"
+
+
+def slug(heading):
+    """A heading as the anchor a link to it has: lower case, its blanks hyphens, nothing but letters, digits and hyphens."""
+    return re.sub(r"[^a-z0-9 -]", "", heading.strip().lower()).replace(" ", "-")
+
+
+def anchors(page):
+    return [slug(heading) for heading in re.findall(r"^#{1,6} (.+)$", page.read_text(), re.M)]
+
+
+def pages():
+    """The pages written by hand: the generated component pages are not among them."""
+    return sorted(page for page in DOCS.rglob("*.md") if page.parent != DOCS / "components")
+
+
+def test_every_component_has_a_row_in_the_readme_that_leads_to_its_entry():
+    table = re.findall(r"^\| [^|]+ \| `([a-z_]+)` \| \[[^\]]+\]\(([^)#]+)#([^)]+)\) \|$", (DOCS / "README.md").read_text(), re.M)
+    assert sorted(name for name, _, _ in table) == sorted(cls.names[0] for cls in REGISTRY.classes())
+    for name, page, anchor in table:
+        assert anchor in anchors(DOCS / page), f"{name}: {page} has no entry '{anchor}'"
+
+
+def test_every_link_between_the_pages_leads_somewhere():
+    assert len(pages()) > 5
+    for page in pages():
+        for target, _, anchor in re.findall(r"\]\((?!https?:)([^)#]*)(#([^)]+))?\)", page.read_text()):
+            there = (page.parent / target).resolve() if target else page
+            assert there.exists(), f"{page.relative_to(DOCS)}: nothing at '{target}'"
+            if anchor:
+                assert anchor in anchors(there), f"{page.relative_to(DOCS)}: '{target}' has no heading '{anchor}'"
+
+
+def test_no_page_is_long():
+    """A page is for one thing; what outgrows this is split."""
+    for page in pages():
+        assert len(page.read_text().splitlines()) <= 600, page.relative_to(DOCS)

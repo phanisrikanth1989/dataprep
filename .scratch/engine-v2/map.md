@@ -404,7 +404,7 @@ decide, not fog on the way there.
 
 - What the dev finds when testing real jobs. Every decision since
   [The performance bar](issues/05-performance-bar.md) was an assumption; the
-  list of deliberate differences from v1 in `docs/v2/README.md` is the place
+  list of deliberate differences from v1 in `docs/v2/differences-from-v1/` is the place
   to start disagreeing.
 - Left unbuilt on purpose, each refused at load with its reason: `split` on
   delimited output; row separators other than `\n`, `\r\n`, `\r` on
