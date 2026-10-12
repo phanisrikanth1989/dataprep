@@ -596,3 +596,59 @@ def test_what_is_wrong_with_the_block_of_a_component_that_works_on_a_connections
     shared, _ = normalize_config({"use_existing_connection": True, "connection": "tDBConnection_1"}, keys, "c")
     assert oracle.working_problems(own) == oracle.problems(own) != []
     assert oracle.working_problems(shared) == []
+
+
+# ------------------------------------------------------------------
+# Storing: a statement for each row of a batch
+# ------------------------------------------------------------------
+
+class Refusal:
+    def __init__(self, offset, message):
+        self.offset, self.message = offset, message
+
+
+def test_a_batch_is_sent_in_one_round_trip_and_what_is_refused_comes_back_with_its_place(monkeypatch):
+    made = stand_in()
+    sent = []
+
+    def executemany(self, statement, rows, batcherrors=False, arraydmlrowcounts=False):
+        sent.append((statement, rows, batcherrors, arraydmlrowcounts))
+
+    monkeypatch.setattr(Cursor, "executemany", executemany, raising=False)
+    monkeypatch.setattr(Cursor, "getbatcherrors", lambda self: [
+        Refusal(3, 'ORA-12899: value too large for column "A"."T"."V" (actual: 7, maximum: 5)\nHelp: https://x'),
+        Refusal(1, "ORA-00001: unique constraint (A.PK) violated")], raising=False)
+    monkeypatch.setattr(Cursor, "getarraydmlrowcounts", lambda self: [1, 0, 2, 0], raising=False)
+    monkeypatch.setitem(sys.modules, "oracledb", made)
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    rows = pyarrow.table({"a": [1, 2, 3, 4]})
+    refused, changed = session.many("update t set a = :1", rows, counts=True)
+    # In the order of the rows, whatever order the database tells them in.
+    assert refused == [(1, "ORA-00001: unique constraint (A.PK) violated"),
+                       (3, 'ORA-12899: value too large for column "A"."T"."V" (actual: 7, maximum: 5)')]
+    assert changed == [1, 0, 2, 0]
+    assert sent == [("update t set a = :1", rows, True, True)]
+    refused, changed = session.many("insert into t values (:1)", rows)
+    assert changed == [] and sent[-1][2:] == (True, False)
+    assert made.opened[0].did.count("cursor closed") == 2
+
+
+def test_a_batch_the_database_cannot_take_at_all_is_said_in_its_words(monkeypatch):
+    made = stand_in()
+
+    def executemany(self, statement, rows, **more):
+        raise Refused('ORA-00942: table or view "A"."T" does not exist\nHelp: https://x')
+
+    monkeypatch.setattr(Cursor, "executemany", executemany, raising=False)
+    monkeypatch.setitem(sys.modules, "oracledb", made)
+    with pytest.raises(DatabaseError) as failed:
+        oracle.opened(block(**SERVICE), "c", "j").many("insert into t values (:1)", pyarrow.table({"a": [1]}))
+    assert str(failed.value) == 'ORA-00942: table or view "A"."T" does not exist'
+
+
+def test_a_table_that_is_not_there_and_a_name_that_is_taken_are_told_by_oracles_numbers(driver):
+    session = oracle.opened(block(**SERVICE), "c", "j")
+    missing = DatabaseError('ORA-00942: table or view "A"."T" does not exist')
+    taken = DatabaseError("ORA-00955: name is already used by an existing object")
+    assert (session.is_missing(missing), session.is_missing(taken)) == (True, False)
+    assert (session.is_there_already(taken), session.is_there_already(missing)) == (True, False)

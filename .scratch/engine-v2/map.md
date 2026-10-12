@@ -437,6 +437,11 @@ documentation.
   its declared type; a value in quotes is bound and one outside quotes
   has to be a name or a number; on the way, a Decimal of more than
   twenty digits was found to go missing in the engine, and was fixed.
+  [Oracle output](issues/122-oracle-output.md) -- the rows rest in a
+  scratch file and are sent in batches when the subjob has succeeded;
+  update-or-insert in two or three round trips to the end a row at a
+  time would come to; a refused row is named; the engine learned a
+  write that is no file.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.
@@ -511,7 +516,7 @@ list are of the first destination, which is reached):
   and on what a real Oracle said when tried. Every row rests once in a
   scratch file; one commit, when the subjob has succeeded; a value in
   quotes is bound, never pasted. Built: the sessions, and the Oracle
-  connection, commit, rollback, close and input. To come: output, row,
+  connection, commit, rollback, close, input and output. To come: row,
   stored procedure, bulk exec, and the two for SQL Server.
 - Paths are local paths everywhere in v2. Object stores (S3 and the
   like) are not designed for.

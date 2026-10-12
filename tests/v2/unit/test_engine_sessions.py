@@ -253,3 +253,120 @@ def test_a_subjob_whose_rows_fail_a_check_commits_nothing(path, tmp_path):
     assert not os.path.exists(out)
     # The commit did not happen, so the work still waited when the job ended, and that is said as well.
     assert list(result.failures) == ["g", "conn"]
+
+
+# ------------------------------------------------------------------
+# A write that is no file: rows that rest in a scratch file and are stored when the subjob has succeeded
+# ------------------------------------------------------------------
+
+class Stores(Sink):
+    """Stores its rows in the table `t`: all, or all but those with a negative n when it is told to refuse them."""
+
+    names = ("stores",)
+    keys = (Key("path", required=True), Key("refuses", type=bool, default=False), Key("fails", type=bool, default=False))
+    seen = []
+
+    def write(self, frame):
+        scratch = self.run_context.temp_path(".csv")
+
+        def ready(temp, rows):
+            Stores.seen.append(("ready", self.id, temp, rows, os.path.exists(temp) and temp == scratch))
+            if self.config["fails"]:
+                raise ConfigurationError("the table would not take the rows")
+            sessions = self.run_context.sessions
+            session = HELD[self.id] = sessions.own(SqliteSession(self.config["path"], self.id))
+            sessions.working(session, self.id)
+            kept = 0
+            for n in pl.read_csv(temp)["n"].to_list():
+                if n < 0 and self.config["refuses"]:
+                    continue
+                session.run(insert(n))
+                kept += 1
+            return kept
+
+        return Write(path="table t", scratch=scratch, sink=lambda path: frame.sink_csv(path, lazy=True), ready=ready)
+
+
+REGISTRY.register(Stores)
+
+
+def storing(path, tmp_path, data=(1, 2), sink="save", **stores):
+    out = str(tmp_path / "out.csv")
+    components = [("rows", "rows", {"data": {"n": list(data)}}), ("db", "stores", {"path": path, **stores}),
+                  ("out", sink, {"path": out})]
+    return out, components, [("r1", "rows", "db", "flow"), ("r2", "rows", "out", "flow")]
+
+
+def test_rows_for_a_table_rest_in_a_scratch_file_and_are_stored_when_the_subjob_has_succeeded(path, tmp_path, caplog,
+                                                                                               monkeypatch):
+    Stores.seen.clear()
+    # Nothing is written or moved where the job runs: `table t` names a table, and no file.
+    monkeypatch.chdir(tmp_path)
+    out, *made = storing(path, tmp_path)
+    with caplog.at_level("INFO", logger="src.v2"):
+        result = run(*made)
+    assert result.status == "success", result.error
+    assert stored(path, ROWS) == [(1,), (2,)]
+    (_, _, temp, rows, there), = Stores.seen
+    # The scratch file is the run's own, and no file beside a target; it is gone when the subjob is over.
+    assert (rows, there) == (2, True) and os.path.dirname(temp) != str(tmp_path) and not os.path.exists(temp)
+    assert sorted(os.listdir(tmp_path)) == ["db.sqlite", "out.csv"]
+    assert result.rows == {"db": 2, "out": 2}
+    assert "[db] stored 2 row(s) in table t" in caplog.text
+    assert HELD["db"].did[-2:] == ["commit", "close"]
+
+
+def test_rows_a_table_did_not_take_are_counted_apart(path, tmp_path, caplog):
+    out, components, flows = storing(path, tmp_path, data=(1, -2, 3, -4), refuses=True)
+    components.append(("after", "does", {"path": path, "statement": "insert into t values (0)"}))
+    made = kit.job(components, flows)
+    made["triggers"] = [{"type": "RunIf", "from": "db", "to": "after",
+                         "condition": '((Integer)globalMap.get("db_NB_LINE_REJECT")) == 2 and '
+                                      '((Integer)globalMap.get("db_NB_LINE_OK")) == 2 and '
+                                      '((Integer)globalMap.get("db_NB_LINE")) == 4'}]
+    with caplog.at_level("INFO", logger="src.v2"):
+        result = run_job(made, registry=REGISTRY)
+    assert result.status == "success", result.error
+    assert stored(path, ROWS) == [(0,), (1,), (3,)]
+    assert result.rows["db"] == 2
+    assert "[db] stored 2 row(s) in table t (2 of the 4 it was handed were turned away)" in caplog.text
+
+
+def test_files_are_made_ready_before_a_table_is_touched(path, tmp_path):
+    """What can fail cheaply fails first: a file that cannot be made ready costs no load."""
+    Stores.seen.clear()
+
+    class Unready(Sink):
+        names = ("unready",)
+        keys = (Key("path", required=True),)
+
+        def write(self, frame):
+            def ready(temp, rows):
+                Stores.seen.append(("file ready",))
+                raise ConfigurationError("the file's encoding cannot hold a character")
+            return Write(path=self.config["path"], sink=lambda path: frame.sink_csv(path, lazy=True), ready=ready)
+
+    registry = Registry()
+    for cls in (*REGISTRY.classes(), Unready):
+        registry.register(cls)
+    out, components, flows = storing(path, tmp_path, sink="unready")
+    result = run_job(kit.job(components, flows), registry=registry)
+    assert (result.status, result.failed_component) == ("failed", "out")
+    # The table's component stands before the file's, and was not asked.
+    assert Stores.seen == [("file ready",)]
+    assert stored(path, ROWS) == []
+
+
+def test_a_load_that_fails_stores_nothing_and_puts_no_file_in_place(path, tmp_path):
+    out, *made = storing(path, tmp_path, fails=True)
+    result = run(*made)
+    assert (result.status, result.failed_component, result.error) == ("failed", "db", "the table would not take the rows")
+    assert stored(path, ROWS) == [] and not os.path.exists(out)
+
+
+def test_a_file_that_cannot_be_put_in_place_after_the_rows_are_stored_says_so(path, tmp_path):
+    out, *made = storing(path, tmp_path, sink="unplaceable")
+    result = run(*made)
+    assert (result.status, result.failed_component) == ("failed", "out")
+    assert result.error.endswith("what db did in the database is stored, and stays stored")
+    assert stored(path, ROWS) == [(1,), (2,)]

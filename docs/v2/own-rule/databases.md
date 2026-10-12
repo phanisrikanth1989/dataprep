@@ -206,6 +206,93 @@ statement does**:
 - Scratch space is needed for about the size of the rows (they are kept
   compressed), in the folder `V2_TEMP_DIR` names.
 
+## Oracle output
+
+- Stores the rows it is handed in `table`. **The rows rest in a scratch
+  file while the subjob runs**, and are sent to the table when the
+  whole subjob has succeeded: for a subjob that fails, no statement is
+  sent at all. They go in batches, one round trip for `batch_size` rows
+  (10,000 without `use_batch_size`), inside a transaction.
+- On the session of a connection (`use_existing_connection`) the rows
+  then wait for a commit component. With a session of its own the
+  output opens it at that last moment, and the engine stores the rows
+  in one commit when the subjob is done. `commit_every` is read and
+  changes nothing: there is no commit in the middle of a load.
+- The columns stored are the declared ones, by their names, which are
+  the table's column names. The table is `table`, in `schema_db` when
+  the component names one (`table_schema` and `dbschema` are taken for
+  the same key), else in the schema of its connection. Names are
+  written without quotes, as Talend writes them, and have to be names
+  Oracle takes that way.
+- **`data_action`**:
+
+  | Value | What a row does |
+  |---|---|
+  | `INSERT` | is inserted |
+  | `UPDATE` | updates the row with its key; a key that is not there changes nothing |
+  | `DELETE` | deletes the row with its key |
+  | `UPDATE_OR_INSERT`, `INSERT_OR_UPDATE` | updates the row with its key, and is inserted when there is none |
+
+  The key is the columns the schema marks as `key`. The two last come
+  to what a job that handled its rows one by one would come to, also
+  where one key comes twice in the rows: the first is inserted and the
+  others update it, in their order. It takes two or three round trips
+  for a batch, and not one for a row.
+- A key the table holds as a `DATE` is compared as a date. Handed a
+  value with a fraction of a second, Oracle would turn the column into
+  such values row by row and use no index on it.
+- **`table_action`**:
+
+  | Value | What is done first |
+  |---|---|
+  | `NONE` | nothing |
+  | `CLEAR` | every row is deleted, in the same transaction: taken back with the rows when the subjob fails |
+  | `TRUNCATE`, `TRUNCATE_REUSE_STORAGE` | the table is truncated |
+  | `CREATE`, `CREATE_IF_NOT_EXISTS` | the table is made from the declared columns |
+  | `DROP_CREATE`, `DROP_IF_EXISTS_AND_CREATE` | the table is dropped and made again |
+
+  All but the first two are statements that define. They are run at the
+  last moment, when the rows are known to be whole, so a subjob that
+  fails before that has touched nothing. **Oracle does not take them
+  back**: a load that fails after a `TRUNCATE` leaves the table empty.
+  They are refused on a session with work that waits, which Oracle
+  would store with them: put a commit before the output, or use `CLEAR`.
+- A table that is made gets its types from the declared columns, which
+  say no more of them than this:
+
+  | Declared | In the table |
+  |---|---|
+  | `str` | `VARCHAR2(n CHAR)` for a length up to 4000, 4000 with none; `CLOB` beyond |
+  | `int` | `NUMBER(19)`, or `NUMBER(n)` with a length |
+  | `Decimal` | `NUMBER(length, places)`; `NUMBER(38, places)` with places only; `NUMBER` with neither |
+  | `float`, `bool` | `BINARY_DOUBLE`, `NUMBER(1)` |
+  | `datetime`, `date` | `TIMESTAMP(6)`, `DATE` |
+
+  A column that may not be missing is `not null`, and the key columns
+  are the primary key.
+- A value is bound as the kind it arrives as: a number as a number, a
+  date as a date, text as text. The database turns it into the column's
+  own kind, or refuses the row. An empty text is a missing value in
+  Oracle. A date into a `DATE` loses its fraction of a second.
+- **A row the database refuses fails the job**, names the row by its
+  place among the rows the output was handed and by its key, and says
+  what Oracle said: `the database refused row 2 of the rows it was
+  handed (ID=1): ORA-00001: ...`. Nothing is stored.
+- **With `die_on_error` off** such a row is left out and the others are
+  stored. One warning says how many were refused and what was wrong
+  with the first, and the same is in `<id>_ERROR_MESSAGE`. When the
+  output cannot do its work at all (no session, no table), what it did
+  is taken back, the job goes on, and nothing is stored by it. A
+  converted job nearly always says off: it is Talend's default.
+- It leaves in globalMap: `<id>_NB_LINE` (the rows it was handed),
+  `<id>_NB_LINE_INSERTED`, `_NB_LINE_UPDATED`, `_NB_LINE_DELETED`,
+  `_NB_LINE_REJECTED`, and the engine's `_NB_LINE_OK` and
+  `_NB_LINE_REJECT` when something reads them.
+- No flow leaves it: the rows that were refused cannot be handed on yet.
+- Refused when on: `use_field_options` (the schema's `key` says which
+  columns are keys) and `use_hint_options`.
+- Scratch space is needed for about the size of the rows, compressed.
+
 ## What refuses the job
 
 - `connection` on a commit, a rollback or a close has to be the id of an

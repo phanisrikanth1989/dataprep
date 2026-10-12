@@ -144,7 +144,12 @@ decorator registers it. Working examples: `transform/sort_row.py`,
   that is what marks the place a failure of the subjob goes back to, and
   what a failure names. It calls the driver when it is built or when the
   pass has run (`ready`), never in the pass: rows cross through a
-  scratch file. A connection component sets `opens_session` to the kind
+  scratch file. A sink whose rows go to a table hands the engine a
+  `Write` with `scratch` set to a scratch file of the run
+  (`self.run_context.temp_path(...)`): the pass writes the rows there,
+  `ready` stores them from it and returns how many it stored, nothing is
+  moved, and `path` holds the words that name the table. A connection
+  component sets `opens_session` to the kind
   of database (`"Oracle"`), and a component whose `connection` names one
   sets `uses_session`; the loader then checks the name.
 - **A component that starts a loop** sets `loops = True`, declares

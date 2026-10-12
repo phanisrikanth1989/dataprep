@@ -171,6 +171,32 @@ class Session:
         """Run a query and hand its rows back a batch at a time, as Arrow tables of the types asked for."""
         raise NotImplementedError
 
+    def many(self, statement: str, rows: Any, counts: bool = False) -> Tuple[List[Tuple[int, str]], List[int]]:
+        """Run a statement once for each row of an Arrow batch, in one round trip; its values go by place.
+
+        A row the database refuses does not stop the others.
+
+        Args:
+            statement: The statement, with `:1`, `:2`... where the columns
+                of a row go, in their order.
+            rows: The batch.
+            counts: Whether to say how many rows each row changed.
+
+        Returns:
+            The rows that were refused, each as its place in the batch and
+            what the database said; and, when asked for, how many rows of
+            the table each row of the batch changed.
+        """
+        raise NotImplementedError
+
+    def is_missing(self, fault: DatabaseError) -> bool:
+        """Whether a fault says that a table is not there."""
+        raise NotImplementedError
+
+    def is_there_already(self, fault: DatabaseError) -> bool:
+        """Whether a fault says that a name is taken by something that is there."""
+        raise NotImplementedError
+
     def commit(self) -> None:
         """Store what was done."""
         raise NotImplementedError
@@ -314,6 +340,10 @@ class Sessions:
                 "(`commit` or `rollback`)"
             )
         return True
+
+    def waiting(self, session: Session) -> List[str]:
+        """The ids of the components whose work on a session is not stored yet; none when nothing waits there."""
+        return self._unstored(session)
 
     def when_done(self, connection_id: str, act: str, close: bool, component_id: str) -> None:
         """Have a shared session committed or rolled back when the subjob being run has succeeded.

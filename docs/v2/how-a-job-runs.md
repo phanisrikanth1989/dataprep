@@ -10,7 +10,10 @@
   file behind.
 - What a subjob did in a database is stored when the whole subjob has
   succeeded, after every file is ready and before any is moved in, and is
-  rolled back when it has not. See
+  rolled back when it has not. Rows for a table rest in a scratch file
+  while the subjob runs and are sent to the table at the end, after the
+  files are ready: what can fail cheaply fails before a database is
+  touched. See
   [Sessions and transactions](own-rule/databases.md#sessions-and-transactions).
 - Subjobs run in v1's order: those nothing triggers in job-config order,
   and what a subjob triggers right after it. `OnSubjobOk`, `OnSubjobError`,

@@ -283,7 +283,7 @@ def opened(
     return OracleSession(held, driver, opened_by, what, schema=config["schema_db"], **more)
 
 
-def said(fault: BaseException) -> str:
+def said(fault: Any) -> str:
     """What the driver said, on one line of plain ASCII, without the link to Oracle's help that follows it."""
     text = _BLANKS.sub(" ", str(fault).split("\nHelp:")[0]).strip()
     return _ascii(text) or type(fault).__name__
@@ -325,6 +325,18 @@ class OracleSession(Session):
         with self._asked(), self._held.cursor() as cursor:
             cursor.execute(statement, dict(binds or {}))
             return cursor.rowcount
+
+    def many(self, statement: str, rows: Any, counts: bool = False) -> Tuple[List[Tuple[int, str]], List[int]]:
+        with self._asked(), self._held.cursor() as cursor:
+            cursor.executemany(statement, rows, batcherrors=True, arraydmlrowcounts=counts)
+            refused = [(error.offset, said(error.message)) for error in cursor.getbatcherrors()]
+            return sorted(refused), list(cursor.getarraydmlrowcounts()) if counts else []
+
+    def is_missing(self, fault: DatabaseError) -> bool:
+        return str(fault).startswith("ORA-00942")
+
+    def is_there_already(self, fault: DatabaseError) -> bool:
+        return str(fault).startswith("ORA-00955")
 
     def commit(self) -> None:
         with self._asked():

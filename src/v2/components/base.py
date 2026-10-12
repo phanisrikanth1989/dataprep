@@ -703,13 +703,24 @@ class Write:
     The engine counts the rows it hands the sink as they pass, and gives
     that count to ``ready``, ``place`` and ``finish``.
 
+    A write may be for something that is no file: a table of a database.
+    Its rows then rest in a scratch file of the run (``scratch``), which
+    ``ready`` stores them from when every file of the subjob is ready.
+    Nothing is moved, and ``place`` is not asked. What ``ready`` did in a
+    database is made to last by the engine, through the run's sessions,
+    before any file is put in place.
+
     Attributes:
-        path: The file the job writes.
+        path: The file the job writes; for a write that is no file, the
+            words that name where the rows go (``table HR.EMP``).
         sink: Given a path, returns the lazy sink that writes there.
         append: Whether to add to an existing file instead of replacing it.
         ready: Makes the written temporary file final in everything but its
             name, given its path and the row count: puts it in the job's
-            encoding, say. It may raise.
+            encoding, say. It may raise. One that stores rows somewhere
+            that may turn some away returns how many it stored.
+        scratch: For a write that is no file: the scratch file of the run
+            its rows rest in until ``ready`` stores them.
         place: Puts the ready file in place, given its path and the row
             count; it must leave no temporary file behind, and only the file
             system may fail it. Without it the file is moved to ``path``, or
@@ -730,7 +741,8 @@ class Write:
     path: str
     sink: Callable[[str], pl.LazyFrame]
     append: bool = False
-    ready: Optional[Callable[[str, int], None]] = None
+    ready: Optional[Callable[[str, int], Optional[int]]] = None
+    scratch: Optional[str] = None
     place: Optional[Callable[[str, int], None]] = None
     finish: Optional[Callable[[int], None]] = None
     refuses_existing: Optional[str] = None

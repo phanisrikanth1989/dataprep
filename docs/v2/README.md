@@ -78,6 +78,7 @@ and not kept in the repo: `.venv/bin/python scripts/gen_v2_docs.py` writes
 | Oracle commit (tOracleCommit) | `oracle_commit` | [Own rule: Databases](own-rule/databases.md#oracle-commit) |
 | Oracle connection (tOracleConnection) | `oracle_connection` | [Own rule: Databases](own-rule/databases.md#oracle-connection) |
 | Oracle input (tOracleInput) | `oracle_input` | [Own rule: Databases](own-rule/databases.md#oracle-input) |
+| Oracle output (tOracleOutput) | `oracle_output` | [Own rule: Databases](own-rule/databases.md#oracle-output) |
 | Oracle rollback (tOracleRollback) | `oracle_rollback` | [Own rule: Databases](own-rule/databases.md#oracle-rollback) |
 | Pivot to columns delimited: an output (tPivotToColumnsDelimited) | `pivot_to_columns_delimited` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#pivot-to-columns-delimited) |
 | Positional input (tFileInputPositional) | `file_input_positional` | [Differences from v1: Sources and outputs](differences-from-v1/sources-and-outputs.md#positional-input) |

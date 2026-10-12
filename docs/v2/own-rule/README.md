@@ -28,4 +28,4 @@ What they share:
 | [File jobs](file-jobs.md) | File touch, File properties, Raw file input, Change file encoding, File archive, File unarchive |
 | [Loops and job control](loops-and-job-control.md) | File list, Flow to iterate, Foreach, Sleep, Prejob, Postjob, Run job |
 | [XML](xml.md) | XML file input, XML file output, Advanced XML output, Extract XML field, Multi-schema XML input, XML map |
-| [Databases](databases.md) | Oracle connection, Oracle commit, Oracle rollback, Oracle close, Oracle input |
+| [Databases](databases.md) | Oracle connection, Oracle commit, Oracle rollback, Oracle close, Oracle input, Oracle output |

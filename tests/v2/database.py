@@ -5,6 +5,8 @@ rollback takes back, a place that was marked can be gone back to, and a
 second session sees only what is stored. What is Oracle's alone is not
 here; that is tried against a real Oracle (the tests marked ``oracle``).
 """
+import decimal
+import re
 import sqlite3
 from typing import Any, List, Mapping, Optional, Tuple
 
@@ -13,6 +15,14 @@ from src.v2.sessions import NUMBER, OTHER, TEXT, ZONED, Field, Session
 
 # What SQLite runs without a transaction of its own being opened for it first.
 _NO_TRANSACTION = ("select", "begin", "commit", "rollback", "pragma")
+
+
+def _as_sqlite(statement: str) -> str:
+    """A statement in Oracle's words as SQLite takes it: three spellings differ, and nothing else is changed."""
+    statement = re.sub(r"^\s*truncate table (\S+)( reuse storage)?\s*$", r"delete from \1", statement, flags=re.I)
+    statement = re.sub(r"\((\d+) CHAR\)", r"(\1)", statement)
+    statement = re.sub(r"cast\((:\d+) as date\)", r"\1", statement)
+    return re.sub(r":(\d+)", r"?\1", statement)
 
 
 class SqliteSession(Session):
@@ -25,8 +35,12 @@ class SqliteSession(Session):
         self.closed = False
         # Everything it was asked to do, in order: what the engine did with it can be read here.
         self.did: List[str] = []
+        # Every statement as it was asked, in Oracle's words.
+        self.asked: List[str] = []
 
     def run(self, statement: str, binds: Optional[Mapping[str, Any]] = None) -> int:
+        self.asked.append(statement)
+        statement = _as_sqlite(statement)
         first = statement.lstrip().split(None, 1)[0].lower()
         try:
             if first not in _NO_TRANSACTION and not self._held.in_transaction:
@@ -65,6 +79,36 @@ class SqliteSession(Session):
         self.closed = True
 
     # ------------------------------------------------------------------
+    # Storing: a statement run once for each row of a batch, where a row that is refused stops no other.
+    # ------------------------------------------------------------------
+
+    def many(self, statement, rows, counts=False):
+        self.asked.append(statement)
+        self.did.append(("many", statement, rows.num_rows))
+        if not self._held.in_transaction:
+            self._held.execute("begin")
+        refused, changed = [], []
+        for at, row in enumerate(rows.to_pylist()):
+            values = [float(value) if isinstance(value, decimal.Decimal) else value for value in row.values()]
+            try:
+                done = self._held.execute(_as_sqlite(statement), values)
+                changed.append(done.rowcount)
+            except sqlite3.IntegrityError as fault:
+                # A row the table does not take: the others go on.
+                refused.append((at, str(fault)))
+                changed.append(0)
+            except sqlite3.Error as fault:
+                # The statement itself cannot be run (no such table): it fails for every row, as in Oracle.
+                raise DatabaseError(str(fault)) from None
+        return refused, changed if counts else []
+
+    def is_missing(self, fault):
+        return "no such table" in str(fault)
+
+    def is_there_already(self, fault):
+        return "already exists" in str(fault)
+
+    # ------------------------------------------------------------------
     # Reading. SQLite has no types of its own for a column of a result: what a column is, is seen in its
     # first row, and the converting is done here, where a real database does it itself.
     # ------------------------------------------------------------------
@@ -99,7 +143,6 @@ class SqliteSession(Session):
         return statement.rstrip().rstrip(";"), types
 
     def batches(self, statement, binds, types, size):
-        import decimal
         import pyarrow
         self.did.append(("query", statement, dict(binds or {})))
         try:

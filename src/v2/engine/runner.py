@@ -140,6 +140,8 @@ class _Subjob:
     """What one subjob has built and written so far."""
 
     writes: List[Tuple[str, Write, List[int]]] = field(default_factory=list)
+    # For a write that stored rows somewhere that may turn some away: how many it stored, by its component.
+    stored: Dict[str, int] = field(default_factory=dict)
     taps: List[Tuple[str, Tap]] = field(default_factory=list)
     noticed: List[Tuple[str, Noticed]] = field(default_factory=list)
     # In a run that is traced: the flows whose rows all come from the picked rows, those rows in hand, what
@@ -714,9 +716,10 @@ class Runner:
                             "id": component_id, "type": spec.type, "path": write.path, "written": False, **listed
                         }
                         state.trace.append(state.filed[component_id])
-                        state.small.append(os.path.realpath(write.path))
+                        if write.scratch is None:
+                            state.small.append(os.path.realpath(write.path))
                         logger.info(one_line(f"[{component_id}] trace: {counted(rows.height)} for {write.path}"))
-                    elif self.trace is not None:
+                    elif self.trace is not None and write.scratch is None:
                         state.other.append(os.path.realpath(write.path))
                 elif isinstance(component, Action) and not inputs:
                     component.act()
@@ -989,7 +992,8 @@ class Runner:
         for component_id, write, _ in writes:
             try:
                 # Nothing is written through a link that stands where the file is written before it is put in place.
-                temps.append(cleared(temp_beside(write.path, component_id)))
+                # What is no file is written to the scratch file its component asked the run for.
+                temps.append(write.scratch or cleared(temp_beside(write.path, component_id)))
             except OSError as exc:
                 raise _Failed(component_id, _reason(exc)) from exc
         state.temps += temps
@@ -1032,14 +1036,20 @@ class Runner:
         Each file is first made ready where it was written. That is the
         last thing the rows can fail (a character the file's encoding cannot
         write), and it is done for every file before any is put in place:
-        a subjob that fails leaves every file as it was. Then what the
+        a subjob that fails leaves every file as it was. The files come
+        first and what is no file (the rows of a table) after: what can
+        fail cheaply fails before a database is touched. Then what the
         subjob did in a database is stored: a commit can fail, and no file
         is in place yet when one does. Then the files are moved, in the
         order their components run.
         """
         left: Set[str] = set()
-        for component_id, write, temp, rows in state.written:
+        for component_id, write, temp, rows in sorted(state.written, key=lambda entry: entry[1].scratch is not None):
             try:
+                if write.scratch is not None:
+                    kept = write.ready(temp, rows) if write.ready is not None else None
+                    state.stored[component_id] = rows if kept is None else kept
+                    continue
                 where = os.path.realpath(write.path)
                 if write.refuses_existing is not None and where in left:
                     raise ConfigurationError(write.refuses_existing)
@@ -1058,21 +1068,29 @@ class Runner:
         while state.written:
             component_id, write, temp, rows = state.written.pop(0)
             try:
-                if write.place is not None:
+                # What was kept of the rows: all of them, but where they went somewhere that turned some away.
+                kept = state.stored.get(component_id, rows)
+                # What is no file has nothing to move: its scratch file goes with the subjob's others.
+                if write.scratch is None and write.place is not None:
                     write.place(temp, rows)
-                else:
+                elif write.scratch is None:
                     put_in_place(temp, write.path, write.append)
                 if component_id in state.filed:
                     state.filed[component_id]["written"] = True
                 # The summary has every row the output wrote; globalMap has what this run of its subjob wrote,
                 # which in a loop is this pass's.
-                self.rows[component_id] = self.rows.get(component_id, 0) + rows
+                self.rows[component_id] = self.rows.get(component_id, 0) + kept
                 self.run_context.global_map[f"{component_id}_NB_LINE"] = rows
+                counted_as = {"NB_LINE": rows, "NB_LINE_OK": kept, "NB_LINE_REJECT": rows - kept}
                 for stat in self._wanted.get(component_id, ()):
-                    self.run_context.global_map[f"{component_id}_{stat}"] = 0 if stat == "NB_LINE_REJECT" else rows
+                    self.run_context.global_map[f"{component_id}_{stat}"] = counted_as[stat]
                 if write.finish is not None:
                     write.finish(rows)
-                logger.info(f"[{component_id}] wrote {rows} row(s) to {write.path}")
+                if write.scratch is None:
+                    logger.info(f"[{component_id}] wrote {rows} row(s) to {write.path}")
+                else:
+                    away = "" if kept == rows else f" ({rows - kept} of the {rows} it was handed were turned away)"
+                    logger.info(one_line(f"[{component_id}] stored {kept} row(s) in {write.path}{away}"))
             except Exception as exc:  # noqa: BLE001
                 reason = _reason(exc)
                 if stored:
