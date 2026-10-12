@@ -8,6 +8,10 @@ not v1. ([What that means](README.md).) How a loop runs, whatever starts
 it, is in [How a job runs](../how-a-job-runs.md#loops): one pass after
 another, a pass that fails stops the loop, a cap on the items.
 
+One more component starts a loop and is on another page:
+[File unarchive](file-jobs.md#file-unarchive), over the files it
+unpacked.
+
 ## File list
 
 - Starts a loop over the files of the folder `directory`: what its

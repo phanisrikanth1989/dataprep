@@ -304,5 +304,12 @@ not v1. ([What that means](README.md).)
   Talend: such a job goes on after an archive that cannot be unpacked,
   with a warning, as it does in Talend. `integrity` is taken and has no
   effect: nothing lands unless the whole archive unpacks.
-- Not done yet: in Talend the component is also the start of a loop over
-  the files it unpacked. The loop components will bring that.
+- It may be the start of a loop, as in Talend: what its iterate link
+  leads to runs once for each file it unpacked, in the order of the
+  archive, with that file's name in `<id>_CURRENT_FILE` and its full
+  path in `<id>_CURRENT_FILEPATH`
+  ([how a loop runs](../how-a-job-runs.md#loops)). The loop starts when
+  the whole archive is unpacked, not file by file as in Talend: a pass
+  never sees half an archive. `max_items` is the most files such a loop
+  may have (100,000 when not given); more fail the job before the first
+  pass, with the archive unpacked.

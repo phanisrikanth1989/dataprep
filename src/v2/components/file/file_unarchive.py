@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from ...errors import ConfigurationError
 from ...files import cleared, not_a_file, temp_beside
 from ...job.keys import Key, Kind
-from ..base import DIE_ON_ERROR, FAULTS, Action, one_line
+from ..base import DIE_ON_ERROR, FAULTS, MAX_ITEMS, Action, one_line
 from ..registry import REGISTRY
 from .file_input_delimited import encoding
 
@@ -187,9 +187,15 @@ class FileUnarchive(Action):
     and the full path of the last of them in `<id>_CURRENT_FILE` and
     `<id>_CURRENT_FILEPATH`, and counts one row. No flow comes to it or
     leaves it.
+
+    It may start a loop: what its iterate link leads to runs once for
+    each file it unpacked, in the order of the archive, with that file's
+    name and path in the two entries. The loop starts when the whole
+    archive is unpacked.
     """
 
     names = ("file_unarchive", "FileUnarchive", "FileUnarchiveComponent", "tFileUnarchive")
+    loops = True
     keys = (
         Key("zipfile", required=True, convert=_named("archive named"), doc="The archive to unpack."),
         Key("directory", required=True, convert=_named("folder named to unpack into"),
@@ -208,6 +214,7 @@ class FileUnarchive(Action):
         Key("encording", default="UTF-8", convert=encoding,
             doc="The encoding of the names in a zip that does not say it itself. (The spelling is Talend's.)"),
         Key("printout", type=bool, default=False, doc="Whether every file unpacked is said in the log at INFO."),
+        MAX_ITEMS,
         DIE_ON_ERROR,
         Key("integrity", kind=Kind.IGNORED, type=object,
             doc="Talend's check of the archive before it is unpacked. v2 always unpacks all of it or none."),
@@ -292,6 +299,13 @@ class FileUnarchive(Action):
         if placed:
             held[f"{self.id}_CURRENT_FILE"] = os.path.basename(placed[-1])
             held[f"{self.id}_CURRENT_FILEPATH"] = os.path.abspath(placed[-1])
+        # The items of its loop: every file, named in the log as the archive names it.
+        self.loop_over([
+            (os.path.relpath(path, into), {
+                f"{self.id}_CURRENT_FILE": os.path.basename(path), f"{self.id}_CURRENT_FILEPATH": os.path.abspath(path),
+            })
+            for path in placed
+        ])
 
     @staticmethod
     def _kind(archive: str) -> str:

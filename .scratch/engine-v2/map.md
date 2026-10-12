@@ -371,6 +371,9 @@ documentation.
   [Flow to iterate](issues/105-flow-to-iterate.md) -- a loop over the
   rows of a flow, fed from a scratch file a piece at a time; values keep
   their type.
+  [Unarchive as the start of a loop](issues/106-unarchive-as-the-start-of-a-loop.md)
+  -- a pass for each file it unpacked, when the whole archive is
+  unpacked.
   [Review of row generator and two outputs](issues/71-review-of-row-generator-and-two-outputs.md)
   -- twenty-two findings; the positional output wrote one line for any
   number of rows when none of its columns arrived, fixed.

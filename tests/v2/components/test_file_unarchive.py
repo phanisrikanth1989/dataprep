@@ -20,7 +20,7 @@ import pytest
 from src.v2 import load_job
 from src.v2.components.file import file_unarchive
 from src.v2.errors import JobRefusedError
-from tests.v2.components.kit import job
+from tests.v2.components.kit import flow, job, reader, writer
 
 from .test_file_actions_kit import action, filled, on_v2, tree
 
@@ -411,6 +411,86 @@ def test_permissions_that_would_do_harm_are_not_carried_over_nor_more_than_a_new
         os.umask(before)
     assert result.status == "success", result.error
     assert {name: stat.S_IMODE(os.stat(folder / "out" / name).st_mode) for name in modes} == modes
+
+
+# ------------------------------------------------------------------
+# A loop over the files it unpacked
+# ------------------------------------------------------------------
+
+SEEN = ("CURRENT_FILE", "CURRENT_FILEPATH", "CURRENT_ITERATION", "NB_FILE")
+
+
+def looping(**config):
+    """unarchive -iterate-> one row of what the pass has in globalMap -> seen.csv, which every pass adds to."""
+    gen = {"id": "gen", "type": "FixedFlowInput", "inputs": [], "outputs": ["row2"],
+           "config": {"nb_rows": 1, "values_config": [{"schema_column": name, "value": f'globalMap.get("open_{name}")'}
+                                                      for name in SEEN]},
+           "schema": {"input": [], "output": [{"name": name, "type": "str", "nullable": True} for name in SEEN]}}
+    out = writer(", ".join(f"{name}:str" for name in SEEN), path="seen.csv", inputs=("row2",), append=True,
+                 include_header=False)
+    made = job([dict(unarchive(**config), outputs=["it"]), gen, out], [flow("row2", "gen", "out")])
+    made["flows"].append({"name": "it", "from": "open", "to": "gen", "type": "iterate"})
+    return made
+
+
+def passes(tmp_path, files, **config):
+    """Run an unarchive with a loop behind it; returns how it ended, what each pass saw, and the folder."""
+    folder = filled(tmp_path, files)
+    result = on_v2(looping(**config), folder)
+    seen = folder / "seen.csv"
+    rows = [tuple(line.split(";")) for line in seen.read_text().splitlines()] if seen.exists() else []
+    return result, rows, folder
+
+
+@pytest.mark.parametrize("name, packed", [("in.zip", zip_of(HELD)), ("in.tar.gz", tar_of(HELD, "w:gz"))], ids=["zip", "tar.gz"])
+def test_pass_for_each_file_it_unpacked_in_the_order_of_the_archive(tmp_path, name, packed):
+    result, rows, folder = passes(tmp_path, {name: packed}, zipfile=name, directory="out")
+    assert result.status == "success", result.error
+    out = os.path.realpath(folder / "out")
+    assert rows == [("a.csv", f"{out}/a.csv", "1", "3"), ("b.txt", f"{out}/sub/b.txt", "2", "3"),
+                    ("c.csv", f"{out}/sub/deep/c.csv", "3", "3")]
+    assert result.summary()["loops"] == {"open": {"items": 3, "passes": 3}}
+    # When the loop is over the entries are as the last pass left them.
+    assert result.global_map["open_CURRENT_FILE"] == "c.csv"
+
+
+def test_body_reads_each_file_it_unpacked(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="src.v2")
+    body = [reader("n:int", component_id="one", path='{{java}}((String)globalMap.get("open_CURRENT_FILEPATH"))',
+                   outputs=("row2",)),
+            writer("n:int", path="all.csv", inputs=("row2",), append=True, include_header=False)]
+    made = job([dict(unarchive(zipfile="in.zip", directory="out"), outputs=["it"]), *body], [flow("row2", "one", "out")])
+    made["flows"].append({"name": "it", "from": "open", "to": "one", "type": "iterate"})
+    folder = filled(tmp_path, {"in.zip": zip_of({"b.csv": b"20\n", "sub/a.csv": b"10\n11\n"})})
+    result = on_v2(made, folder)
+    assert result.status == "success", result.error
+    assert (folder / "all.csv").read_bytes() == b"20\n10\n11\n" and result.rows["out"] == 3
+    said = [record.getMessage() for record in caplog.records if record.getMessage().startswith("[open] item")]
+    assert said == ["[open] item 1 of 2: b.csv", "[open] item 2 of 2: sub/a.csv"]
+
+
+def test_files_without_their_paths_are_named_as_they_land(tmp_path):
+    result, rows, folder = passes(tmp_path, {"in.zip": zip_of(HELD)}, zipfile="in.zip", directory="out", extractpath=False)
+    out = os.path.realpath(folder / "out")
+    assert [(name, path) for name, path, _, _ in rows] == [
+        ("a.csv", f"{out}/a.csv"), ("b.txt", f"{out}/b.txt"), ("c.csv", f"{out}/c.csv")]
+
+
+def test_archive_with_no_file_and_one_that_cannot_be_unpacked_run_no_pass(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="src.v2")
+    result, rows, _ = passes(tmp_path / "none", {"in.zip": zip_of({"empty/": None})}, zipfile="in.zip", directory="out")
+    assert (result.status, rows) == ("success", [])
+    assert "[open] no item: what it leads to is not run" in [record.getMessage() for record in caplog.records]
+    result, rows, _ = passes(tmp_path / "broken", {"in.zip": b"no archive"}, zipfile="in.zip", directory="out",
+                             die_on_error=False)
+    assert (result.status, rows) == ("success", []) and "loops" not in result.summary()
+
+
+def test_more_files_than_the_cap_fail_the_job_before_the_first_pass_with_the_archive_unpacked(tmp_path):
+    result, rows, folder = passes(tmp_path, {"in.zip": zip_of(HELD)}, zipfile="in.zip", directory="out", max_items=2)
+    assert (result.status, rows) == ("failed", [])
+    assert result.error == "3 items, and a loop may have 2 by `max_items`: none is run"
+    assert tree(folder / "out") == UNPACKED
 
 
 # ------------------------------------------------------------------
