@@ -1,0 +1,17 @@
+{
+  "type": "FilterRows",
+  "aliases": ["FilterRow", "tFilterRow", "tFilterRows"],
+  "source": "src/v1/engine/components/transform/filter_rows.py",
+  "keys": {
+    "use_advanced": {"type": "bool", "default": false},
+    "advanced_cond": {"type": "str", "default": "", "required_when": {"use_advanced": true}},
+    "logical_op": {"type": "str", "default": "&&", "enum": ["&&", "||", "AND", "OR"]},
+    "conditions": {"type": "list", "default": [], "item_keys": {
+      "column": {"type": "str", "required": true},
+      "operator": {"type": "str", "required": true,
+                   "enum_ref": "src.v1.engine.components.transform.filter_rows:_OPERATOR_MAP"},
+      "function": {"type": "str"},
+      "value": {"type": "str"}
+    }}
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "job_name": "first_slice",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {"Default": {}},
+  "components": [
+    {"id": "tFileInputDelimited_1", "type": "FileInputDelimited", "original_type": "tFileInputDelimited",
+     "config": {"filepath": "employees.csv", "fieldseparator": ";", "row_separator": "\\n", "header_rows": 1,
+                "footer_rows": 0, "limit": "", "encoding": "UTF-8", "csv_option": false,
+                "remove_empty_row": true, "die_on_error": true},
+     "schema": {"input": [], "output": [
+        {"name": "id", "type": "int", "nullable": false, "key": false},
+        {"name": "first_name", "type": "str", "nullable": true, "key": false},
+        {"name": "last_name", "type": "str", "nullable": true, "key": false},
+        {"name": "department", "type": "str", "nullable": true, "key": false},
+        {"name": "salary", "type": "int", "nullable": true, "key": false},
+        {"name": "country_code", "type": "str", "nullable": true, "key": false}]},
+     "inputs": [], "outputs": ["row1"]},
+    {"id": "tFilterRow_1", "type": "FilterRows", "original_type": "tFilterRow",
+     "config": {"logical_op": "&&", "use_advanced": false,
+                "conditions": [{"column": "salary", "function": "", "operator": ">=", "value": "70000"}]},
+     "schema": {"input": [], "output": []},
+     "inputs": ["row1"], "outputs": ["row2"]},
+    {"id": "tSortRow_1", "type": "SortRow", "original_type": "tSortRow",
+     "config": {"criteria": [{"column": "department", "sort_type": "alpha", "order": "asc"},
+                             {"column": "salary", "sort_type": "num", "order": "desc"}], "external": false},
+     "schema": {"input": [], "output": []},
+     "inputs": ["row2"], "outputs": ["row3"]},
+    {"id": "tFileOutputDelimited_1", "type": "FileOutputDelimited", "original_type": "tFileOutputDelimited",
+     "config": {"filepath": "out/result.csv", "fieldseparator": ";", "row_separator": "\\n", "encoding": "UTF-8",
+                "include_header": true, "append": false, "create_directory": true, "csv_option": false,
+                "os_line_separator": false, "file_exist_exception": false},
+     "schema": {"input": [], "output": []},
+     "inputs": ["row3"], "outputs": []}
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputDelimited_1", "to": "tFilterRow_1", "type": "flow"},
+    {"name": "row2", "from": "tFilterRow_1", "to": "tSortRow_1", "type": "filter"},
+    {"name": "row3", "from": "tSortRow_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {"subjob_1": ["tFileInputDelimited_1", "tFilterRow_1", "tSortRow_1", "tFileOutputDelimited_1"]},
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

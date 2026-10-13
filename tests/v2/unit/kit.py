@@ -1,0 +1,325 @@
+"""Stand-in components and helpers the engine tests share."""
+from pathlib import Path
+
+import polars as pl
+
+from src.v2.components.base import Eager, Sink, Source, Transform, Write
+from src.v2.components.registry import Registry
+from src.v2.engine import run_job
+from src.v2.expressions import translate
+from src.v2.job.keys import EXPRESSION, Key
+
+
+class Rows(Source):
+    """Rows written in the config, as a lazy frame."""
+
+    names = ("rows",)
+    keys = (Key("data", type=dict, required=True),)
+
+    def read(self):
+        return {"main": pl.LazyFrame(self.config["data"])}
+
+
+class FromFile(Source):
+    names = ("from_file",)
+    keys = (Key("path", required=True),)
+
+    def read(self):
+        return {"main": pl.scan_csv(self.config["path"])}
+
+
+class Add(Transform):
+    names = ("add",)
+    keys = (Key("amount", type=int, default=1), Key("column", default="n"))
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        return {"main": frame.with_columns(pl.col(self.config["column"]) + self.config["amount"])}
+
+
+class Split(Transform):
+    """Rows above a limit leave by main, the rest by reject."""
+
+    names = ("split",)
+    keys = (Key("limit", type=int, required=True),)
+    outputs = {"main": ("flow", "main", "filter"), "reject": ("reject",)}
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        flagged = frame.with_columns((pl.col("n") > self.config["limit"]).alias("__keep"))
+        return {
+            "main": flagged.filter(pl.col("__keep")).drop("__keep"),
+            "reject": flagged.filter(~pl.col("__keep")).drop("__keep"),
+        }
+
+
+class Stack(Transform):
+    """Its inputs one after another, each row tagged with the flow it came by."""
+
+    names = ("stack",)
+    max_inputs = None
+
+    def build(self, inputs):
+        tagged = [frame.with_columns(pl.lit(name).alias("via")) for name, frame in inputs.items()]
+        return {"main": pl.concat(tagged)}
+
+
+class Save(Sink):
+    names = ("save",)
+    keys = (Key("path", required=True),)
+
+    def write(self, frame):
+        return Write(path=self.config["path"], sink=lambda path: frame.sink_csv(path, lazy=True))
+
+
+class Peek(Eager):
+    """Remembers the frame it was handed and passes it on."""
+
+    names = ("peek",)
+    seen = []
+
+    def run(self, inputs):
+        (frame,) = inputs.values()
+        Peek.seen.append(frame)
+        return {"main": frame}
+
+
+class SetContext(Eager):
+    """Puts its first row into the context, as context_load does."""
+
+    names = ("set_context",)
+    min_inputs = 1
+    sets_context = True
+
+    def run(self, inputs):
+        (frame,) = inputs.values()
+        self.context.update(frame.row(0, named=True))
+        return {}
+
+
+class Mark(Source):
+    """Notes that it was built, in the order that happened, and yields one row."""
+
+    names = ("mark",)
+    keys = (Key("name", required=True),)
+    ran = []
+
+    def read(self):
+        Mark.ran.append(self.config["name"])
+        return {"main": pl.LazyFrame({"n": [1]})}
+
+
+class Boom(Source):
+    """Fails as soon as it is built."""
+
+    names = ("boom",)
+    keys = (Key("why", default="boom"),)
+
+    def read(self):
+        raise RuntimeError(self.config["why"])
+
+
+class Guard(Transform):
+    """Passes rows on and fails the subjob afterwards when any n is negative."""
+
+    names = ("guard",)
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        self.check(
+            frame.select((pl.col("n") < 0).sum().alias("bad")),
+            lambda found: f"{found.item()} negative value(s)" if found.item() else None,
+        )
+        return {"main": frame}
+
+
+class Glance(Transform):
+    """Passes rows on untouched and remembers the first two once the pass has run."""
+
+    names = ("glance",)
+    seen = []
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        self.tap(frame.head(2), Glance.seen.append)
+        return {"main": frame}
+
+
+class Either(Transform):
+    """Lazy by default; asks for real rows when its config says so."""
+
+    names = ("either",)
+    keys = (Key("rows_in_hand", type=bool, default=False),)
+    handed = []
+
+    def needs_rows(self):
+        return self.config["rows_in_hand"]
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        Either.handed.append(type(frame).__name__)
+        return {"main": frame}
+
+    def run(self, inputs):
+        (frame,) = inputs.values()
+        Either.handed.append(type(frame).__name__)
+        return {"main": frame}
+
+
+class Through(Transform):
+    """Passes rows on untouched; has a reject output and may tolerate errors."""
+
+    names = ("through",)
+    keys = (Key("die_on_error", type=bool, default=True),)
+    outputs = {"main": ("flow", "main"), "reject": ("reject",)}
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        return {"main": frame, "reject": frame.clear()}
+
+
+class Calc(Transform):
+    """Replaces column n by the value of an expression over the row."""
+
+    names = ("calc",)
+    keys = (Key("expression", type=EXPRESSION, required=True),)
+
+    def build(self, inputs):
+        (frame,) = inputs.values()
+        value = translate(self.config["expression"], self.row_scope(frame.collect_schema(), "row1"))
+        return {"main": frame.with_columns(value.cast(pl.Int64).alias("n"))}
+
+
+class Scratch(Source):
+    """Asks the run for a scratch file and reads it back."""
+
+    names = ("scratch",)
+    made = []
+
+    def read(self):
+        path = self.run_context.temp_path(".csv")
+        Path(path).write_text("n\n7\n")
+        Scratch.made.append(path)
+        return {"main": pl.scan_csv(path)}
+
+
+REGISTRY = Registry()
+for _cls in (Rows, FromFile, Add, Split, Stack, Save, Peek, SetContext, Mark, Boom, Guard, Glance, Either, Through, Calc, Scratch):
+    REGISTRY.register(_cls)
+
+
+def job(components, flows, **more):
+    made = {
+        "job_name": "t",
+        "components": [{"id": cid, "type": ctype, "config": config} for cid, ctype, config in components],
+        "flows": [
+            {"name": name, "from": source, "to": target, "type": kind}
+            for name, source, target, kind in flows
+        ],
+    }
+    made.update(more)
+    return made
+
+
+def schema_of(*columns):
+    """A schema block from (name, type) or (name, type, nullable) tuples."""
+    return {"output": [
+        {"name": column[0], "type": column[1], "nullable": column[2] if len(column) > 2 else True}
+        for column in columns
+    ]}
+
+
+def run(job_config, **kwargs):
+    return run_job(job_config, registry=REGISTRY, **kwargs)
+
+
+def lines(path):
+    return Path(path).read_text().splitlines()
+
+
+class Locked(Transform):
+    """Hands its rows on; has a key whose value is a secret."""
+
+    names = ("locked",)
+    keys = (Key("password", default="", secret=True), Key("hint", default=""))
+
+    def build(self, inputs):
+        return {"main": next(iter(inputs.values()))}
+
+
+REGISTRY.register(Locked)
+
+
+# ------------------------------------------------------------------
+# For loops
+# ------------------------------------------------------------------
+
+from src.v2.components.base import MAX_ITEMS, Action  # noqa: E402
+from src.v2.errors import ConfigurationError  # noqa: E402
+
+
+class Each(Action):
+    """Starts a loop over the values written in its config: each is `<id>_CURRENT_VALUE` in its pass."""
+
+    names = ("each",)
+    loops = True
+    keys = (Key("values", type=list, default=[]), Key("gives_up", type=bool, default=False),
+            Key("one_at_a_time", type=bool, default=False), MAX_ITEMS)
+
+    def act(self):
+        values = self.config["values"]
+        if self.config["gives_up"]:
+            # As a component that could not make its list and whose job is to go on all the same.
+            return
+        if self.config["one_at_a_time"]:
+            # As a component whose list is too long to hold: each item is made when its pass is due, from
+            # something that has to be put away when the loop is over.
+            self.loop_over(self._made_when_due(values), count=len(values), done=lambda: Note.said.append("put away"))
+            return
+        self.loop_over([(str(value), {f"{self.id}_CURRENT_VALUE": value}) for value in values])
+
+    def _made_when_due(self, values):
+        for value in values:
+            if value == "the items are gone":
+                # As when the file the items are read from is taken away while the loop runs.
+                raise FileNotFoundError(2, "No such file or directory", "rows.v2tmp")
+            Note.said.append(f"made {value}")
+            yield str(value), {f"{self.id}_CURRENT_VALUE": value}
+
+
+class Note(Action):
+    """Notes what it was told to say, in the order that happened."""
+
+    names = ("note",)
+    keys = (Key("say", type=object, default=""),)
+    said = []
+
+    def act(self):
+        Note.said.append(self.config["say"])
+
+
+class Stop(Action):
+    """Ends the job, as a die does."""
+
+    names = ("stop",)
+    stops_job = True
+
+    def act(self):
+        raise ConfigurationError("stopped")
+
+
+class Once(Source):
+    """Hands on one row holding how many times it has been made in this run; kept as a source keeps what it makes."""
+
+    names = ("once",)
+    made = 0
+
+    def read(self):
+        if self.id not in self.run_context.made:
+            Once.made += 1
+            self.run_context.made[self.id] = pl.DataFrame({"n": [Once.made]})
+        return {"main": self.run_context.made[self.id].lazy()}
+
+
+for _cls in (Each, Note, Stop, Once):
+    REGISTRY.register(_cls)

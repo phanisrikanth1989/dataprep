@@ -1,0 +1,207 @@
+diff --git a/src/v2/components/aggregate/unique_row.py b/src/v2/components/aggregate/unique_row.py
+index 7593fdcc..f7d6a2a6 100644
+--- a/src/v2/components/aggregate/unique_row.py
++++ b/src/v2/components/aggregate/unique_row.py
+@@ -10,6 +10,7 @@ from ...errors import ConfigurationError
+ from ...job.keys import Key, Kind
+ from ..base import Transform
+ from ..registry import REGISTRY
++from ...sharing import shared
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -84,7 +85,8 @@ class UniqueRow(Transform):
+         else:
+             duplicate = key.is_duplicated()
+ 
+-        flagged = frame.with_columns(duplicate.alias(_DUPLICATE))
++        counted = any(self.run_context.reads(f"{self.id}_{name}") for name in ("NB_UNIQUES", "NB_DUPLICATES"))
++        flagged = shared(frame.with_columns(duplicate.alias(_DUPLICATE)), len(self.wired) + int(counted))
+         self._every_duplicate = flagged.filter(pl.col(_DUPLICATE))
+         if any(self.run_context.reads(f"{self.id}_{name}") for name in ("NB_UNIQUES", "NB_DUPLICATES")):
+             self.tap(
+diff --git a/src/v2/components/file/file_input_delimited.py b/src/v2/components/file/file_input_delimited.py
+index 640eaaef..18a6d85f 100644
+--- a/src/v2/components/file/file_input_delimited.py
++++ b/src/v2/components/file/file_input_delimited.py
+@@ -18,6 +18,7 @@ from ...job.model import Column
+ from ...types import finish_value, parse_text, polars_schema, unreadable
+ from ..base import Source
+ from ..registry import REGISTRY
++from ...sharing import shared
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -316,7 +317,8 @@ class FileInputDelimited(Source):
+             # Polars parsed every typed column and none may not be missing: no row can be rejected here.
+             return {"main": frame.select(values), "reject": self._no_rejects(names)}
+ 
+-        flagged = frame.with_columns(pl.any_horizontal(flags).alias(_BAD))
++        readers = 1 + int("reject" in self.wired) + int(bool(self.config["die_on_error"]))
++        flagged = shared(frame.with_columns(pl.any_horizontal(flags).alias(_BAD)), readers)
+         main = flagged.filter(~pl.col(_BAD)).select(values)
+         code, message = self._reasons(typed, counted, len(names), native)
+         reason = {"errorCode": code.alias("errorCode"), "errorMessage": message.alias("errorMessage")}
+diff --git a/src/v2/components/file/file_input_positional.py b/src/v2/components/file/file_input_positional.py
+index 61d2520b..a181539f 100644
+--- a/src/v2/components/file/file_input_positional.py
++++ b/src/v2/components/file/file_input_positional.py
+@@ -18,6 +18,7 @@ from ...job.model import Column
+ from ...types import from_text
+ from ..base import Source
+ from ..registry import REGISTRY
++from ...sharing import shared
+ from .file_input_delimited import encoding, fatal, unreadable_text
+ from .file_input_fullrow import (
+     BYTE_ORDER_MARK,
+@@ -201,7 +202,10 @@ class FileInputPositional(Source):
+                 missing.append((value.is_null(), "SCHEMA_VIOLATION", reason))
+         # The first thing wrong with a row, in v1's words: what cannot be read comes before what is missing.
+         cases = unreadable + missing
+-        flagged = frame.with_columns(*values, pl.any_horizontal([wrong for wrong, _, _ in cases]).alias(_BAD))
++        readers = 1 + int("reject" in self.wired) + int(bool(self.config["die_on_error"]))
++        flagged = shared(
++            frame.with_columns(*values, pl.any_horizontal([wrong for wrong, _, _ in cases]).alias(_BAD)), readers
++        )
+ 
+         held = {column.name for column in typed}
+         main = flagged.filter(~pl.col(_BAD)).select(
+diff --git a/src/v2/components/transform/filter_rows.py b/src/v2/components/transform/filter_rows.py
+index 3283112b..62ee3618 100644
+--- a/src/v2/components/transform/filter_rows.py
++++ b/src/v2/components/transform/filter_rows.py
+@@ -19,6 +19,7 @@ from ...job.keys import EXPRESSION, Key, Kind
+ from ...types import to_text
+ from ..base import Transform, is_on
+ from ..registry import REGISTRY
++from ...sharing import shared
+ 
+ _COMPARISONS = {"==": "eq", "!=": "ne", ">": "gt", "<": "lt", ">=": "ge", "<=": "le"}
+ _TEXT_TESTS = ("MATCHES", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "LENGTH_LT", "LENGTH_GT")
+@@ -133,7 +134,7 @@ class FilterRows(Transform):
+         if config["use_advanced"]:
+             keep = keep & translate_condition(config["condition"], self.row_scope(types, name, "input_row"))
+ 
+-        flagged = frame.with_columns(keep.alias(_KEEP))
++        flagged = shared(frame.with_columns(keep.alias(_KEEP)), len(self.wired))
+         return {
+             "main": flagged.filter(pl.col(_KEEP)).drop(_KEEP),
+             "reject": flagged.filter(~pl.col(_KEEP)).drop(_KEEP).with_columns(
+diff --git a/src/v2/components/transform/join.py b/src/v2/components/transform/join.py
+index 8831b28d..e4e3bfbe 100644
+--- a/src/v2/components/transform/join.py
++++ b/src/v2/components/transform/join.py
+@@ -11,6 +11,7 @@ from ...job.keys import Key
+ from ...types import polars_type
+ from ..base import Transform
+ from ..registry import REGISTRY
++from ...sharing import shared
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -91,6 +92,7 @@ class Join(Transform):
+         joined = main.with_columns([ours.alias(name) for name, (ours, _) in zip(names, keys)]).join(
+             found, on=names, how="left", maintain_order="left"
+         )
++        joined = shared(joined, len(self.wired))
+ 
+         matched = pl.col(_HIT).is_not_null()
+         own = [pl.col(name) for name in main_types.names()]
+diff --git a/src/v2/components/transform/map.py b/src/v2/components/transform/map.py
+index 0fbc2441..854d95b0 100644
+--- a/src/v2/components/transform/map.py
++++ b/src/v2/components/transform/map.py
+@@ -233,7 +233,7 @@ class Map(Transform):
+         scope = self._scope(rows)
+         joined = self._with_variables(joined, scope)
+         outputs = self.config["outputs"]
+-        taken = routed(joined, outputs, scope, missed)
++        taken = routed(joined, outputs, scope, missed, readers=len(self.wired))
+         check = self.check if self.config["die_on_error"] else None
+         return {
+             output["name"]: projected(taken[index], output, scope, f"outputs[{index}]", check)
+diff --git a/src/v2/components/transform/map_outputs.py b/src/v2/components/transform/map_outputs.py
+index 4f0958a4..49862d3f 100644
+--- a/src/v2/components/transform/map_outputs.py
++++ b/src/v2/components/transform/map_outputs.py
+@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Optional
+ 
+ import polars as pl
+ 
++from ...sharing import shared
++
+ from ...errors import ExpressionError
+ from ...expressions import Scope, translate, translate_condition
+ from ...job.model import TYPE_NAMES, Column
+@@ -59,7 +61,7 @@ def _both(first: Optional[pl.Expr], second: Optional[pl.Expr]) -> Optional[pl.Ex
+     return first & second
+ 
+ 
+-def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, missed: bool) -> List[pl.LazyFrame]:
++def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, missed: bool, readers: int = 1) -> List[pl.LazyFrame]:
+     """Share the joined rows out among the outputs.
+ 
+     An ordinary output takes the rows that came through every inner join and
+@@ -100,6 +102,7 @@ def routed(joined: pl.LazyFrame, outputs: List[Dict[str, Any]], scope: Scope, mi
+         rejected = came_through
+     if rejected is not None and any(output["is_reject"] for output in outputs):
+         flagged = flagged.with_columns(rejected.alias(_REJECTED))
++    flagged = shared(flagged, readers)
+ 
+     rows: List[pl.LazyFrame] = []
+     for index, output in enumerate(outputs):
+diff --git a/src/v2/engine/runner.py b/src/v2/engine/runner.py
+index 80985f15..1689757d 100644
+--- a/src/v2/engine/runner.py
++++ b/src/v2/engine/runner.py
+@@ -25,6 +25,7 @@ import polars as pl
+ from ..components.base import CheckFailed, Component, Sink, Source, Tap, Write
+ from ..errors import ConfigurationError, JobFailedError
+ from ..files import put_in_place
++from ..sharing import shared
+ from ..job.graph import subjobs
+ from ..job.keys import normalize_config
+ from ..job.model import ComponentSpec, Job, Trigger
+@@ -317,6 +318,8 @@ class Runner:
+                 else:
+                     outputs = component.build(inputs)
+                 outputs = self._conformed(component, outputs)
++                flows = [flow.port for flow in self.job.outgoing(component_id)]
++                outputs = {port: shared(frame, flows.count(port)) for port, frame in outputs.items()}
+                 for frame in outputs.values():
+                     frame.collect_schema()
+                 self._count(component, inputs, outputs)
+@@ -368,6 +371,8 @@ class Runner:
+         if "main" in outputs:
+             columns = spec.schema if component.conforms else []
+             main, violation = conform(outputs["main"], columns, rename_errors=True)
++            if violation is not None:
++                main = shared(main, 2)
+             if violation is not None and component.config.get("die_on_error", True):
+                 component.check(
+                     main.filter(violation.is_not_null()).select(pl.len().alias("rows"), violation.first().alias("why")),
+diff --git a/src/v2/sharing.py b/src/v2/sharing.py
+new file mode 100644
+index 00000000..a008c1ec
+--- /dev/null
++++ b/src/v2/sharing.py
+@@ -0,0 +1,19 @@
++"""TRY-OUT for ticket 31, not for keeping: mark a frame that several readers share so that it is worked out once.
++
++V2_SHARE=off      nothing is marked: the engine as it is
++V2_SHARE=closed   cache() with a barrier behind it that lets nothing through (the default here)
++V2_SHARE=open     cache() with a barrier that lets column pruning through
++"""
++import os
++
++import polars as pl
++
++
++def shared(frame: pl.LazyFrame, readers: int = 2) -> pl.LazyFrame:
++    way = os.environ.get("V2_SHARE", "closed")
++    if readers < 2 or way == "off":
++        return frame
++    return frame.cache().map_batches(
++        lambda batch: batch, streamable=True, validate_output_schema=False,
++        projection_pushdown=way == "open", predicate_pushdown=False, slice_pushdown=False,
++    )

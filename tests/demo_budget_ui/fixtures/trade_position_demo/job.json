@@ -1,0 +1,345 @@
+{
+  "components": [
+    {
+      "id": "in_trades",
+      "type": "FileInputDelimited",
+      "subjob_id": "sj1",
+      "config": {
+        "filepath": "trades.csv",
+        "fieldseparator": ";",
+        "header_rows": 1,
+        "csv_option": true,
+        "text_enclosure": "\"",
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" }
+        ]
+      },
+      "inputs": [],
+      "outputs": ["in_trades_to_filter_settled"]
+    },
+    {
+      "id": "in_accounts",
+      "type": "FileInputDelimited",
+      "subjob_id": "sj1",
+      "config": {
+        "filepath": "accounts.csv",
+        "fieldseparator": ";",
+        "header_rows": 1,
+        "csv_option": true,
+        "text_enclosure": "\"",
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          { "name": "account_id", "type": "str" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" }
+        ]
+      },
+      "inputs": [],
+      "outputs": ["in_accounts_to_join_accounts"]
+    },
+    {
+      "id": "in_prices",
+      "type": "FileInputDelimited",
+      "subjob_id": "sj1",
+      "config": {
+        "filepath": "prices.csv",
+        "fieldseparator": ";",
+        "header_rows": 1,
+        "csv_option": true,
+        "text_enclosure": "\"",
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          { "name": "symbol", "type": "str" },
+          { "name": "closing_price", "type": "float" }
+        ]
+      },
+      "inputs": [],
+      "outputs": ["in_prices_to_join_prices"]
+    },
+    {
+      "id": "filter_settled",
+      "type": "FilterRows",
+      "subjob_id": "sj1",
+      "config": {
+        "use_advanced": false,
+        "logical_op": "&&",
+        "conditions": [
+          { "column": "status", "operator": "==", "value": "SETTLED" }
+        ]
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" }
+        ]
+      },
+      "inputs": ["in_trades_to_filter_settled"],
+      "outputs": ["filter_settled_to_join_accounts"]
+    },
+    {
+      "id": "join_accounts",
+      "type": "tJoin",
+      "subjob_id": "sj1",
+      "config": {
+        "use_inner_join": false,
+        "join_key": [
+          { "input_column": "account_id", "lookup_column": "account_id" }
+        ],
+        "use_lookup_cols": true,
+        "lookup_cols": [
+          { "output_column": "account_name", "lookup_column": "account_name" },
+          { "output_column": "region", "lookup_column": "region" }
+        ]
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" }
+        ]
+      },
+      "inputs": ["filter_settled_to_join_accounts", "in_accounts_to_join_accounts"],
+      "outputs": ["join_accounts_to_join_prices"]
+    },
+    {
+      "id": "join_prices",
+      "type": "tJoin",
+      "subjob_id": "sj1",
+      "config": {
+        "use_inner_join": false,
+        "join_key": [
+          { "input_column": "symbol", "lookup_column": "symbol" }
+        ],
+        "use_lookup_cols": true,
+        "lookup_cols": [
+          { "output_column": "closing_price", "lookup_column": "closing_price" }
+        ]
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "closing_price", "type": "float" }
+        ]
+      },
+      "inputs": ["join_accounts_to_join_prices", "in_prices_to_join_prices"],
+      "outputs": ["join_prices_to_validate_trade_date"]
+    },
+    {
+      "id": "validate_trade_date",
+      "type": "SchemaComplianceCheck",
+      "subjob_id": "sj1",
+      "config": {
+        "schema": [
+          { "name": "trade_id", "type": "str", "nullable": false },
+          { "name": "account_id", "type": "str", "nullable": true },
+          { "name": "symbol", "type": "str", "nullable": false },
+          { "name": "quantity", "type": "int", "nullable": false },
+          { "name": "price", "type": "float", "nullable": false },
+          { "name": "status", "type": "str", "nullable": false },
+          { "name": "trade_date", "type": "datetime", "nullable": false, "date_pattern": "yyyy-MM-dd" },
+          { "name": "account_name", "type": "str", "nullable": true },
+          { "name": "region", "type": "str", "nullable": true },
+          { "name": "closing_price", "type": "float", "nullable": true }
+        ],
+        "check_all": true,
+        "strict_date_check": true,
+        "all_empty_are_null": true
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "closing_price", "type": "float" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "closing_price", "type": "float" }
+        ]
+      },
+      "inputs": ["join_prices_to_validate_trade_date"],
+      "outputs": ["validate_trade_date_to_derive_market_value"]
+    },
+    {
+      "id": "derive_market_value",
+      "type": "tPythonDataFrame",
+      "subjob_id": "sj1",
+      "config": {
+        "python_code": "df['market_value'] = df['quantity'].astype(float) * df['price'].astype(float)",
+        "output_columns": ["trade_id", "account_name", "region", "symbol", "market_value", "closing_price"],
+        "execution_mode": "batch"
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_id", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "quantity", "type": "int" },
+          { "name": "price", "type": "float" },
+          { "name": "status", "type": "str" },
+          { "name": "trade_date", "type": "datetime" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "closing_price", "type": "float" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "market_value", "type": "float" },
+          { "name": "closing_price", "type": "float" }
+        ]
+      },
+      "inputs": ["validate_trade_date_to_derive_market_value"],
+      "outputs": ["derive_market_value_to_sort_market_value"]
+    },
+    {
+      "id": "sort_market_value",
+      "type": "SortRow",
+      "subjob_id": "sj1",
+      "config": {
+        "criteria": [
+          { "column": "market_value", "sort_type": "num", "order": "desc" }
+        ],
+        "execution_mode": "batch"
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "market_value", "type": "float" },
+          { "name": "closing_price", "type": "float" }
+        ],
+        "output": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "market_value", "type": "float" },
+          { "name": "closing_price", "type": "float" }
+        ]
+      },
+      "inputs": ["derive_market_value_to_sort_market_value"],
+      "outputs": ["sort_market_value_to_trade_positions"]
+    },
+    {
+      "id": "trade_positions",
+      "type": "FileOutputDelimited",
+      "subjob_id": "sj1",
+      "config": {
+        "filepath": "trade_positions.csv",
+        "fieldseparator": ";",
+        "include_header": true,
+        "csv_option": true,
+        "text_enclosure": "\"",
+        "file_exist_exception": false,
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [
+          { "name": "trade_id", "type": "str" },
+          { "name": "account_name", "type": "str" },
+          { "name": "region", "type": "str" },
+          { "name": "symbol", "type": "str" },
+          { "name": "market_value", "type": "float" },
+          { "name": "closing_price", "type": "float" }
+        ],
+        "output": []
+      },
+      "inputs": ["sort_market_value_to_trade_positions"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    { "name": "in_trades_to_filter_settled", "type": "flow", "from": "in_trades", "to": "filter_settled" },
+    { "name": "filter_settled_to_join_accounts", "type": "flow", "from": "filter_settled", "to": "join_accounts" },
+    { "name": "in_accounts_to_join_accounts", "type": "flow", "from": "in_accounts", "to": "join_accounts" },
+    { "name": "join_accounts_to_join_prices", "type": "flow", "from": "join_accounts", "to": "join_prices" },
+    { "name": "in_prices_to_join_prices", "type": "flow", "from": "in_prices", "to": "join_prices" },
+    { "name": "join_prices_to_validate_trade_date", "type": "flow", "from": "join_prices", "to": "validate_trade_date" },
+    { "name": "validate_trade_date_to_derive_market_value", "type": "flow", "from": "validate_trade_date", "to": "derive_market_value" },
+    { "name": "derive_market_value_to_sort_market_value", "type": "flow", "from": "derive_market_value", "to": "sort_market_value" },
+    { "name": "sort_market_value_to_trade_positions", "type": "flow", "from": "sort_market_value", "to": "trade_positions" }
+  ]
+}

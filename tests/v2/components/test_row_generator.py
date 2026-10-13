@@ -1,0 +1,597 @@
+"""Row generator, against v1 on the same job config."""
+import json
+import logging
+import os
+import random
+from pathlib import Path
+
+import pytest
+
+from src.v2 import load_job, run_job
+from src.v2.errors import JobRefusedError
+from tests.v2.answer_key import assert_matches_v1, run_v2
+
+from .kit import columns, flow, job, writer
+
+SAMPLE = Path(__file__).parents[2] / "talend_xml_samples" / "converted_jsons" / "Job_tRowGenerator_0.1.json"
+SCHEMA = "id:int, name:str, amt:float"
+
+
+def generator(schema=SCHEMA, out=None, context=None, reject=None, kind="RowGenerator", **config):
+    """rows made from expressions -> file, and the rows turned away -> rej.csv when `reject` names its columns."""
+    source = {"id": "in", "type": kind, "config": config, "inputs": [],
+              "schema": {"input": [], "output": columns(schema)}, "outputs": ["row1"] + (["bad"] if reject else [])}
+    parts, flows = [source, writer(out or schema, inputs=("row1",))], [flow("row1", "in", "out")]
+    if reject:
+        parts.append(writer(reject, component_id="rej", path="rej.csv", inputs=("bad",)))
+        flows.append(flow("bad", "in", "rej", kind="reject"))
+    made = job(parts, flows)
+    if context:
+        made["context"] = {"Default": {name: {"value": value, "type": "str"} for name, value in context.items()}}
+    return made
+
+
+def values(**held):
+    return [{"schema_column": name, "array": text} for name, text in held.items()]
+
+
+def seeded(runner, seed):
+    """A runner that starts Python's random numbers at the same place every time."""
+    def run(made):
+        random.seed(seed)
+        return runner(made)
+    return run
+
+
+def same(tmp_path, seed=5, **kwargs):
+    random.seed(seed)
+    run = assert_matches_v1(generator(**kwargs), {}, tmp_path, run_v2=seeded(run_v2, seed))
+    assert run.succeeded, run.error
+    return run.files["out.csv"].decode().splitlines()[1:]
+
+
+def v2(tmp_path, made, seed=5):
+    """Run on v2 alone, inside tmp_path; returns how it ended and the lines of each file written."""
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        random.seed(seed)
+        result = run_job(made)
+    finally:
+        os.chdir(previous)
+    return result, {path.name: path.read_text().splitlines() for path in sorted(tmp_path.glob("*.csv"))}
+
+
+def refusals(made):
+    with pytest.raises(JobRefusedError) as refused:
+        load_job(made)
+    return [(refusal.key, refusal.reason) for refusal in refused.value.report]
+
+
+# ------------------------------------------------------------------
+# How many rows, and what each column holds
+# ------------------------------------------------------------------
+
+def test_every_row_holds_what_its_expressions_come_to(tmp_path):
+    assert same(tmp_path, nb_rows="3", values=values(id="1+2", name="hello", amt="1.5")) == ["3;hello;1.5"] * 3
+
+
+def test_a_hundred_rows_when_no_number_is_given_and_none_when_asked_for_none(tmp_path):
+    assert same(tmp_path, values=values(id="1", name="x")) == ["1;x;"] * 100
+    assert same(tmp_path / "b", nb_rows=0, values=values(id="1")) == []
+
+
+def test_number_of_rows_as_a_number_or_from_the_context(tmp_path):
+    assert same(tmp_path, nb_rows=2, values=values(id="7")) == ["7;;"] * 2
+    assert same(tmp_path / "b", context={"n": "2"}, nb_rows="${context.n}", values=values(id="7")) == ["7;;"] * 2
+    assert same(tmp_path / "c", context={"n": "2"}, nb_rows="context.n", values=values(id="7")) == ["7;;"] * 2
+
+
+@pytest.mark.parametrize("asked, said", [
+    ("-1", "-1 rows cannot be made; give 0 or more"),
+    ("many", "'many' is not a whole number of rows"),
+    ([3], "[3] is not a whole number of rows"),
+])
+def test_number_of_rows_that_is_none_refuses_the_job(asked, said):
+    assert refusals(generator(nb_rows=asked, values=values(id="1"))) == [("nb_rows", said)]
+
+
+def test_column_with_no_expression_is_missing(tmp_path):
+    assert same(tmp_path, nb_rows=2, values=values(name="x")) == [";x;"] * 2
+    assert same(tmp_path / "b", nb_rows=1, values=[{"schema_column": "name"}, {"schema_column": "id", "array": 5}]) == ["5;;"]
+
+
+def test_text_that_is_not_python_is_the_value_itself(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str, c:str, d:str", nb_rows=1,
+               values=values(a="hello world", b="007", c="  spaced  ", d="'unterminated"))
+    assert got == ["hello world;007;spaced;'unterminated"]
+
+
+def test_blanks_in_front_of_an_expression_do_not_make_it_text(tmp_path):
+    assert same(tmp_path, schema="a:int, b:str", nb_rows=1, values=values(a="  1 + 2", b="\t'x' * 2 ")) == ["3;xx"]
+
+
+def test_quotes_around_text_are_not_part_of_it(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str, c:str", nb_rows=1, values=values(a="'a b'", b='"q"', c="\"it's\""))
+    assert got == ["a b;q;it's"]
+
+
+def test_quotes_around_text_that_is_not_python_are_not_part_of_it_either(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str, c:str", nb_rows=1, values=values(a="'don't'", b='"say "hi""', c="'mixed\""))
+    assert got == ["don't;say \"hi\";'mixed\""]
+
+
+def test_name_that_is_not_in_reach_makes_the_whole_text_the_value(tmp_path):
+    # Only `random` is in reach: no len, no str.
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, values=values(a="len('abc')", b="str(5)"))
+    assert got == ["len('abc');str(5)"]
+
+
+def test_value_in_a_text_column_is_written_as_python_writes_it(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str, c:str, d:str, e:str", nb_rows=1,
+               values=values(a="True", b="[1, 2]", c="1/3", d="1e20", e="(1, 'a')"))
+    assert got == ["True;[1, 2];0.3333333333333333;1e+20;(1, 'a')"]
+
+
+def test_none_is_a_missing_value(tmp_path):
+    assert same(tmp_path, schema="a:int, b:str, c:float", nb_rows=1, values=values(a="None", b="None", c="None")) == [";;"]
+
+
+def test_context_value_in_an_expression(tmp_path):
+    got = same(tmp_path, context={"who": "ann", "n": "42"}, nb_rows=1,
+               values=values(id="${context.n} + 1", name="context.who"))
+    assert got == ["43;ann;"]
+
+
+def test_space_and_len_of_string_handling(tmp_path):
+    got = same(tmp_path, schema="a:str, b:int, c:str, d:str", nb_rows=1, values=values(
+        a="'[' + StringHandling.SPACE(3) + ']'", b='StringHandling.LEN("abcd") + 1', c="StringHandling.LEN(xy)",
+        d="'[' + StringHandling.SPACE(x) + ']'"))
+    assert got == ["[   ];5;len(xy);[]"]
+
+
+# ------------------------------------------------------------------
+# Random values
+# ------------------------------------------------------------------
+
+RANDOM = dict(schema="a:int, b:float, c:str", nb_rows=4,
+              values=values(a="random.randint(1, 100)", b="random.random()", c="random.choice(['x', 'y', 'z'])"))
+
+
+def test_random_values_are_drawn_row_by_row_in_the_order_of_the_columns(tmp_path):
+    # From the same start Python's random numbers come out the same, so v1's file is the answer key here too.
+    first = same(tmp_path, seed=5, **RANDOM)
+    assert len(set(first)) == 4
+    assert same(tmp_path / "b", seed=6, **RANDOM) != first
+
+
+def test_rows_of_a_run_are_made_once_however_often_the_source_is_read(tmp_path):
+    # Picking rows reads the source to find them and then again to run them: both must see the same rows.
+    whole = same(tmp_path, **RANDOM)
+    (tmp_path / "b").mkdir()
+    picked = dict(generator(**RANDOM), run={"only": {"source": "in", "rows": [3]}})
+    result, files = v2(tmp_path / "b", picked)
+    assert result.status == "success", result.error
+    assert files["out.csv"][1:] == [whole[2]]
+
+
+def test_expression_is_read_once_and_evaluated_for_every_row(tmp_path):
+    result, files = v2(tmp_path, generator(schema="a:int", nb_rows=50, values=values(a="random.randint(1, 10**9)")))
+    assert result.status == "success" and len(set(files["out.csv"][1:])) == 50
+
+
+# ------------------------------------------------------------------
+# Typed columns
+# ------------------------------------------------------------------
+
+TYPED = "d:datetime@%Y-%m-%d, ok:bool, m:Decimal#2, n:int!, f:float, s:str"
+
+
+def test_typed_columns(tmp_path):
+    got = same(tmp_path, schema=TYPED, nb_rows=2,
+               values=values(d="2024-01-31", ok="True", m="1.5", n="3", f="2.5", s="007"))
+    assert got == ["2024-01-31;true;1.50;3;2.5;007"] * 2
+
+
+def test_typed_columns_from_quoted_text(tmp_path):
+    got = same(tmp_path, schema=TYPED, nb_rows=1,
+               values=values(d="'2024-01-31'", ok="true", m="'1.5'", n="'12'", f="", s=""))
+    assert got == ["2024-01-31;true;1.50;12;;"]
+
+
+def test_date_with_a_time_and_columns_with_no_pattern_or_places(tmp_path):
+    got = same(tmp_path, schema="d:datetime, ok:bool!, n:int!", nb_rows=1,
+               values=values(d="'2024-01-31 10:11:12'", ok="0", n="5"))
+    assert got == ["2024-01-31 10:11:12;false;5"]
+
+
+def test_true_or_false_with_nothing_given_is_false_as_for_every_reader(tmp_path):
+    assert same(tmp_path, schema="id:int, ok:bool", nb_rows=1, values=values(id="1", ok="None")) == ["1;false"]
+    # With no expression at all v1 writes <na>.
+    (tmp_path / "b").mkdir()
+    result, files = v2(tmp_path / "b", generator(schema="id:int, ok:bool", nb_rows=1, values=values(id="1")))
+    assert result.status == "success" and files["out.csv"][1:] == ["1;false"]
+
+
+def test_the_text_false_is_false(tmp_path):
+    # v1 takes any text that is not empty for true here, the words false and no among it.
+    result, files = v2(tmp_path, generator(schema="a:bool, b:bool, c:bool", nb_rows=1,
+                                           values=values(a="'false'", b="no", c="False")))
+    assert result.status == "success" and files["out.csv"][1:] == ["false;false;false"]
+
+
+def test_value_that_is_not_of_its_columns_type_goes_missing(tmp_path):
+    # v1 writes 1970-01-01 for the date and <NA> for the Decimal.
+    made = generator(schema="a:int, d:datetime@%Y-%m-%d, m:Decimal#2", nb_rows=1, values=values(a="abc", d="20240131", m="None"))
+    result, files = v2(tmp_path, made)
+    assert result.status == "success" and files["out.csv"][1:] == [";;"]
+
+
+def test_number_with_a_fraction_is_cut_in_a_whole_number_column_as_everywhere(tmp_path):
+    # v1 writes 1.7 through here, though it cuts it wherever else a whole-number column is filled.
+    result, files = v2(tmp_path, generator(schema="a:int, b:int", nb_rows=1, values=values(a="1.7", b="2.0")))
+    assert result.status == "success" and files["out.csv"][1:] == ["1;2"]
+
+
+def test_whole_number_in_a_float_or_decimal_column(tmp_path):
+    got = same(tmp_path, schema="f:float, m:Decimal#2, g:float", nb_rows=1, values=values(f="3", m="2", g="1e3"))
+    assert got == ["3;2.00;1000.0"]
+
+
+def test_column_whose_rows_hold_numbers_and_text(tmp_path):
+    made = dict(schema="a:int, b:str", nb_rows=40, values=values(a="random.choice([1, None])", b="random.choice([1, 'x', 2.5])"))
+    result, files = v2(tmp_path, generator(**made), seed=3)
+    assert result.status == "success"
+    rows = [line.split(";") for line in files["out.csv"][1:]]
+    assert {row[0] for row in rows} == {"1", ""} and {row[1] for row in rows} == {"1", "x", "2.5"}
+
+
+def test_number_too_long_for_64_bits_is_kept_as_text(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, values=values(a="12345678901234567890", b="10**30"))
+    assert got == ["12345678901234567890;1000000000000000000000000000000"]
+
+
+# ------------------------------------------------------------------
+# An expression that fails
+# ------------------------------------------------------------------
+
+def test_row_whose_expression_fails_leaves_by_the_reject_output_with_the_column_empty(tmp_path):
+    random.seed(1)
+    made = generator(schema="id:int, name:str", reject="id:int, name:str", nb_rows=6,
+                     values=values(id="10 // random.randint(0, 1)", name="'x'"))
+    run = assert_matches_v1(made, {}, tmp_path, run_v2=seeded(run_v2, 1))
+    kept, turned_away = (run.files[name].decode().splitlines()[1:] for name in ("out.csv", "rej.csv"))
+    assert set(kept) == {"10;x"} and set(turned_away) == {";x"} and len(kept) + len(turned_away) == 6
+
+
+def test_log_says_how_many_rows_failed_and_what_failed_in_the_first(tmp_path, caplog):
+    made = generator(schema="id:int, name:str", reject="id:int, name:str", nb_rows=3,
+                     values=values(id="1/0", name="'a' + 1"))
+    with caplog.at_level(logging.INFO, logger="src.v2"):
+        result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["id;name"] and files["rej.csv"][1:] == [";"] * 3
+    said = [record for record in caplog.records if "failed" in record.getMessage()]
+    assert [(record.levelname, record.getMessage()) for record in said] == [("INFO", (
+        "[in] an expression failed in 3 of 3 rows; the first is row 1: "
+        'id: division by zero; name: can only concatenate str (not "int") to str'))]
+
+
+def test_no_row_fails_and_the_reject_output_is_empty(tmp_path, caplog):
+    with caplog.at_level(logging.INFO, logger="src.v2"):
+        result, files = v2(tmp_path, generator(schema="id:int", reject="id:int", nb_rows=2, values=values(id="1")))
+    assert result.status == "success" and files["rej.csv"] == ["id"] and files["out.csv"][1:] == ["1", "1"]
+    assert not [record for record in caplog.records if "failed" in record.getMessage()]
+
+
+def test_missing_value_where_none_is_allowed_fails_the_job_as_in_v1(tmp_path):
+    made = generator(schema="a:int!, b:str", nb_rows=2, values=values(a="None", b="1"))
+    assert_matches_v1(made, {}, tmp_path)
+    result, _ = v2(tmp_path / "v2", made)
+    assert result.status == "failed"
+    assert result.error == "Column 'a' has NULL values but is not nullable; the row is row 1 of in"
+
+
+def test_missing_value_where_none_is_allowed_drops_the_row_when_the_job_is_not_to_fail(tmp_path, caplog):
+    made = generator(schema="a:int!, b:str", die_on_error=False, nb_rows=2, values=values(a="None", b="1"))
+    with caplog.at_level(logging.WARNING, logger="src.v2"):
+        result, files = v2(tmp_path, made)
+    assert result.status == "success" and files["out.csv"] == ["a;b"]
+    assert ["2 rows were dropped" in record.getMessage() for record in caplog.records] == [True]
+
+
+# ------------------------------------------------------------------
+# What is refused
+# ------------------------------------------------------------------
+
+def test_java_expression_is_refused():
+    found = refusals(generator(values=values(id="{{java}}Numeric.sequence(\"s1\",1,1)", name="x")))
+    assert len(found) == 1 and "values[0].array" in found[0][0] and "Java" in found[0][1]
+
+
+def test_entry_for_no_column_and_two_for_one_are_refused():
+    assert refusals(generator(values=values(id="1", nope="2"))) == [
+        ("values[1].schema_column", "'nope' is not a column of the schema (id, name, amt)")]
+    assert refusals(generator(values=values(id="1") + values(id="2"))) == [
+        ("values[1].schema_column", "'id' already has an expression (values[0])")]
+
+
+def test_values_have_to_be_given_and_the_columns_declared():
+    assert [path for path, _ in refusals(generator())] == ["values"]
+    made = generator(values=values(id="1"))
+    made["components"][0]["schema"] = {"input": [], "output": []}
+    assert ("schema", "a row generator needs its columns declared") in [
+        (path.split(".")[-1], reason) for path, reason in refusals(made)]
+
+
+def test_converted_sample_is_refused_for_its_java_alone():
+    found = refusals(json.loads(SAMPLE.read_text()))
+    assert found and all("Java" in reason for _, reason in found)
+
+
+def test_both_v1_names_and_v2s_own(tmp_path):
+    for at, kind in enumerate(("row_generator", "RowGenerator", "tRowGenerator")):
+        folder = tmp_path / str(at)
+        folder.mkdir()
+        result, files = v2(folder, generator(kind=kind, nb_rows=1, values=values(id="1")))
+        assert result.status == "success" and files["out.csv"][1:] == ["1;;"]
+
+
+# ------------------------------------------------------------------
+# What an independent review found (ticket 71)
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("expression", ["", "''", "0.0", "0", "False"])
+def test_true_or_false_that_may_not_be_missing_is_false_when_nothing_is_given(tmp_path, expression):
+    assert same(tmp_path, schema="k:int, b:bool!", nb_rows=2, values=values(k="7", b=expression)) == ["7;false"] * 2
+
+
+def test_true_or_false_that_may_not_be_missing_and_has_no_expression_is_false(tmp_path):
+    assert same(tmp_path, schema="k:int, b:bool!", nb_rows=1, values=values(k="7")) == ["7;false"]
+
+
+def test_missing_true_or_false_where_none_is_allowed_fails_the_job_as_in_v1(tmp_path):
+    made = generator(schema="k:int, b:bool!", nb_rows=1, values=values(k="7", b="None"))
+    assert_matches_v1(made, {}, tmp_path)
+    (tmp_path / "x").mkdir()
+    result, _ = v2(tmp_path / "x", made)
+    assert result.status == "failed" and "Column 'b' has NULL values" in result.error
+
+
+def test_number_in_a_true_or_false_column_and_true_or_false_in_a_number_column(tmp_path):
+    got = same(tmp_path, schema="a:bool, b:bool, c:bool, d:int, e:int, f:int", nb_rows=1,
+               values=values(a="2", b="1.0", c="0.0", d="True", e="1 == 2", f="not 0"))
+    assert got == ["true;true;false;1;0;1"]
+
+
+@pytest.mark.parametrize("pattern, given, written", [
+    ("%d/%m/%Y", "'2024-01-31'", "31/01/2024"), ("%Y-%m-%d", "'31/01/2024'", "2024-01-31"),
+    ("%Y-%m-%d", "'2024-01-31 10:11:12'", "2024-01-31"), ("%d/%m/%Y", "'31/01/2024'", "31/01/2024"),
+])
+def test_date_written_another_usual_way_than_its_columns_pattern_is_read(tmp_path, pattern, given, written):
+    assert same(tmp_path, schema=f"d:datetime@{pattern}", nb_rows=1, values=values(d=given)) == [written]
+
+
+def test_date_that_is_none_goes_missing(tmp_path):
+    result, files = v2(tmp_path, generator(schema="d:datetime@%Y-%m-%d, e:datetime@%Y-%m-%d", nb_rows=1,
+                                           values=values(d="'nope'", e="'2024-02-30'")))
+    assert result.status == "success" and files["out.csv"][1:] == [";"]
+
+
+def test_attribute_that_is_not_there_fails_the_row(tmp_path):
+    random.seed(1)
+    made = generator(schema="a:str, b:str", reject="a:str, b:str", nb_rows=2, values=values(a="random.nope", b="'x'"))
+    run = assert_matches_v1(made, {}, tmp_path, run_v2=seeded(run_v2, 1))
+    assert run.files["out.csv"] == b"a;b\n" and run.files["rej.csv"].decode().splitlines()[1:] == [";x"] * 2
+
+
+def test_space_counted_by_an_expression_and_a_name_kept_from_one_column_to_the_next(tmp_path):
+    got = same(tmp_path, schema="a:str, b:int, c:int", nb_rows=2,
+               values=values(a="'[' + StringHandling.SPACE(1 + 2) + ']'", b="(n := 7)", c="n + 1"))
+    assert got == ["[   ];7;8"] * 2
+
+
+def test_rows_of_one_run_are_not_those_of_the_next():
+    from src.v2 import run_job as run
+    import tempfile
+    made = generator(schema="a:int", nb_rows=3, values=values(a="random.randint(1, 10**9)"))
+    seen = []
+    previous = os.getcwd()
+    for _ in range(2):
+        with tempfile.TemporaryDirectory() as folder:
+            os.chdir(folder)
+            try:
+                assert run(made).status == "success"
+                seen.append(open("out.csv").read())
+            finally:
+                os.chdir(previous)
+    assert seen[0] != seen[1]
+
+
+# ------------------------------------------------------------------
+# What is looked up is a value, and no expression
+# ------------------------------------------------------------------
+
+def after_entries(made, **held):
+    """The job, run after a stage that puts these entries into globalMap."""
+    made["components"].insert(0, {"id": "set", "type": "SetGlobalVar",
+                                  "config": {"variables": [{"key": key, "value": value} for key, value in held.items()]}})
+    made["triggers"] = [{"type": "OnSubjobOk", "from": "set", "to": "in"}]
+    return made
+
+
+LOOKED_UP = ['globalMap.get("k")', '((String)globalMap.get("k"))', '{{java}}((String)globalMap.get("k"))',
+             '{{java}}"" + ((String)globalMap.get("k"))']
+WAYS = ["plain", "with a cast", "as the converter marks it", "joined to text"]
+
+
+@pytest.mark.parametrize("held", ["1+1", "1/0", "random.random()", "007", "two words", "'quoted'", "None"])
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_what_an_entry_of_globalmap_holds_is_the_value_itself_and_is_never_read_as_an_expression(tmp_path, written, held):
+    # The name of a file, a value of a row: whatever it looks like, it is data.
+    made = after_entries(generator(schema="v:str", nb_rows=2, values=values(v=written)), k=held)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held, held]
+
+
+@pytest.mark.parametrize("written", LOOKED_UP, ids=WAYS)
+def test_what_an_entry_of_globalmap_holds_is_never_run(tmp_path, written):
+    # Python that would leave a folder behind if it were run. (`random` is the one name an expression has.)
+    held = "random._os.mkdir('made_by_a_value')"
+    made = after_entries(generator(schema="v:str", nb_rows=1, values=values(v=written)), k=held)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held] and not (tmp_path / "made_by_a_value").exists()
+
+
+def test_entry_that_holds_nothing_is_a_missing_value(tmp_path):
+    # v1 writes the reference's own text there: `globalMap.get("k")`, as data.
+    made = after_entries(generator(schema="v:str, w:str", nb_rows=1, values=values(v='globalMap.get("k")', w="'x'")), k=None)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success" and files["out.csv"] == ["v;w", ";x"]
+
+
+def test_entry_that_is_no_text_keeps_its_kind_and_an_expression_written_in_the_job_is_still_one(tmp_path):
+    made = after_entries(generator(schema="n:int, twice:int, v:str", nb_rows=1,
+                                   values=values(n='((Integer)globalMap.get("n"))', twice="2 * 21", v="'ann'")), n=7)
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["n;twice;v", "7;42;ann"]
+
+
+# ------------------------------------------------------------------
+# What a context variable holds is a value too, and never an expression
+# ------------------------------------------------------------------
+
+ALONE = ["context.v", "${context.v}", "(context.v)", " context.v ", "{{java}}context.v", "(( ${context.v} ))"]
+RUNNABLE = "random._os.mkdir('made_by_a_value')"
+
+
+@pytest.mark.parametrize("held", ["1+1", "1/0", "random.random()", "007", "1.50", "two words", "'quoted'", "None"])
+@pytest.mark.parametrize("written", ALONE)
+def test_what_a_context_variable_holds_is_the_value_itself_and_is_never_read_as_an_expression(tmp_path, written, held):
+    # A context variable may hold what a file or another job handed it: whatever it looks like, it is data.
+    result, files = v2(tmp_path, generator(schema="v:str", nb_rows=2, values=values(v=written), context={"v": held}))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["v", held, held]
+
+
+@pytest.mark.parametrize("written", ALONE + [
+    '"" + context.v', 'context.v + ""', "str(${context.v})", "'${context.v}'", "[${context.v}][0]", "context.v * 1",
+    "f'{context.v}'", "'a' if ${context.v} else 'b'", "StringHandling.SPACE(${context.v})", "StringHandling.LEN(context.v)",
+    "not python ${context.v}", "${context.v} ${context.v}",
+])
+def test_what_a_context_variable_holds_is_never_run(tmp_path, written):
+    result, files = v2(tmp_path, generator(schema="v:str", nb_rows=1, values=values(v=written), context={"v": RUNNABLE}))
+    assert not (tmp_path / "made_by_a_value").exists()
+
+
+def test_a_file_name_handed_to_a_job_as_a_context_value_is_not_run_there(tmp_path):
+    """What the review found: a file's name, read by a row generator as `context.name`, made a folder."""
+    made = generator(schema="v:str", nb_rows=1, values=values(v="context.name"), context={"name": "placeholder"})
+    previous = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = run_job(made, context={"name": RUNNABLE})
+    finally:
+        os.chdir(previous)
+    assert result.status == "success", result.error
+    assert (tmp_path / "out.csv").read_text().splitlines() == ["v", RUNNABLE]
+    assert not (tmp_path / "made_by_a_value").exists()
+
+
+def test_a_number_from_the_context_is_a_number_inside_an_expression(tmp_path):
+    got = same(tmp_path, schema="a:int, b:int, c:float, d:str", nb_rows=1, context={"n": "21", "lo": "5", "f": "1.5"},
+               values=values(a="context.n * 2", b="random.randint(${context.lo}, ${context.lo})", c="${context.f} + 1",
+                             d="'%s!' % context.n"))
+    assert got == ["42;5;2.5;21!"]
+
+
+def test_text_from_the_context_is_text_inside_an_expression(tmp_path):
+    # v1 pastes the value into the expression, and then it is a name nothing knows: the whole text is the value.
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str", nb_rows=1, context={"who": "ann", "code": "007"},
+                                           values=values(a="context.who + '_x'", b="context.who.upper()",
+                                                         c="context.code + '-' + context.who")))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c", "ann_x;ANN;007-ann"]
+
+
+def test_text_from_the_context_that_python_could_read_as_something_else_is_still_text(tmp_path):
+    # Only a plain number is read as what it looks like. `None`, a list, text in quotes: each is the text it is.
+    held = {"a": "None", "b": "[1, 2]", "c": "'q'", "d": "True", "e": "0x10", "f": "1_000"}
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str, d:str, e:str, f:str", nb_rows=1, context=held,
+                                           values=values(**{name: f"context.{name} + '!'" for name in held})))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c;d;e;f", "None!;[1, 2]!;'q'!;True!;0x10!;1_000!"]
+
+
+def test_a_context_variable_that_holds_nothing_is_no_text(tmp_path):
+    made = generator(schema="a:str, b:str", nb_rows=1, values=values(a="'<${context.v}>'", b="x ${context.v} y"))
+    made["context"] = {"v": None}
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b", "<>;x  y"]
+
+
+def test_a_context_value_inside_quotes_is_part_of_that_text(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann"},
+               values=values(a="'${context.who}' + '_x'", b='"<${context.who}>"'))
+    assert got == ["ann_x;<ann>"]
+
+
+def test_a_context_value_inside_quotes_cannot_end_them(tmp_path):
+    # Pasted into the quotes it would end them, and the name between would be worked out.
+    held = "' + random.__name__ + '"
+    result, files = v2(tmp_path, generator(schema="a:str", nb_rows=1, context={"v": held},
+                                           values=values(a="'<${context.v}>'")))
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a", f"<{held}>"]
+
+
+def test_text_that_is_not_python_holds_its_context_values_as_text(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann"},
+               values=values(a="hello ${context.who}", b="'open ${context.who}"))
+    # The second is a text Python cannot even take apart: quotes that are never closed.
+    assert got == ["hello ann;'open ann"]
+
+
+def test_a_context_value_in_a_text_that_names_its_parts(tmp_path):
+    result, files = v2(tmp_path, generator(schema="a:str, b:str, c:str", nb_rows=1, context={"who": "ann", "n": "1.50"},
+                                           values=values(a="f'<${context.who}>'", b="f'{context.who}!'",
+                                                         c="f'${context.n} {context.n}'")))
+    assert result.status == "success", result.error
+    # Between the names of such a text the variable is the text it holds; as a name it is its value.
+    assert files["out.csv"] == ["a;b;c", "<ann>;ann!;1.50 1.5"]
+
+
+def test_a_context_value_inside_the_quotes_of_bytes_is_part_of_them(tmp_path):
+    got = same(tmp_path, schema="a:str, b:str", nb_rows=1, context={"who": "ann", "v": "' + b'x"},
+               values=values(a="b'<${context.who}>'.decode()", b="'-'"))
+    assert got == ["<ann>;-"]
+    (tmp_path / "b").mkdir()
+    result, files = v2(tmp_path / "b", generator(schema="a:str", nb_rows=1, context={"v": "' + b'x' + b'"},
+                                                 values=values(a="b'<${context.v}>'.decode()")))
+    assert files["out.csv"] == ["a", "<' + b'x' + b'>"]
+
+
+def test_a_context_variable_that_is_no_text_keeps_its_kind(tmp_path):
+    made = generator(schema="a:int, b:int, c:str", nb_rows=1, values=values(a="context.n", b="context.n + 1", c="context.n"))
+    made["context"] = {"Default": {"n": {"value": "7", "type": "id_Integer"}}}
+    result, files = v2(tmp_path, made)
+    assert result.status == "success", result.error
+    assert files["out.csv"] == ["a;b;c", "7;8;7"]
+
+
+def test_a_context_variable_that_is_not_there(tmp_path):
+    # Written with ${}, it has to be there. Written bare, the text is left as it is, as in v1.
+    result, _ = v2(tmp_path, generator(schema="a:str", nb_rows=1, values=values(a="${context.nope}")))
+    assert (result.status, result.error) == ("failed", "context has no variable 'nope'")
+    got = same(tmp_path / "bare", schema="a:str", nb_rows=1, values=values(a="context.nope"))
+    assert got == ["context.nope"]
+
+
+def test_blanks_as_many_as_a_context_variable_says(tmp_path):
+    got = same(tmp_path, schema="a:str", nb_rows=1, context={"n": "3"},
+               values=values(a="'[' + StringHandling.SPACE(${context.n}) + ']'"))
+    assert got == ["[   ]"]
